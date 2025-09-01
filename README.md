@@ -1,10 +1,11 @@
-# RPG Session Minutes
+# TARA
+### *Tabletop AI Recorder & Analyzer*
 
-An automated suite for recording, transcribing, and analyzing tabletop RPG sessions using AI. Perfect for Dungeon Masters and players who want to keep detailed records of their campaigns and improve their gameplay experience.
+An intelligent system for transcribing and analyzing tabletop RPG sessions using AI. Perfect for Dungeon Masters and players who want to keep detailed records of their campaigns and improve their gameplay experience.
 
 ## 🎯 Overview
 
-RPG Session Minutes is a comprehensive Python toolkit that transforms your recorded RPG sessions into detailed, structured session reports. The tool chain includes:
+TARA is a comprehensive Python toolkit that transforms your recorded RPG sessions into detailed, structured session reports. The system includes:
 
 1. **Audio Transcription**: Convert OGG audio recordings to text using Whisper AI
 2. **Content Processing**: Clean, deduplicate, and merge multiple participant recordings
@@ -40,6 +41,15 @@ RPG Session Minutes is a comprehensive Python toolkit that transforms your recor
   - Actionable recommendations
 - **Flexible Configuration**: Customizable system prompts and analysis parameters
 - **Cost Tracking**: Token usage monitoring and cost estimation
+
+## 🎲 Who Is TARA For?
+
+**TARA** is perfect for:
+- 🎭 **Dungeon Masters** who want detailed session records
+- 📚 **Players** who want to remember campaign highlights
+- 🎪 **Content Creators** making RPG podcasts/videos
+- 📖 **Writers** developing RPG-inspired stories
+- 🎯 **Game Researchers** studying player interactions
 
 ## 🚀 Quick Start
 
@@ -207,8 +217,41 @@ We welcome contributions! Areas where help is especially needed:
 - **Language Support**: Additional language models and prompts
 - **Game System Templates**: Prompts for other RPG systems
 - **Audio Format Support**: Additional codec support
-- **UI Development**: Web interface or desktop application
+- **UI Development**: Enhanced TARA interface or desktop application
 - **Documentation**: Examples and tutorials
+
+## 🧪 Testing & Quality
+
+### **Test Coverage: 89%** 🎯
+- 62+ comprehensive tests covering all core functionality
+- Automated test suite with pytest
+- Coverage reporting with detailed analysis
+- All linting errors resolved (PEP 8 compliant)
+
+### **Run Tests**
+```bash
+# Install test dependencies
+pip install -r requirements-test.txt
+
+# Run all tests with coverage
+python -m pytest tests/ -v --cov=interface_agent --cov-report=html
+
+# View coverage report
+open htmlcov/index.html
+```
+
+### **Test Structure**
+```
+tests/
+├── test_interface_agent.py      # Core functionality tests
+├── test_complete_coverage.py    # Edge case coverage
+├── test_coverage_complete.py    # Additional scenarios
+├── test_missing_lines.py        # Specific line coverage
+├── conftest.py                   # Shared test configuration
+└── __init__.py
+```
+
+See [TEST_REPORT.md](TEST_REPORT.md) for detailed testing analysis.
 
 ## 📄 License
 

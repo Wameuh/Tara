@@ -1,454 +1,496 @@
 #!/usr/bin/env python3
 """
-Interface Agent
+Interface Agent - Reactive I18n Implementation
 
-This agent provides a Gradio web interface for the RPG Session Minutes system.
-It serves as the main entry point for users to interact with the application.
+This agent provides a clean Gradio web interface with reactive
+internationalization that updates instantly when language changes,
+without page reloads.
 """
 
 from typing import Optional
+import json
+from pathlib import Path
+import gradio as gr
 
 try:
-    import gradio as gr
+    from ..agent import Agent
 except ImportError:
-    print("Error: gradio is not installed. Please install it with:")
-    print("pip install gradio")
-    exit(1)
-
-if __name__ == "__main__":
+    # Fallback for direct execution or testing
+    import sys
+    import os
+    sys.path.append(os.path.dirname(__file__))
     from agent import Agent
-else:
-    from .agent import Agent
 
 
 class InterfaceAgent(Agent):
-    """
-    Main interface agent that provides a Gradio web interface.
+    """Agent providing a reactive Gradio interface with i18n support."""
 
-    This agent provides:
-    - Local web interface using Gradio
-    - User-friendly interface for RPG session processing
-    - File upload and download capabilities
-    - Real-time progress updates
-    """
+    def __init__(self):
+        super().__init__()
+        self.language = "en"  # Default to English
+        self.current_dir = Path(__file__).parent
+        self.translations_file = (
+            self.current_dir.parent / "config" / "translations.json"
+        )
+        self.language_config_file = (
+            self.current_dir.parent / "config" / "language_config.json"
+        )
 
-    def __init__(self, log_level: str = "INFO", log_file: Optional[str] = None, language: str = "en"):
-        """
-        Initialize the Interface Agent.
-
-        Args:
-            log_level (str): Logging level
-            log_file (str, optional): Path to log file
-            language (str): Interface language ("en" or "fr")
-        """
-        super().__init__(log_level, log_file)
-
-        # Gradio app configuration
-        self.app = None
-        self.server_name = "127.0.0.1"
-        self.server_port = 7860
-        self.share = False
-        self.language = language
-
-        # Load translations
+        # Load translations and user preference
         self.translations = self._load_translations()
+        self._load_saved_language()  # Load but keep default as English for startup
 
-        self.info("Interface Agent initialized with Gradio support")
+        # Pre-render translations for performance
+        self.rendered_translations = (
+            self._prerender_translations()
+        )
 
-    def _load_translations(self):
-        """Load translations for the interface."""
-        translations = {
+        self.info(f"InterfaceAgent initialized with language: {self.language}")
+
+    def _load_translations(self) -> dict:
+        """Load translation dictionary from JSON file.
+        Returns None if loading fails.
+        """
+        try:
+            if self.translations_file.exists():
+                with open(self.translations_file, 'r', encoding='utf-8') as f:
+                    translations = json.load(f)
+                    self.info(f"Loaded translations from {self.translations_file}")
+                    return translations
+            else:
+                self.warning(f"Translations file not found: "
+                           f"{self.translations_file}")
+        except Exception as e:
+            self.error(f"Failed to load translations: {e}")
+
+        # Fallback translations
+        return {
             "en": {
                 "title": "🎲 RPG Session Minutes",
-                "subtitle": "Automated transcription and analysis for tabletop RPG sessions",
-                "welcome_title": "🎲 RPG Session Minutes",
-                "welcome_text": """
-Welcome to the RPG Session Minutes application! This tool helps you process and analyze your tabletop RPG sessions.
-
-## Features:
-- **🎤 Audio Transcription**: Convert recorded sessions to text
-- **📝 Content Processing**: Clean and format transcriptions
-- **🤖 AI Analysis**: Generate structured session reports
-- **📊 Session Summaries**: Get insights and recommendations
-
-## Getting Started:
-1. Upload your session audio files
-2. Configure transcription settings
-3. Process and analyze your session
-4. Download the generated reports
-
-**Note**: This is currently a placeholder interface. Full functionality will be implemented in future updates.
-                """,
+                "subtitle": "Automated transcription and analysis for "
+                           "tabletop RPG sessions",
+                "interface_language": "Interface Language",
                 "tab_welcome": "Welcome",
                 "tab_transcription": "🎤 Transcription",
                 "tab_analysis": "🤖 AI Analysis",
-                "tab_settings": "⚙️ Settings",
-                "system_status": "🔧 System Status",
-                "agent_status": "Agent Status",
-                "refresh_status": "🔄 Refresh Status",
-                "status_running": "Interface Agent: ✅ Running\nGradio Server: ✅ Active",
-                "status_updated": "Interface Agent: ✅ Running\nGradio Server: ✅ Active\nOther Agents: 🔄 Not yet implemented",
-                "transcription_title": "## Audio Transcription",
-                "transcription_note": "*Coming Soon: Upload audio files and configure transcription settings*",
+                "welcome_text": (
+                    "\nWelcome to the RPG Session Minutes application! "
+                    "This tool helps you process and analyze your tabletop "
+                    "RPG sessions.\n\n## Features:\n"
+                    "- **🎤 Audio Transcription**: Convert recorded sessions "
+                    "to text\n"
+                    "- **📝 Content Processing**: Clean and format "
+                    "transcriptions\n"
+                    "- **🤖 AI Analysis**: Generate structured session "
+                    "reports\n"
+                    "- **📊 Session Summaries**: Get insights and "
+                    "recommendations\n\n"
+                    "## Getting Started:\n"
+                    "1. Upload your session audio files\n"
+                    "2. Configure transcription settings\n"
+                    "3. Process and analyze your session\n"
+                    "4. Download the generated reports\n\n"
+                    "**Note**: This is currently a demo interface. "
+                    "Full functionality will be implemented in future "
+                    "updates."
+                ),
                 "upload_audio": "Upload Audio Files",
+                "transcription_language": "Transcription Language",
                 "whisper_model": "Whisper Model",
-                "language_label": "Language",
                 "start_transcription": "🎤 Start Transcription",
-                "output_label": "Output",
+                "transcription_results": "Transcription Results",
                 "transcription_placeholder": "Transcription results will appear here...",
                 "upload_first": "⚠️ Please upload audio files first.",
-                "transcription_started": "🔄 Transcription started with {model} model in {lang}. Processing {count} file(s)...",
-                "analysis_title": "## AI-Powered Session Analysis",
-                "analysis_note": "*Coming Soon: Generate structured reports from transcriptions*",
                 "upload_transcription": "Upload Transcription File",
-                "system_prompt": "System Prompt",
+                "analysis_prompt": "Analysis Prompt",
                 "prompt_placeholder": "Enter your analysis prompt here...",
-                "prompt_default": "Analyze this RPG session transcription and provide a structured summary.",
+                "prompt_default": ("Analyze this RPG session transcription "
+                                  "and provide a structured summary."),
                 "ai_provider": "AI Provider",
                 "model_label": "Model",
                 "analyze_session": "🤖 Analyze Session",
                 "analysis_results": "Analysis Results",
                 "analysis_placeholder": "AI analysis will appear here...",
-                "analysis_started": "🔄 Starting AI analysis with {provider} ({model})...\n\nPrompt: {prompt}...",
-                "upload_and_prompt": "⚠️ Please upload a transcription file and enter a prompt.",
-                "settings_title": "## Application Settings",
-                "output_settings": "### 🗂️ Output Settings",
-                "output_directory": "Output Directory",
-                "output_placeholder": "Path where results will be saved",
-                "auto_cleanup": "Auto-cleanup temporary files",
-                "logging_settings": "### 📝 Logging Settings",
-                "log_level": "Log Level",
-                "log_to_file": "Save logs to file",
-                "save_settings": "💾 Save Settings",
-                "status_label": "Status",
-                "settings_loaded": "Settings loaded successfully",
-                "settings_saved": "✅ Settings saved successfully!",
-                "footer_text": "🚀 <strong>RPG Session Minutes</strong> - Transform your RPG sessions into lasting memories",
-                "footer_info": "Powered by Whisper AI, OpenAI, and Gradio | Version 1.0.0"
+                "upload_transcription_first": "⚠️ Please upload transcription first.",
+                "footer_text": ("🚀 <strong>RPG Session Minutes</strong> - "
+                               "Transform your RPG sessions into lasting memories"),
+                "footer_info": ("Powered by Whisper AI, OpenAI, and Gradio | "
+                              "Version 1.0.0")
             },
             "fr": {
                 "title": "🎲 Comptes-Rendus de Sessions JdR",
-                "subtitle": "Transcription et analyse automatisées pour sessions de jeu de rôle sur table",
-                "welcome_title": "🎲 Comptes-Rendus de Sessions JdR",
-                "welcome_text": """
-Bienvenue dans l'application Comptes-Rendus de Sessions JdR ! Cet outil vous aide à traiter et analyser vos sessions de jeu de rôle sur table.
-
-## Fonctionnalités :
-- **🎤 Transcription Audio** : Convertir les sessions enregistrées en texte
-- **📝 Traitement du Contenu** : Nettoyer et formater les transcriptions
-- **🤖 Analyse IA** : Générer des rapports de session structurés
-- **📊 Résumés de Session** : Obtenir des insights et recommandations
-
-## Pour Commencer :
-1. Téléversez vos fichiers audio de session
-2. Configurez les paramètres de transcription
-3. Traitez et analysez votre session
-4. Téléchargez les rapports générés
-
-**Note** : Il s'agit actuellement d'une interface de démonstration. Les fonctionnalités complètes seront implémentées dans les prochaines mises à jour.
-                """,
+                "subtitle": ("Transcription et analyse automatisées pour "
+                           "sessions de jeu de rôle sur table"),
+                "interface_language": "Langue de l'Interface",
                 "tab_welcome": "Accueil",
                 "tab_transcription": "🎤 Transcription",
                 "tab_analysis": "🤖 Analyse IA",
-                "tab_settings": "⚙️ Paramètres",
-                "system_status": "🔧 État du Système",
-                "agent_status": "État des Agents",
-                "refresh_status": "🔄 Actualiser l'État",
-                "status_running": "Agent Interface : ✅ En fonctionnement\nServeur Gradio : ✅ Actif",
-                "status_updated": "Agent Interface : ✅ En fonctionnement\nServeur Gradio : ✅ Actif\nAutres Agents : 🔄 Pas encore implémentés",
-                "transcription_title": "## Transcription Audio",
-                "transcription_note": "*Bientôt Disponible : Téléversez des fichiers audio et configurez les paramètres de transcription*",
-                "upload_audio": "Téléverser des Fichiers Audio",
+                "welcome_text": (
+                    "\nBienvenue dans l'application Comptes-Rendus de "
+                    "Sessions JdR ! Cet outil vous aide à traiter et "
+                    "analyser vos sessions de jeu de rôle sur table.\n\n"
+                    "## Fonctionnalités :\n"
+                    "- **🎤 Transcription Audio** : Convertir les sessions "
+                    "enregistrées en texte\n"
+                    "- **📝 Traitement du Contenu** : Nettoyer et formater "
+                    "les transcriptions\n"
+                    "- **🤖 Analyse IA** : Générer des rapports de session "
+                    "structurés\n"
+                    "- **📊 Résumés de Session** : Obtenir des insights "
+                    "et recommandations\n\n"
+                    "## Pour Commencer :\n"
+                    "1. Téléversez vos fichiers audio de session\n"
+                    "2. Configurez les paramètres de transcription\n"
+                    "3. Traitez et analysez votre session\n"
+                    "4. Téléchargez les rapports générés\n\n"
+                    "**Note** : Il s'agit actuellement d'une interface "
+                    "de démonstration. Les fonctionnalités complètes "
+                    "seront implémentées dans les prochaines mises à jour."
+                ),
+                "upload_audio": "Téléverser Fichiers Audio",
+                "transcription_language": "Langue de Transcription",
                 "whisper_model": "Modèle Whisper",
-                "language_label": "Langue",
-                "start_transcription": "🎤 Démarrer la Transcription",
-                "output_label": "Sortie",
-                "transcription_placeholder": "Les résultats de transcription apparaîtront ici...",
-                "upload_first": "⚠️ Veuillez d'abord téléverser des fichiers audio.",
-                "transcription_started": "🔄 Transcription démarrée avec le modèle {model} en {lang}. Traitement de {count} fichier(s)...",
-                "analysis_title": "## Analyse de Session Alimentée par l'IA",
-                "analysis_note": "*Bientôt Disponible : Générez des rapports structurés à partir des transcriptions*",
-                "upload_transcription": "Téléverser un Fichier de Transcription",
-                "system_prompt": "Prompt Système",
-                "prompt_placeholder": "Entrez votre prompt d'analyse ici...",
-                "prompt_default": "Analysez cette transcription de session JdR et fournissez un résumé structuré.",
+                "start_transcription": "🎤 Commencer Transcription",
+                "transcription_results": "Résultats de Transcription",
+                "transcription_placeholder": ("Les résultats de transcription "
+                                            "apparaîtront ici..."),
+                "upload_first": ("⚠️ Veuillez d'abord téléverser des "
+                               "fichiers audio."),
+                "upload_transcription": "Téléverser Fichier de Transcription",
+                "analysis_prompt": "Prompt d'Analyse",
+                "prompt_placeholder": ("Entrez votre prompt d'analyse ici..."),
+                "prompt_default": ("Analysez cette transcription de session "
+                                 "JdR et fournissez un résumé structuré."),
                 "ai_provider": "Fournisseur IA",
                 "model_label": "Modèle",
-                "analyze_session": "🤖 Analyser la Session",
+                "analyze_session": "🤖 Analyser Session",
                 "analysis_results": "Résultats d'Analyse",
-                "analysis_placeholder": "L'analyse IA apparaîtra ici...",
-                "analysis_started": "🔄 Démarrage de l'analyse IA avec {provider} ({model})...\n\nPrompt : {prompt}...",
-                "upload_and_prompt": "⚠️ Veuillez téléverser un fichier de transcription et entrer un prompt.",
-                "settings_title": "## Paramètres de l'Application",
-                "output_settings": "### 🗂️ Paramètres de Sortie",
-                "output_directory": "Répertoire de Sortie",
-                "output_placeholder": "Chemin où les résultats seront sauvegardés",
-                "auto_cleanup": "Nettoyage automatique des fichiers temporaires",
-                "logging_settings": "### 📝 Paramètres de Journalisation",
-                "log_level": "Niveau de Log",
-                "log_to_file": "Sauvegarder les logs dans un fichier",
-                "save_settings": "💾 Sauvegarder les Paramètres",
-                "status_label": "État",
-                "settings_loaded": "Paramètres chargés avec succès",
-                "settings_saved": "✅ Paramètres sauvegardés avec succès !",
-                "footer_text": "🚀 <strong>Comptes-Rendus de Sessions JdR</strong> - Transformez vos sessions JdR en souvenirs durables",
-                "footer_info": "Alimenté par Whisper AI, OpenAI, et Gradio | Version 1.0.0"
+                "analysis_placeholder": ("L'analyse IA apparaîtra ici..."),
+                "upload_transcription_first": ("⚠️ Veuillez d'abord téléverser "
+                                             "la transcription."),
+                "footer_text": ("🚀 <strong>Comptes-Rendus de Sessions "
+                               "JdR</strong> - Transformez vos sessions JdR "
+                               "en souvenirs durables"),
+                "footer_info": ("Alimenté par Whisper AI, OpenAI, et Gradio | "
+                              "Version 1.0.0")
             }
         }
-        return translations
 
-    def t(self, key: str, **kwargs) -> str:
-        """Get translated text for the current language."""
-        text = self.translations.get(self.language, self.translations["en"]).get(key, key)
-        if kwargs:
-            text = text.format(**kwargs)
-        return text
+    def _load_saved_language(self) -> Optional[str]:
+        """Load user's saved language preference from
+        configuration file.
+        """
+        try:
+            if self.language_config_file.exists():
+                with open(
+                    self.language_config_file, 'r', encoding='utf-8'
+                ) as f:
+                    config = json.load(f)
+                    return config.get('language')
+        except Exception as e:
+            self.warning(f"Could not load saved language: {e}")
+        return None
 
-    def _create_gradio_interface(self):
-        """Create the Gradio interface."""
-        self.info("Creating Gradio interface")
+    def _save_language_preference(self, language: str) -> None:
+        """Save the selected language to configuration file
+        for persistence.
+        """
+        try:
+            # Ensure directory exists
+            self.language_config_file.parent.mkdir(
+                parents=True, exist_ok=True
+            )
 
-                # Create the main interface
-        with gr.Blocks(
-            title=self.t("title"),
-            theme=gr.themes.Soft(),
-        ) as app:
-            gr.HTML(f"""
-            <div style="text-align: center; padding: 20px;">
-                <h1>{self.t("title")}</h1>
-                <p>{self.t("subtitle")}</p>
-            </div>
-            """)
+            config = {'language': language}
+            with open(
+                self.language_config_file, 'w', encoding='utf-8'
+            ) as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
 
-            with gr.Tab(self.t("tab_welcome")):
-                gr.Markdown(f"# {self.t('welcome_title')}\n{self.t('welcome_text')}")
+            self.info(f"Saved language preference: {language}")
+        except Exception as e:
+            self.error(f"Failed to save language preference: {e}")
 
-                # Status section
-                gr.Markdown(self.t("system_status"))
-                status_output = gr.Textbox(
-                    label=self.t("agent_status"),
-                    value=self.t("status_running"),
-                    interactive=False,
-                    lines=3
-                )
-
-                def refresh_status():
-                    return self.t("status_updated")
-
-                refresh_btn = gr.Button(self.t("refresh_status"))
-                refresh_btn.click(refresh_status, outputs=status_output)
-
-                with gr.Tab(self.t("tab_transcription")):
-                    gr.Markdown(self.t("transcription_title"))
-                    gr.Markdown(self.t("transcription_note"))
-
-                    # Placeholder components
-                    audio_files = gr.File(
-                        label=self.t("upload_audio"),
-                        file_count="multiple",
-                        file_types=[".ogg", ".wav", ".mp3", ".m4a"]
-                    )
-
-                with gr.Row():
-                    model_choice = gr.Dropdown(
-                        label=self.t("whisper_model"),
-                        choices=["large-v3", "medium", "small", "base", "tiny"],
-                        value="large-v3"
-                    )
-                    language = gr.Dropdown(
-                        label=self.t("language_label"),
-                        choices=["fr", "en", "es", "de", "it"],
-                        value="fr"
-                    )
-
-                transcribe_btn = gr.Button(self.t("start_transcription"), variant="primary")
-
-                output_text = gr.Textbox(
-                    label=self.t("output_label"),
-                    placeholder=self.t("transcription_placeholder"),
-                    lines=5
-                )
-
-                def placeholder_transcription(files, model, lang):
-                    if files:
-                        return self.t("transcription_started", model=model, lang=lang, count=len(files))
-                    return self.t("upload_first")
-
-                transcribe_btn.click(
-                    placeholder_transcription,
-                    inputs=[audio_files, model_choice, language],
-                    outputs=output_text
-                )
-
-                with gr.Tab(self.t("tab_analysis")):
-                    gr.Markdown(self.t("analysis_title"))
-                    gr.Markdown(self.t("analysis_note"))
-
-                    transcription_file = gr.File(
-                        label=self.t("upload_transcription"),
-                        file_types=[".json", ".txt"]
-                    )
-
-                system_prompt = gr.Textbox(
-                    label=self.t("system_prompt"),
-                    placeholder=self.t("prompt_placeholder"),
-                    lines=5,
-                    value=self.t("prompt_default")
-                )
-
-                with gr.Row():
-                    provider = gr.Radio(
-                        label=self.t("ai_provider"),
-                        choices=["OpenAI", "Ollama"],
-                        value="OpenAI"
-                    )
-                    model = gr.Dropdown(
-                        label=self.t("model_label"),
-                        choices=["gpt-4o-mini", "gpt-4", "llama3.1:8b"],
-                        value="gpt-4o-mini"
-                    )
-
-                analyze_btn = gr.Button(self.t("analyze_session"), variant="primary")
-
-                analysis_output = gr.Textbox(
-                    label=self.t("analysis_results"),
-                    placeholder=self.t("analysis_placeholder"),
-                    lines=10
-                )
-
-                def placeholder_analysis(file, prompt, ai_provider, ai_model):
-                    if file and prompt:
-                        return self.t("analysis_started", provider=ai_provider, model=ai_model, prompt=prompt[:100])
-                    return self.t("upload_and_prompt")
-
-                analyze_btn.click(
-                    placeholder_analysis,
-                    inputs=[transcription_file, system_prompt, provider, model],
-                    outputs=analysis_output
-                )
-
-                with gr.Tab(self.t("tab_settings")):
-                    gr.Markdown(self.t("settings_title"))
-
-                with gr.Group():
-                    gr.Markdown(self.t("output_settings"))
-                    output_dir = gr.Textbox(
-                        label=self.t("output_directory"),
-                        value="./output",
-                        placeholder=self.t("output_placeholder")
-                    )
-
-                    auto_cleanup = gr.Checkbox(
-                        label=self.t("auto_cleanup"),
-                        value=True
-                    )
-
-                with gr.Group():
-                    gr.Markdown(self.t("logging_settings"))
-                    log_level = gr.Dropdown(
-                        label=self.t("log_level"),
-                        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-                        value="INFO"
-                    )
-
-                    log_to_file = gr.Checkbox(
-                        label=self.t("log_to_file"),
-                        value=False
-                    )
-
-                save_settings_btn = gr.Button(self.t("save_settings"))
-
-                settings_status = gr.Textbox(
-                    label=self.t("status_label"),
-                    value=self.t("settings_loaded"),
-                    interactive=False
-                )
-
-                def save_settings(output, cleanup, level, log_file):
-                    self.info(f"Settings updated: output={output}, cleanup={cleanup}, log_level={level}, log_to_file={log_file}")
-                    return self.t("settings_saved")
-
-                save_settings_btn.click(
-                    save_settings,
-                    inputs=[output_dir, auto_cleanup, log_level, log_to_file],
-                    outputs=settings_status
-                )
-
-            # Footer
-            gr.HTML(f"""
-            <div style="text-align: center; padding: 20px; margin-top: 40px; border-top: 1px solid #eee;">
-                <p>{self.t("footer_text")}</p>
-                <p style="font-size: 0.9em; color: #666;">
-                    {self.t("footer_info")}
-                </p>
-            </div>
-            """)
-
-        return app
-
-    def process(self, **kwargs):
-        """Main process method - runs the Gradio application."""
-        self.info("Starting Gradio application")
-
-        # Create the interface
-        self.app = self._create_gradio_interface()
-
-        # Launch the app
-        self.info(f"Launching Gradio app on {self.server_name}:{self.server_port}")
+    def get_translation(self, key: str, language: str = None) -> str:
+        """Get translation for a key in the current or specified language."""
+        if language is None:
+            language = self.language
 
         try:
-            self.app.launch(
-                server_name=self.server_name,
-                server_port=self.server_port,
-                share=self.share,
-                show_error=True,
-                quiet=False
-            )
-        except Exception as e:
-            self.error(f"Failed to launch Gradio app: {e}")
-            raise
-
-    def run(self, server_name: str = "127.0.0.1", server_port: int = 7860, share: bool = False, language: str = None):
-        """
-        Run the Gradio application with custom settings.
-
-        Args:
-            server_name (str): Server address to bind to
-            server_port (int): Port to run the server on
-            share (bool): Whether to create a public link
-            language (str): Interface language ("en" or "fr"). If None, uses current language.
-        """
-        self.server_name = server_name
-        self.server_port = server_port
-        self.share = share
-
-        # Update language if provided
-        if language:
-            self.language = language
-            self.translations = self._load_translations()
-            self.info(f"Interface language changed to: {language}")
-
-        self.info(f"Configuring server: {server_name}:{server_port}, share={share}, language={self.language}")
-
-        # Run the application
-        self.process()
-
-    def stop(self):
-        """Stop the Gradio application."""
-        if self.app:
-            self.info("Stopping Gradio application")
+            return self.translations[language][key]
+        except KeyError:
+            self.warning(f"Translation key '{key}' not found for "
+                        f"language '{language}'")
+            # Try English fallback
             try:
-                self.app.close()
-                self.info("Gradio application stopped successfully")
-            except Exception as e:
-                self.error(f"Error stopping Gradio app: {e}")
-        else:
-            self.warning("No Gradio app running to stop")
+                fallback = self.translations["en"][key]
+                self.debug(f"Using English fallback for '{key}': {fallback}")
+                return fallback
+            except KeyError:
+                self.error(f"Translation key '{key}' not found in "
+                          f"English fallback")
+                return f"[MISSING: {key}]"
+
+    def _prerender_translations(self) -> dict:
+        """Pre-render translations for better performance."""
+        self.debug("Pre-rendering translations for performance optimization")
+        rendered = {}
+
+        for lang in self.translations:
+            rendered[lang] = {}
+            for key, value in self.translations[lang].items():
+                # Pre-render HTML content if needed
+                if 'footer_text' in key or 'welcome_text' in key:
+                    rendered[lang][key] = value
+                else:
+                    rendered[lang][key] = value
+
+        return rendered
+
+    def create_interface(self):
+        """Create and return the Gradio interface with reactive i18n."""
+        self.info("Creating Gradio interface with reactive i18n")
+
+        # Get initial translations
+        def get_trans(key: str) -> str:
+            return self.get_translation(key, self.language)
+
+        with gr.Blocks(
+            title=get_trans("title"),
+            theme=gr.themes.Soft(),
+            css="""
+            .flag-emoji {
+                font-family: "Apple Color Emoji", "Segoe UI Emoji",
+                           "Noto Color Emoji", "Twemoji Mozilla",
+                           "EmojiOne Color", "Android Emoji",
+                           "EmojiSymbols", sans-serif !important;
+                font-size: 16px !important;
+                line-height: 1 !important;
+            }
+            .gradio-container .flag-emoji {
+                font-family: "Apple Color Emoji", "Segoe UI Emoji",
+                           "Noto Color Emoji", "Twemoji Mozilla",
+                           "EmojiOne Color", "Android Emoji",
+                           "EmojiSymbols", sans-serif !important;
+            }
+            .radio-group .flag-emoji {
+                font-family: "Apple Color Emoji", "Segoe UI Emoji",
+                           "Noto Color Emoji", "Twemoji Mozilla",
+                           "EmojiOne Color", "Android Emoji",
+                           "EmojiSymbols", sans-serif !important;
+            }
+            .center-title {
+                text-align: center;
+            }
+            """
+        ) as interface:
+
+            # Header with centered title and right-aligned language selector
+            with gr.Row():
+                with gr.Column(scale=1):
+                    gr.HTML("")  # Empty space
+                with gr.Column(scale=2, elem_classes=["center-title"]):
+                    title_comp = gr.Markdown(f"# {get_trans('title')}")
+                    subtitle_comp = gr.Markdown(f"*{get_trans('subtitle')}*")
+                with gr.Column(scale=1):
+                    lang_label = gr.Markdown(
+                        f"**{get_trans('interface_language')}:**"
+                    )
+                    lang_selector = gr.Radio(
+                        choices=["🇬🇧", "🇫🇷"],
+                        value="🇬🇧" if self.language == "en" else "🇫🇷",
+                        show_label=False,
+                        elem_classes=["flag-emoji"]
+                    )
+
+            # Define update function for reactive i18n
+            def update_interface_language(selected_flag):
+                # Map flags to language codes
+                flag_to_lang = {"🇬🇧": "en", "🇫🇷": "fr"}
+                new_language = flag_to_lang.get(selected_flag, "en")
+
+                # Update instance language
+                self.language = new_language
+                self._save_language_preference(new_language)
+
+                # Get new translations
+                def get_new_trans(key: str) -> str:
+                    return self.get_translation(key, new_language)
+
+                # Return all updated components (excluding Tab, File, and
+                # Dropdown components as they can't be updated this way)
+                return [
+                    f"# {get_new_trans('title')}",  # title_comp
+                    f"*{get_new_trans('subtitle')}*",  # subtitle_comp
+                    f"**{get_new_trans('interface_language')}:**",  # lang_label
+                    get_new_trans('welcome_text'),  # welcome content
+                    get_new_trans('start_transcription'),  # trans_button
+                    f"## {get_new_trans('transcription_results')}",  # trans_results_label
+                    get_new_trans('transcription_placeholder'),  # trans_output
+                    f"## {get_new_trans('analysis_prompt')}",  # analysis_prompt_label
+                    get_new_trans('prompt_default'),  # analysis_prompt value
+                    get_new_trans('analyze_session'),  # analysis_button
+                    f"## {get_new_trans('analysis_results')}",  # analysis_results_label
+                    get_new_trans('analysis_placeholder'),  # analysis_output
+                    get_new_trans('footer_text'),  # footer
+                    get_new_trans('footer_info')
+                ]
+
+            # Tabs
+            with gr.Tabs():
+                # Welcome Tab
+                with gr.Tab(get_trans('tab_welcome')):
+                    welcome_content = gr.Markdown(get_trans('welcome_text'))
+
+                # Transcription Tab
+                with gr.Tab(get_trans('tab_transcription')):
+                    audio_upload = gr.File(
+                        label=get_trans('upload_audio'),
+                        file_count="multiple",
+                        file_types=["audio"]
+                    )
+                    with gr.Row():
+                        trans_lang = gr.Dropdown(
+                            label=get_trans('transcription_language'),
+                            choices=["auto", "en", "fr", "es", "de"],
+                            value="auto"
+                        )
+                        whisper_model = gr.Dropdown(
+                            label=get_trans('whisper_model'),
+                            choices=["tiny", "base", "small", "medium", "large"],
+                            value="base"
+                        )
+                    trans_button = gr.Button(
+                        get_trans('start_transcription'),
+                        variant="primary"
+                    )
+                    trans_results_label = gr.Markdown(
+                        f"## {get_trans('transcription_results')}"
+                    )
+                    trans_output = gr.Textbox(
+                        label="",
+                        placeholder=get_trans('transcription_placeholder'),
+                        lines=10,
+                        max_lines=15
+                    )
+
+                # AI Analysis Tab
+                with gr.Tab(get_trans('tab_analysis')):
+                    trans_file_upload = gr.File(
+                        label=get_trans('upload_transcription'),
+                        file_types=[".txt", ".json"]
+                    )
+                    analysis_prompt_label = gr.Markdown(
+                        f"## {get_trans('analysis_prompt')}"
+                    )
+                    analysis_prompt = gr.Textbox(
+                        label="",
+                        placeholder=get_trans('prompt_placeholder'),
+                        value=get_trans('prompt_default'),
+                        lines=3
+                    )
+                    with gr.Row():
+                        ai_provider = gr.Dropdown(
+                            label=get_trans('ai_provider'),
+                            choices=["openai", "ollama"],
+                            value="openai"
+                        )
+                        ai_model = gr.Dropdown(
+                            label=get_trans('model_label'),
+                            choices=["gpt-4o-mini", "gpt-4", "llama3"],
+                            value="gpt-4o-mini"
+                        )
+                    analysis_button = gr.Button(
+                        get_trans('analyze_session'),
+                        variant="primary"
+                    )
+                    analysis_results_label = gr.Markdown(
+                        f"## {get_trans('analysis_results')}"
+                    )
+                    analysis_output = gr.Textbox(
+                        label="",
+                        placeholder=get_trans('analysis_placeholder'),
+                        lines=15,
+                        max_lines=20
+                    )
+
+            # Footer
+            footer_text = gr.HTML(get_trans('footer_text'))
+            footer_info = gr.HTML(f"<small>{get_trans('footer_info')}</small>")
+
+            # Event handlers
+            def process_transcription(files, lang, model):
+                if not files:
+                    return self.get_translation("upload_first")
+                file_count = len(files)
+                return (f"🎤 Transcription simulée avec {model} en {lang} "
+                        f"pour {file_count} fichier(s)")
+
+            def process_analysis(file, prompt, provider, model):
+                if not file:
+                    return self.get_translation("upload_transcription_first")
+                prompt_preview = prompt[:100]
+                return (f"🤖 Analyse IA simulée avec {provider} ({model})\n\n"
+                        f"Prompt: {prompt_preview}...\n\n"
+                        f"Fichier: {file.name if hasattr(file, 'name') else 'uploaded_file'}")
+
+            # Event bindings
+            trans_button.click(
+                process_transcription,
+                inputs=[audio_upload, trans_lang, whisper_model],
+                outputs=trans_output
+            )
+
+            analysis_button.click(
+                process_analysis,
+                inputs=[trans_file_upload, analysis_prompt, ai_provider, ai_model],
+                outputs=analysis_output
+            )
+
+            # Language change event - update all reactive components
+            # (excluding Tab, File, and Dropdown components)
+            lang_selector.change(
+                update_interface_language,
+                inputs=lang_selector,
+                outputs=[
+                    title_comp, subtitle_comp, lang_label,
+                    welcome_content,
+                    trans_button,
+                    trans_results_label, trans_output,
+                    analysis_prompt_label, analysis_prompt,
+                    analysis_button,
+                    analysis_results_label, analysis_output,
+                    footer_text, footer_info
+                ]
+            )
+
+            # Pre-warm WebSocket connection for performance
+            def preload_connection():
+                return None
+
+            hidden_warmup = gr.HTML(visible=False)
+            interface.load(preload_connection, outputs=hidden_warmup)
+
+        return interface
+
+    def run(self, server_name: str = "127.0.0.1",
+            server_port: int = 7860, share: bool = False,
+            debug: bool = False):
+        """Launch the Gradio interface."""
+        self.info(f"Starting Gradio interface with reactive i18n on "
+                  f"{server_name}:{server_port}")
+
+        interface = self.create_interface()
+        interface.launch(
+            server_name=server_name,
+            server_port=server_port,
+            share=share,
+            debug=debug,
+            show_error=True,
+            quiet=False
+        )
 
 
 if __name__ == "__main__":
-    # Create and run the interface
-    interface = InterfaceAgent(log_level="INFO")
-
-    # Run with default settings (localhost:7860)
-    interface.run()
+    agent = InterfaceAgent()
+    agent.run()

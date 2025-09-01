@@ -1,0 +1,42 @@
+# Core dependencies for TARA (Tabletop AI Recorder & Analyzer)
+
+# Web Interface
+gradio>=4.0.0
+
+# Standard library dependencies (included in Python 3.10+)
+# - json (built-in)
+# - pathlib (built-in)
+# - logging (built-in)
+# - sys (built-in)
+# - abc (built-in)
+# - typing (built-in)
+# - datetime (built-in)
+
+# Optional dependencies for full functionality
+# Uncomment and install as needed:
+
+# For AI Analysis Agent (OpenAI integration)
+# openai>=1.0.0
+
+# For AI Analysis Agent (Ollama local models)
+# ollama>=0.1.0
+
+# For AI Transcription Agent (Whisper)
+# openai-whisper>=20231117
+# faster-whisper>=0.10.0
+
+# For Content Processing Agent (token counting)
+# tiktoken>=0.5.0
+
+# For GPU acceleration (if using CUDA)
+# torch>=2.0.0
+# torchaudio>=2.0.0
+
+# For audio file handling
+# pydub>=0.25.0
+# librosa>=0.10.0
+
+# For environment variable management
+# python-dotenv>=1.0.0
+
+# Development and testing dependencies (install with: pip install -r requirements-test.txt)
