@@ -38,7 +38,8 @@ class InterfaceAgent(Agent):
 
         # Load translations and user preference
         self.translations = self._load_translations()
-        self._load_saved_language()  # Load but keep default as English for startup
+        # Load but keep default as English for startup
+        self._load_saved_language()
 
         # Pre-render translations for performance
         self.rendered_translations = (
@@ -55,11 +56,12 @@ class InterfaceAgent(Agent):
             if self.translations_file.exists():
                 with open(self.translations_file, 'r', encoding='utf-8') as f:
                     translations = json.load(f)
-                    self.info(f"Loaded translations from {self.translations_file}")
+                    self.info(f"Loaded translations from "
+                              f"{self.translations_file}")
                     return translations
             else:
                 self.warning(f"Translations file not found: "
-                           f"{self.translations_file}")
+                             f"{self.translations_file}")
         except Exception as e:
             self.error(f"Failed to load translations: {e}")
 
@@ -67,8 +69,8 @@ class InterfaceAgent(Agent):
         return {
             "en": {
                 "title": "🎲 RPG Session Minutes",
-                "subtitle": "Automated transcription and analysis for "
-                           "tabletop RPG sessions",
+                "subtitle": ("Automated transcription and analysis for "
+                             "tabletop RPG sessions"),
                 "interface_language": "Interface Language",
                 "tab_welcome": "Welcome",
                 "tab_transcription": "🎤 Transcription",
@@ -99,28 +101,34 @@ class InterfaceAgent(Agent):
                 "whisper_model": "Whisper Model",
                 "start_transcription": "🎤 Start Transcription",
                 "transcription_results": "Transcription Results",
-                "transcription_placeholder": "Transcription results will appear here...",
+                "transcription_placeholder": (
+                    "Transcription results will appear here..."
+                ),
                 "upload_first": "⚠️ Please upload audio files first.",
                 "upload_transcription": "Upload Transcription File",
                 "analysis_prompt": "Analysis Prompt",
                 "prompt_placeholder": "Enter your analysis prompt here...",
                 "prompt_default": ("Analyze this RPG session transcription "
-                                  "and provide a structured summary."),
+                                   "and provide a structured summary."),
                 "ai_provider": "AI Provider",
                 "model_label": "Model",
                 "analyze_session": "🤖 Analyze Session",
                 "analysis_results": "Analysis Results",
                 "analysis_placeholder": "AI analysis will appear here...",
-                "upload_transcription_first": "⚠️ Please upload transcription first.",
-                "footer_text": ("🚀 <strong>RPG Session Minutes</strong> - "
-                               "Transform your RPG sessions into lasting memories"),
+                "upload_transcription_first": (
+                    "⚠️ Please upload transcription first."
+                ),
+                "footer_text": (
+                    "🚀 <strong>RPG Session Minutes</strong> - "
+                    "Transform your RPG sessions into lasting memories"
+                ),
                 "footer_info": ("Powered by Whisper AI, OpenAI, and Gradio | "
-                              "Version 1.0.0")
+                                "Version 1.0.0")
             },
             "fr": {
                 "title": "🎲 Comptes-Rendus de Sessions JdR",
                 "subtitle": ("Transcription et analyse automatisées pour "
-                           "sessions de jeu de rôle sur table"),
+                             "sessions de jeu de rôle sur table"),
                 "interface_language": "Langue de l'Interface",
                 "tab_welcome": "Accueil",
                 "tab_transcription": "🎤 Transcription",
@@ -153,26 +161,27 @@ class InterfaceAgent(Agent):
                 "start_transcription": "🎤 Commencer Transcription",
                 "transcription_results": "Résultats de Transcription",
                 "transcription_placeholder": ("Les résultats de transcription "
-                                            "apparaîtront ici..."),
+                                              "apparaîtront ici..."),
                 "upload_first": ("⚠️ Veuillez d'abord téléverser des "
-                               "fichiers audio."),
+                                 "fichiers audio."),
                 "upload_transcription": "Téléverser Fichier de Transcription",
                 "analysis_prompt": "Prompt d'Analyse",
                 "prompt_placeholder": ("Entrez votre prompt d'analyse ici..."),
                 "prompt_default": ("Analysez cette transcription de session "
-                                 "JdR et fournissez un résumé structuré."),
+                                   "JdR et fournissez un résumé structuré."),
                 "ai_provider": "Fournisseur IA",
                 "model_label": "Modèle",
                 "analyze_session": "🤖 Analyser Session",
                 "analysis_results": "Résultats d'Analyse",
                 "analysis_placeholder": ("L'analyse IA apparaîtra ici..."),
-                "upload_transcription_first": ("⚠️ Veuillez d'abord téléverser "
-                                             "la transcription."),
+                "upload_transcription_first": (
+                    "⚠️ Veuillez d'abord téléverser la transcription."
+                ),
                 "footer_text": ("🚀 <strong>Comptes-Rendus de Sessions "
-                               "JdR</strong> - Transformez vos sessions JdR "
-                               "en souvenirs durables"),
+                                "JdR</strong> - Transformez vos sessions JdR "
+                                "en souvenirs durables"),
                 "footer_info": ("Alimenté par Whisper AI, OpenAI, et Gradio | "
-                              "Version 1.0.0")
+                                "Version 1.0.0")
             }
         }
 
@@ -220,7 +229,7 @@ class InterfaceAgent(Agent):
             return self.translations[language][key]
         except KeyError:
             self.warning(f"Translation key '{key}' not found for "
-                        f"language '{language}'")
+                         f"language '{language}'")
             # Try English fallback
             try:
                 fallback = self.translations["en"][key]
@@ -228,7 +237,7 @@ class InterfaceAgent(Agent):
                 return fallback
             except KeyError:
                 self.error(f"Translation key '{key}' not found in "
-                          f"English fallback")
+                           f"English fallback")
                 return f"[MISSING: {key}]"
 
     def _prerender_translations(self) -> dict:
@@ -322,15 +331,15 @@ class InterfaceAgent(Agent):
                 return [
                     f"# {get_new_trans('title')}",  # title_comp
                     f"*{get_new_trans('subtitle')}*",  # subtitle_comp
-                    f"**{get_new_trans('interface_language')}:**",  # lang_label
+                    f"**{get_new_trans('interface_language')}:**",  # lang
                     get_new_trans('welcome_text'),  # welcome content
                     get_new_trans('start_transcription'),  # trans_button
-                    f"## {get_new_trans('transcription_results')}",  # trans_results_label
+                    f"## {get_new_trans('transcription_results')}",  # trans
                     get_new_trans('transcription_placeholder'),  # trans_output
-                    f"## {get_new_trans('analysis_prompt')}",  # analysis_prompt_label
+                    f"## {get_new_trans('analysis_prompt')}",  # analysis
                     get_new_trans('prompt_default'),  # analysis_prompt value
                     get_new_trans('analyze_session'),  # analysis_button
-                    f"## {get_new_trans('analysis_results')}",  # analysis_results_label
+                    f"## {get_new_trans('analysis_results')}",  # analysis
                     get_new_trans('analysis_placeholder'),  # analysis_output
                     get_new_trans('footer_text'),  # footer
                     get_new_trans('footer_info')
@@ -357,7 +366,8 @@ class InterfaceAgent(Agent):
                         )
                         whisper_model = gr.Dropdown(
                             label=get_trans('whisper_model'),
-                            choices=["tiny", "base", "small", "medium", "large"],
+                            choices=["tiny", "base", "small", "medium",
+                                     "large"],
                             value="base"
                         )
                     trans_button = gr.Button(
@@ -430,9 +440,11 @@ class InterfaceAgent(Agent):
                 if not file:
                     return self.get_translation("upload_transcription_first")
                 prompt_preview = prompt[:100]
+                file_name = (file.name if hasattr(file, 'name')
+                             else 'uploaded_file')
                 return (f"🤖 Analyse IA simulée avec {provider} ({model})\n\n"
                         f"Prompt: {prompt_preview}...\n\n"
-                        f"Fichier: {file.name if hasattr(file, 'name') else 'uploaded_file'}")
+                        f"Fichier: {file_name}")
 
             # Event bindings
             trans_button.click(
@@ -443,7 +455,8 @@ class InterfaceAgent(Agent):
 
             analysis_button.click(
                 process_analysis,
-                inputs=[trans_file_upload, analysis_prompt, ai_provider, ai_model],
+                inputs=[trans_file_upload, analysis_prompt, ai_provider,
+                        ai_model],
                 outputs=analysis_output
             )
 

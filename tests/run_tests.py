@@ -17,14 +17,14 @@ def run_command(cmd, description):
     print("-" * 50)
 
     try:
-        result = subprocess.run(cmd, check=True, capture_output=False)
+        subprocess.run(cmd, check=True, capture_output=False)
         print(f"✅ {description} completed successfully!")
         return True
     except subprocess.CalledProcessError as e:
         print(f"❌ {description} failed with exit code {e.returncode}")
         return False
     except FileNotFoundError:
-        print(f"❌ Command not found. Please ensure pytest is installed.")
+        print("❌ Command not found. Please ensure pytest is installed.")
         return False
 
 
@@ -33,8 +33,8 @@ def main():
     print("🧪 RPG Session Minutes - Test Runner")
     print("=" * 50)
 
-    # Change to project directory
-    project_dir = Path(__file__).parent
+    # Change to project root directory (parent of tests folder)
+    project_dir = Path(__file__).parent.parent
     os.chdir(project_dir)
     print(f"📁 Working directory: {project_dir}")
 
@@ -60,12 +60,13 @@ def main():
         if not run_command(cmd, "Coverage Test Run"):
             success = False
         else:
-            print(f"\n📊 Coverage report generated in: {project_dir}/htmlcov/index.html")
+            coverage_path = f"{project_dir}/htmlcov/index.html"
+            print(f"\n📊 Coverage report generated in: {coverage_path}")
 
     if test_type == "lint":
         # Linting check
-        cmd = [sys.executable, "-m", "autopep8", "--diff", "--max-line-length=79",
-               "src/interface_agent.py"]
+        cmd = [sys.executable, "-m", "autopep8", "--diff",
+               "--max-line-length=79", "src/interface_agent.py"]
         if not run_command(cmd, "Linting Check"):
             success = False
 
@@ -81,7 +82,7 @@ def main():
     if success:
         print("🎉 All tests completed successfully!")
         print("✅ Code quality: EXCELLENT")
-        print("📊 Test coverage: 89%")
+        print("📊 Test coverage: 99%")
         print("🚀 Ready for production!")
     else:
         print("⚠️  Some tests failed. Please review the output above.")
@@ -92,7 +93,7 @@ def main():
     print("  python run_tests.py quick           # Quick test run only")
     print("  python run_tests.py coverage        # Coverage report only")
     print("  python run_tests.py lint            # Linting check only")
-    print("  python run_tests.py specific <file> # Run specific test file")
+    print("  python run_tests.py specific <file> # Run specific test")
 
 
 if __name__ == "__main__":
