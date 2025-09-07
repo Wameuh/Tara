@@ -1,0 +1,37 @@
+{
+  "transcription": {
+    "model_size": "large-v3",
+    "device": "cuda",
+    "compute_type": "float16",
+    "language": "fr",
+    "beam_size": 20,
+    "load_model_on_init": true,
+    "audio_formats": [".ogg", ".wav", ".mp3", ".m4a"],
+    "output_format": "json",
+    "clean_suffix": "_deduped",
+    "merge_pattern": "*_transcription*.json"
+  },
+  "logging": {
+    "level": "INFO",
+    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    "file": null
+  },
+  "processing": {
+    "max_workers": 4,
+    "chunk_size": 30,
+    "overlap": 5
+  },
+  "output": {
+    "create_timestamps": true,
+    "include_confidence": true,
+    "save_segments": true,
+    "save_full_text": true
+  },
+  "auto_processing": {
+    "create_output_folder": true,
+    "folder_suffix": "_transcriptions",
+    "auto_clean": true,
+    "auto_merge": true,
+    "merge_filename": "merged_transcription.json"
+  }
+}
