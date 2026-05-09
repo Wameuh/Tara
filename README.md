@@ -39,3 +39,5 @@ guardrails. Task `01` is represented by the module mapping roadmap in
 `tmp/tasks/01_module_mapping.md`. Task `02` adds the first implementation slice:
 the shared LLM runner with API and Cursor CLI backends behind one interface.
 Task `03` adds the Pydantic model layer and core analysis invariants.
+Task `04` adds local CPU evidence chunking and lexical retrieval over merged
+transcriptions.

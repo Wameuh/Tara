@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from tara.analysis.evidence_index import (
+    EvidenceCoverageReport,
+    EvidenceIndex,
+    EvidenceIndexMetadata,
+)
 from tara.analysis.llm_runner import (
     LLMBackendError,
     LLMConfigurationError,
@@ -47,6 +52,9 @@ __all__ = [
     "ConflictSeverity",
     "EvidenceAnswer",
     "EvidenceChunk",
+    "EvidenceCoverageReport",
+    "EvidenceIndex",
+    "EvidenceIndexMetadata",
     "EvidenceSupport",
     "FactStatus",
     "FinalSummary",

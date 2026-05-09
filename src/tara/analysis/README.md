@@ -60,3 +60,20 @@ forward compatibility, so serialized instances must be treated as private
 runtime artifacts. Extensible `metadata`, `filters`, and output-schema fields are
 restricted to JSON-compatible values to keep artifacts serializable and reduce
 accidental object leakage.
+
+## Evidence Index
+
+`evidence_index/` builds a local CPU-only in-memory index from
+`MergedTranscription`. It creates overlapping time-window `EvidenceChunk`
+objects, preserves segment IDs and timestamps, detects lightweight keyword tags
+and capitalized entities, and retrieves chunks with lexical token-overlap
+scoring.
+
+The index can export `evidence_chunks.jsonl` and
+`evidence_index_metadata.json` for debugging or traceability, then reconstruct
+the in-memory index from those artifacts. These files may contain transcript
+text and remain private runtime artifacts by default.
+
+Chunking is segment-driven: `MergedTranscription.segments` is the source of
+indexed text and timestamps. `MergedTranscription.text` is treated as aggregate
+metadata and is not split independently.

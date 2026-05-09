@@ -114,3 +114,7 @@ La refactorisation est consideree terminee quand:
   define merged transcription input, evidence, retrieval, planning, specialist
   answers, blackboard facts, conflicts, arbitration, summaries, audit findings,
   and validation invariants.
+- `04` Local evidence index and retrieval: completed. `EvidenceIndex` now builds
+  overlapping timestamped chunks from merged transcription segments, adds local
+  keyword/entity metadata, reports coverage, exports debug artifacts, and
+  retrieves evidence with CPU-only lexical scoring.
