@@ -51,3 +51,24 @@ Composer le resume final depuis la blackboard, sans relire toute la transcriptio
 - Les claims critiques supportent un chemin vers des chunks bruts.
 - Le format final reste proche de l'usage actuel.
 - La sortie est lisible sans ids, mais le JSON garde la tracabilite.
+
+## Implementation Status
+
+Status: Completed
+
+Notes:
+
+- `SummaryComposerAgent` composes supported blackboard facts into French
+  `Résumé exécutif` and `Points clés` sections.
+- Each section is a `SummarySection` with `supporting_answer_ids`.
+- Rejected and uncertain facts are excluded from composition through
+  `do_not_claim`.
+- The deterministic composer does not reread the transcript and does not call an
+  LLM in this slice.
+
+Validation:
+
+- From the TaraRepo root:
+  `conda activate DM; python -m pytest "tests/tara/analysis"`
+- From the TaraRepo root:
+  `conda activate DM; python -m ruff check "src" "tests"`

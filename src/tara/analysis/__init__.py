@@ -2,6 +2,23 @@
 
 from __future__ import annotations
 
+from tara.analysis.agents import (
+    AdversarialAuditAgent,
+    AnalysisOrchestrator,
+    AnalysisPlannerAgent,
+    ArbitrationPanel,
+    BlackboardController,
+    BlackboardState,
+    CharacterStateAgent,
+    ChronologyAgent,
+    CombatOutcomeAgent,
+    FinalPatchAgent,
+    PipelineResult,
+    QuestContinuityAgent,
+    SpecialistAgent,
+    SummaryComposerAgent,
+    UncertaintyAgent,
+)
 from tara.analysis.evidence_index import (
     EvidenceCoverageReport,
     EvidenceIndex,
@@ -41,12 +58,21 @@ from tara.analysis.models import (
 )
 
 __all__ = [
+    "AdversarialAuditAgent",
     "AnalysisPlan",
+    "AnalysisOrchestrator",
+    "AnalysisPlannerAgent",
     "AnalysisQuestion",
     "ArbitrationDecision",
+    "ArbitrationPanel",
     "AuditFinding",
     "BlackboardFact",
+    "BlackboardController",
+    "BlackboardState",
+    "CharacterStateAgent",
     "ClaimType",
+    "ChronologyAgent",
+    "CombatOutcomeAgent",
     "Confidence",
     "Conflict",
     "ConflictSeverity",
@@ -58,6 +84,7 @@ __all__ = [
     "EvidenceSupport",
     "FactStatus",
     "FinalSummary",
+    "FinalPatchAgent",
     "LLMBackendError",
     "LLMConfigurationError",
     "LLMRequest",
@@ -67,9 +94,14 @@ __all__ = [
     "LLMRunnerError",
     "MergedTranscription",
     "ModelPricing",
+    "PipelineResult",
+    "QuestContinuityAgent",
     "RetrievedEvidence",
     "RetrievalQuery",
+    "SpecialistAgent",
     "SummaryDraft",
     "SummarySection",
+    "SummaryComposerAgent",
     "TranscriptionSegment",
+    "UncertaintyAgent",
 ]

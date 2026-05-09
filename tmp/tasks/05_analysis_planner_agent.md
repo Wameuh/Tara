@@ -46,3 +46,24 @@ Produire un plan d'analyse explicite avant de lancer les agents specialistes.
 - Chaque question est assignable a un agent.
 - Les queries de retrieval sont inspectables.
 - Aucun resume final n'est genere a cette etape.
+
+## Implementation Status
+
+Status: Completed
+
+Notes:
+
+- `AnalysisPlannerAgent` in `src/tara/analysis/agents.py` creates deterministic
+  standard questions for chronology, combat outcomes, character state, quest
+  continuity, resources, and uncertainty.
+- Each `AnalysisQuestion` includes retrieval queries, priority, responsible
+  specialist, expected claim type metadata, and risk level.
+- Audit feedback count is stored in plan metadata so later LLM-assisted planning
+  can use the same loop contract.
+
+Validation:
+
+- From the TaraRepo root:
+  `conda activate DM; python -m pytest "tests/tara/analysis"`
+- From the TaraRepo root:
+  `conda activate DM; python -m ruff check "src" "tests"`

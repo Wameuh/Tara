@@ -43,3 +43,24 @@ Centraliser, valider, dedoublonner et classer les facts produits par les agents 
 - Le composer ne recoit que des facts supportes ou explicitement utilisables.
 - Les facts incertains et rejetes sont conserves mais marques.
 - Les contradictions critiques sont remontees a `ArbitrationPanel`.
+
+## Implementation Status
+
+Status: Completed
+
+Notes:
+
+- `BlackboardController` ingests specialist `EvidenceAnswer` objects into
+  validated `BlackboardFact` objects.
+- Duplicate normalized claims are ignored.
+- Rejected and uncertain answers are preserved, marked with `do_not_claim`, and
+  added to the do-not-claim list.
+- Competing high-importance supported facts with the same claim type are promoted
+  to `Conflict` objects for arbitration.
+
+Validation:
+
+- From the TaraRepo root:
+  `conda activate DM; python -m pytest "tests/tara/analysis"`
+- From the TaraRepo root:
+  `conda activate DM; python -m ruff check "src" "tests"`

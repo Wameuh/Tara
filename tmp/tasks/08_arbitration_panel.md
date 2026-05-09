@@ -39,3 +39,25 @@ Trancher les contradictions avant que le resume final soit compose.
 - Un claim interdit apparait dans `do_not_claim_list`.
 - L'arbitrage documente la preuve utilisee.
 - Le composeur n'arbitre pas lui-meme.
+
+## Implementation Status
+
+Status: Completed
+
+Notes:
+
+- `ArbitrationPanel` reads `BlackboardState.conflicts` and produces
+  `ArbitrationDecision` objects before composition.
+- Major conflicts are marked as `mark_unconfirmed`; critical conflicts are
+  marked as `claim_forbidden`.
+- Facts involved in conflicts are marked `do_not_claim=True`, and their claim
+  text is added to the do-not-claim list so forbidden-leak checks operate on
+  user-facing prose rather than answer IDs.
+- The composer receives decisions as context but does not arbitrate.
+
+Validation:
+
+- From the TaraRepo root:
+  `conda activate DM; python -m pytest "tests/tara/analysis"`
+- From the TaraRepo root:
+  `conda activate DM; python -m ruff check "src" "tests"`

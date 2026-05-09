@@ -77,3 +77,29 @@ text and remain private runtime artifacts by default.
 Chunking is segment-driven: `MergedTranscription.segments` is the source of
 indexed text and timestamps. `MergedTranscription.text` is treated as aggregate
 metadata and is not split independently.
+
+## Agent Pipeline
+
+`agents.py` provides the deterministic first implementation of the blackboard
+pipeline:
+
+- `AnalysisPlannerAgent` creates standard questions for chronology, combat
+  outcomes, character state, quest continuity, resources, and uncertainty.
+- Specialist agents answer from retrieved chunks only and emit sourced
+  `EvidenceAnswer` objects, falling back to uncertain answers when retrieval is
+  empty.
+- `BlackboardController` validates, deduplicates, classifies, preserves
+  rejected/uncertain facts, and detects competing critical claims.
+- `ArbitrationPanel` keeps unresolved conflicts out of silent composition.
+- `SummaryComposerAgent` creates supported French summary draft sections.
+- `AdversarialAuditAgent` checks unsupported references, forbidden-claim leaks,
+  and empty drafts.
+- `FinalPatchAgent` marks unresolved critical findings as non-confirmed without
+  adding new facts.
+- `AnalysisOrchestrator` runs the bounded audit/replanning loop with a default
+  limit of three attempts.
+
+This first implementation is deterministic and uses the shared retrieval/model
+contracts. LLM-assisted behavior can be added behind the same typed boundaries.
+Specialist classes already accept optional `llm_runner` and config values, but
+the current CI-safe path does not invoke them.

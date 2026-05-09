@@ -41,3 +41,7 @@ the shared LLM runner with API and Cursor CLI backends behind one interface.
 Task `03` adds the Pydantic model layer and core analysis invariants.
 Task `04` adds local CPU evidence chunking and lexical retrieval over merged
 transcriptions.
+Tasks `05`-`10` add the deterministic planner, specialists, blackboard,
+arbitration, composer, audit, patching, and bounded audit loop.
+This is the first deterministic implementation; LLM-assisted specialist and
+composer behavior will be added behind the same typed boundaries later.

@@ -118,3 +118,7 @@ La refactorisation est consideree terminee quand:
   overlapping timestamped chunks from merged transcription segments, adds local
   keyword/entity metadata, reports coverage, exports debug artifacts, and
   retrieves evidence with CPU-only lexical scoring.
+- `05`-`10` Blackboard agent pipeline: completed as a deterministic first
+  implementation. Planner, specialists, blackboard, arbitration, composer,
+  adversarial audit, final patching, and a bounded three-attempt loop now share
+  typed models and local retrieval.

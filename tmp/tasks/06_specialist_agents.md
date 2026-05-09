@@ -18,6 +18,10 @@ Implementer les agents qui repondent aux questions d'analyse en lisant seulement
 
 ## Agents a implementer
 
+Current deterministic behavior emits one sourced answer per retrieved chunk. The
+semantic extraction targets below remain the target for the future LLM-assisted
+specialist pass.
+
 1. `ChronologyAgent`
    - produit 8 a 15 evenements majeurs;
    - ordre chronologique;
@@ -68,3 +72,35 @@ Implementer les agents qui repondent aux questions d'analyse en lisant seulement
 - Aucun agent ne lit tout `merged_transcription.json`.
 - Les facts produits sont courts, sources et inspectables.
 - Les agents peuvent utiliser API ou Cursor CLI via `LLMRunner`.
+
+## Implementation Status
+
+Status: Completed
+
+Notes:
+
+- `ChronologyAgent`, `CombatOutcomeAgent`, `CharacterStateAgent`,
+  `QuestContinuityAgent`, and `UncertaintyAgent` are implemented in
+  `src/tara/analysis/agents.py`.
+- The first implementation is deterministic: agents answer only from
+  `EvidenceRetriever.retrieve(...)` results and never read full
+  `merged_transcription.json`.
+- Specialist constructors accept optional `llm_runner` and JSON-compatible
+  config values as the future LLM-assisted injection points.
+- Empty retrieval produces an `uncertain` fallback answer rather than an
+  hallucinated claim.
+- Every supported answer is a short `EvidenceAnswer` with support chunk IDs,
+  timestamps, segment IDs, confidence, importance, and claim type.
+- `LLMRunner` is not invoked in this deterministic slice; the typed agent
+  boundaries leave room for LLM-assisted specialists later.
+- `resource_state` is currently routed to `QuestContinuityAgent`, and the agent
+  honors the planned `ClaimType.RESOURCE_STATE` from the analysis question.
+- `Record19` validation remains a manual privacy-preserving smoke check because
+  private session artifacts are not loaded by automated tests.
+
+Validation:
+
+- From the TaraRepo root:
+  `conda activate DM; python -m pytest "tests/tara/analysis"`
+- From the TaraRepo root:
+  `conda activate DM; python -m ruff check "src" "tests"`
