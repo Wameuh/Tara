@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Standalone Tara blackboard analysis application."
 requires-python = ">=3.13"
 dependencies = [
+  "pydantic>=2.12",
   "requests>=2.32",
 ]
 

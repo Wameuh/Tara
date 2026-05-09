@@ -110,3 +110,7 @@ La refactorisation est consideree terminee quand:
 - `02` Shared LLM runner API/Cursor CLI: completed. `LLMRunner` now exposes API
   and Cursor CLI backends through one typed interface, with mock-only tests,
   retries, usage parsing, cost estimation, and telemetry event support.
+- `03` Analysis and blackboard data models: completed. Pydantic schemas now
+  define merged transcription input, evidence, retrieval, planning, specialist
+  answers, blackboard facts, conflicts, arbitration, summaries, audit findings,
+  and validation invariants.

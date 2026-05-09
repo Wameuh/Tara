@@ -28,3 +28,35 @@ content in process arguments. The subprocess environment is allow-listed so API
 keys and unrelated secrets are not inherited by default. Argument-based prompt
 transport remains available through `cursor_prompt_transport="argv"` for
 compatibility testing.
+
+## Core Models
+
+`models.py` defines the stable Pydantic schemas exchanged by future analysis
+agents:
+
+- canonical `MergedTranscription` input;
+- retrieval objects such as `EvidenceChunk`, `RetrievalQuery`, and
+  `RetrievedEvidence`;
+- planning objects such as `AnalysisQuestion` and `AnalysisPlan`;
+- sourced facts such as `EvidenceAnswer` and `BlackboardFact`;
+- conflict, arbitration, summary, audit, and final-summary artifacts.
+
+Critical invariants are enforced at model validation time: supported facts need
+raw support, final-state facts need a final timestamp, high-importance or
+explicitly critical claims need a claim type, and summary draft/final sections
+need `supporting_answer_ids`.
+
+Operationally, `EvidenceAnswer` and `BlackboardFact` require `claim_type` when
+`is_critical` is `true` or `importance >= 4` on the 1-5 importance scale.
+`ClaimType` values are `chronology`, `combat_outcome`, `character_state`,
+`quest_continuity`, `resource_state`, and `final_state`.
+
+Conflicts must reference at least two answer IDs so arbitration always compares
+multiple claims.
+
+These models carry sensitive data. `MergedTranscription` stores full transcript
+text and allows unknown top-level fields from the processing contract for
+forward compatibility, so serialized instances must be treated as private
+runtime artifacts. Extensible `metadata`, `filters`, and output-schema fields are
+restricted to JSON-compatible values to keep artifacts serializable and reduce
+accidental object leakage.
