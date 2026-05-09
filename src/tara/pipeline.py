@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from tara.acceptance import evaluate_acceptance
 from tara.analysis import (
     AnalysisOrchestrator,
     EvidenceIndex,
@@ -214,6 +215,7 @@ def _final_summary_payload(
     merged_transcription_path: Path,
 ) -> dict[str, Any]:
     """Build the traceable `session_summary.json` payload."""
+    acceptance = evaluate_acceptance(result)
     return {
         "summary": result.final_summary.to_dict(),
         "traceability": {
@@ -232,10 +234,16 @@ def _final_summary_payload(
             ),
         },
         "usage": {
-            "llm_call_count": 0,
-            "estimated_cost_usd": 0.0,
-            "backend": "deterministic",
+            "llm_call_count": acceptance.llm_call_count,
+            "estimated_llm_tokens": acceptance.estimated_llm_tokens,
+            "estimated_cost_usd": acceptance.estimated_cost_usd,
+            "backend": (
+                "deterministic"
+                if acceptance.llm_call_count == 0
+                else "analysis_llm"
+            ),
         },
+        "acceptance": acceptance.to_dict(),
     }
 
 

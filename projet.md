@@ -125,3 +125,6 @@ La refactorisation est consideree terminee quand:
 - `11` Standalone orchestration: completed. The new package exposes a `tara`
   CLI, JSON config, local transcription-server integration, FastAPI endpoints,
   and final `session_summary.md` / `session_summary.json` outputs.
+- `12` Validation and acceptance: completed. Acceptance metrics are computed for
+  each pipeline result, tested, included in `session_summary.json`, and checked
+  on a private Record19 smoke with aggregate-only benchmark reporting.

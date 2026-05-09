@@ -48,6 +48,9 @@ composer behavior will be added behind the same typed boundaries later.
 Task `11` wires the standalone CLI, JSON configuration, `.env` loading,
 transcription-server integration, processing, FastAPI endpoints, and final
 `session_summary.md` / `session_summary.json` generation.
+Task `12` adds acceptance metrics, validates those metrics in tests, and records
+a private Record19 aggregate benchmark without committing transcript-derived
+runtime outputs.
 
 ## Running
 

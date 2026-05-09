@@ -86,6 +86,15 @@ def test_control_agent_runs_analysis_from_merged_transcription(tmp_path: Path) -
     assert result.session_summary_json_path is not None
     payload = json.loads(result.session_summary_json_path.read_text(encoding="utf-8"))
     assert payload["usage"]["llm_call_count"] == 0
+    assert payload["usage"]["llm_call_count"] == payload["summary"]["llm_call_count"]
+    assert (
+        payload["usage"]["llm_call_count"]
+        == payload["acceptance"]["llm_call_count"]
+    )
+    assert (
+        payload["usage"]["estimated_cost_usd"]
+        == payload["acceptance"]["estimated_cost_usd"]
+    )
     assert "Résumé exécutif" in result.session_summary_markdown_path.read_text(
         encoding="utf-8",
     )

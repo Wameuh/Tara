@@ -109,3 +109,6 @@ need to change specialist construction.
 The standalone application layer in `tara.pipeline` builds this package from
 `merged_transcription.json`, writes private evidence/debug artifacts, and emits
 the user-facing `session_summary.md` plus traceable `session_summary.json`.
+The JSON output also includes acceptance metrics from `tara.acceptance`, such as
+support rate, forbidden-claim leaks, critical conflict leakage, and deterministic
+LLM usage/cost counters.
