@@ -28,12 +28,12 @@ local runner behavior.
 ## Review and commit safety
 
 Operational workflow for Composer 2 subagents, staged-file checks, and report
-paths lives in `review_process/review_agents.md`. Copy the report layout from
-`review_process/report_template.md` and archive outputs under
-`review_process/reviews/task-<number>-<short-slug>/`. See `review_process/README.md`
-for a short index. Before every commit, run `git status --short`, stage explicit
-paths, inspect `git diff --cached`, and refuse anything that looks like secrets,
-`.env`, private media, or runtime analysis outputs.
+paths lives in the Cursor skill **tara-review** (`.cursor/skills/tara-review/`):
+see `.cursor/skills/tara-review/review_process/review_agents.md`, report template,
+and `reviews/` under that path. Load the skill when running reviews. Before every
+commit, run `git status --short`, stage explicit paths, inspect `git diff --cached`,
+and refuse anything that looks like secrets, `.env`, private media, or runtime
+analysis outputs.
 
 ## Reference Inputs
 
@@ -62,7 +62,8 @@ Task `12` adds acceptance metrics, validates those metrics in tests, and records
 a private Record19 aggregate benchmark without committing transcript-derived
 runtime outputs.
 Task `13` publishes the commit safety gate and five-role subagent review prompts
-under `review_process/` for repeatable reviews before each merge to `master`.
+(under `.cursor/skills/tara-review/review_process/`) for repeatable reviews before
+each merge to `master`.
 
 ### Cursor CLI pipeline probe (benchmarks)
 
@@ -70,7 +71,7 @@ To validate the full stack through Cursor CLI `agent -p` without changing
 deterministic specialists yet, enable the optional probe: set
 `analysis.llm.cursor_cli_probe` to `true` with `analysis.llm.backend` set to
 `cursor_cli`, or export `TARA_CURSOR_CLI_PROBE=1` for a one-off run. See
-`review_process/benchmarks/task-cursor-cli-pipeline-probe.md`. Automated tests mock
+`.cursor/skills/tara-review/review_process/benchmarks/task-cursor-cli-pipeline-probe.md`. Automated tests mock
 the CLI; set `TARA_CURSOR_CLI_E2E=1` to opt into a single real `pytest` smoke that
 calls the actual Cursor binary.
 

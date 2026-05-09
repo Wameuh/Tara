@@ -1,6 +1,6 @@
 # Subagent review report template
 
-Copy this structure into `review_process/reviews/task-<number>-<short-slug>/agent_<n>_<role>.md`.
+Copy this structure into `.cursor/skills/tara-review/review_process/reviews/task-<number>-<short-slug>/agent_<n>_<role>.md`.
 Use **Composer 2** as the reviewer model unless the project lead specifies otherwise.
 
 ```markdown

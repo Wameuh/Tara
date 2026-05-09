@@ -82,7 +82,7 @@ Notes:
   cost/call drift.
 - A private Record19 smoke was run from the existing
   `merged_transcription.json`. Only aggregate metrics are recorded in
-  `review_process/benchmarks/task-12-record19-acceptance.md`; transcript-derived
+  `.cursor/skills/tara-review/review_process/benchmarks/task-12-record19-acceptance.md`; transcript-derived
   outputs remain outside this repository. The smoke proves the new deterministic
   path makes zero LLM calls; it does not include a legacy pipeline token sample.
 

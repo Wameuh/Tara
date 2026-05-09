@@ -3,15 +3,18 @@
 ## Statut d'implementation
 
 **Termine.** Les prompts subagent (Composer 2), le protocole de review, et la
-checklist commit safety sont consolides dans `review_process/review_agents.md`,
-avec gabarit de rapport dans `review_process/report_template.md` et index dans
-`review_process/README.md`. `projet.md` et le `README.md` racine pointent vers
-ces documents. Ce fichier reste la specification detaillee; les equipes peuvent
-s'appuyer sur `review_agents.md` pour l'execution quotidienne.
+checklist commit safety sont consolides dans
+`.cursor/skills/tara-review/review_process/review_agents.md`,
+avec gabarit de rapport dans
+`.cursor/skills/tara-review/review_process/report_template.md` et index dans
+`.cursor/skills/tara-review/review_process/README.md`. `projet.md` et le
+`README.md` racine pointent vers ces documents. Ce fichier reste la specification
+detaillee; les equipes peuvent s'appuyer sur le skill Cursor **tara-review** pour
+l'execution quotidienne.
 
 ## Objectif
 
-Adapter au refactor Tara les pratiques de commit et review utilisees dans `%USERPROFILE%\Documents\Projets\DiscordCalendarBot\AGENTS.md` et `review_process`, en utilisant des subagents Cursor pour les reviews.
+Adapter au refactor Tara les pratiques de commit et review utilisees dans `%USERPROFILE%\Documents\Projets\DiscordCalendarBot\AGENTS.md` et le skill Tara **tara-review** (dossier `.cursor/skills/tara-review/review_process/`), en utilisant des subagents Cursor pour les reviews.
 
 ## A recuperer de DiscordCalendarBot
 
@@ -42,7 +45,7 @@ Adapter au refactor Tara les pratiques de commit et review utilisees dans `%USER
 Creer dans TaraRepo ou dans Tara selon le lieu d'implementation:
 
 ```text
-review_process/
+.cursor/skills/tara-review/review_process/
   review_agents.md
   report_template.md
   reviews/
@@ -107,7 +110,7 @@ git diff --cached
 3. Creer un dossier:
 
 ```text
-review_process/reviews/task-<number>-<short-slug>/
+.cursor/skills/tara-review/review_process/reviews/task-<number>-<short-slug>/
 ```
 
 4. Lancer les reviewers requis avec des subagents Cursor.
@@ -350,7 +353,9 @@ Output:
 ## Criteres de validation
 
 - `projet.md` reference cette etape. **OK**
-- Les prompts de review subagent sont documentes. **OK** (`review_process/review_agents.md`)
-- Le protocole indique ou stocker les rapports. **OK** (`review_process/reviews/...`)
+- Les prompts de review subagent sont documentes. **OK**
+  (`.cursor/skills/tara-review/review_process/review_agents.md`)
+- Le protocole indique ou stocker les rapports. **OK**
+  (`.cursor/skills/tara-review/review_process/reviews/...`)
 - La politique de commit safety est explicite. **OK** (`review_agents.md`, `README.md`)
 - La definition de fini exige reviews approuvees pour les taches non triviales. **OK** (`projet.md`)

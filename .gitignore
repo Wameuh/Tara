@@ -31,8 +31,11 @@ runtime/
 debug/
 tmp/runtime/
 
-!review_process/
-!review_process/**
+# Track only the Tara review Cursor skill (other .cursor paths may be ignored globally)
+.cursor/*
+!.cursor/skills/
+!.cursor/skills/tara-review/
+!.cursor/skills/tara-review/**
 
 *.mp3
 *.wav

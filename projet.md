@@ -72,7 +72,7 @@ Le reste du pipeline ne doit pas connaitre le backend exact. Les agents demanden
 
 ## Commit et review
 
-La refactorisation doit reprendre les garde-fous utilises dans `../DiscordCalendarBot/AGENTS.md` et `review_process`, avec adaptation Tara:
+La refactorisation doit reprendre les garde-fous utilises dans `../DiscordCalendarBot/AGENTS.md` et le skill Cursor Tara `tara-review` (`.cursor/skills/tara-review/review_process/`), avec adaptation Tara:
 
 - avant chaque commit, verifier explicitement les fichiers stages et l'absence de secrets;
 - utiliser des `git add <path>` explicites autant que possible;
@@ -81,7 +81,7 @@ La refactorisation doit reprendre les garde-fous utilises dans `../DiscordCalend
 - apres chaque etape, lancer les reviewers definis dans [tmp/tasks/13_commit_review_process.md](tmp/tasks/13_commit_review_process.md);
 - les reviews doivent etre executees avec des subagents Cursor;
 - le modele de review demande est Composer 2;
-- chaque reviewer ecrit un rapport markdown dans `review_process/reviews/<task-folder>/`;
+- chaque reviewer ecrit un rapport markdown dans `.cursor/skills/tara-review/review_process/reviews/<task-folder>/`;
 - une etape n'est complete que lorsque les reviewers requis ont `Status: Approved`.
 
 ## Definition de fini
@@ -130,5 +130,5 @@ La refactorisation est consideree terminee quand:
   on a private Record19 smoke with aggregate-only benchmark reporting.
 - `13` Commit safety and subagent review: completed. Composer 2 prompts, report
   template, review folder layout, and explicit pre-commit checks are documented
-  under `review_process/` (`review_agents.md`, `report_template.md`, `README.md`)
+  under `.cursor/skills/tara-review/review_process/` (`review_agents.md`, `report_template.md`, `README.md`)
   and linked from the root `README.md`.

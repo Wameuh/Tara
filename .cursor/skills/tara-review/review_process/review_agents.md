@@ -5,10 +5,10 @@ Tara refactor. Reviewers must read `ARCHITECTURE.md`, respect the transcription 
 processing boundary in `projet.md`, and treat `LLMRunner` as the only LLM
 execution surface when that layer is touched.
 
-Reports are written under:
+Reports are written under (path relative to TaraRepo root):
 
 ```text
-review_process/reviews/task-<number>-<short-slug>/
+.cursor/skills/tara-review/review_process/reviews/task-<number>-<short-slug>/
 ```
 
 Use the report skeleton in [report_template.md](report_template.md). Set
@@ -40,7 +40,7 @@ Use the report skeleton in [report_template.md](report_template.md). Set
 2. Collect: task id, changed files, diff or summary, commands run (`ruff`,
    `pytest`, and any integration smoke), and pointers to `ARCHITECTURE.md`
    sections that apply.
-3. Create `review_process/reviews/task-<number>-<short-slug>/`.
+3. Create `.cursor/skills/tara-review/review_process/reviews/task-<number>-<short-slug>/`.
 4. Run five subagent reviews (or the minimum set the task owner requires) using
    the prompts below; each agent writes its own markdown file.
 5. Address **Changes requested** findings; re-run affected reviewers. For
@@ -52,7 +52,8 @@ Use the report skeleton in [report_template.md](report_template.md). Set
 ## Invocation checklist (paste into the subagent task)
 
 - Model: **Composer 2**
-- Output path: full path to `agent_<n>_*.md` under the task folder
+- Output path: full path to `agent_<n>_*.md` under the task folder (under
+  `.cursor/skills/tara-review/review_process/reviews/`)
 - Architecture: `ARCHITECTURE.md` (module boundaries and pipeline stages)
 - Plan: `projet.md`, relevant `tmp/tasks/*.md`
 - Inputs: completed task name, file list, diff or implementation summary, test

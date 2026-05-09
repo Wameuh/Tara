@@ -9,7 +9,7 @@ Reviewed files:
 - `src/tara/acceptance.py`
 - `src/tara/pipeline.py` (acceptance payload)
 - `tests/tara/test_acceptance.py`
-- `review_process/benchmarks/task-12-record19-acceptance.md`
+- `.cursor/skills/tara-review/review_process/benchmarks/task-12-record19-acceptance.md`
 - `tmp/tasks/12_tests_benchmarks_acceptance.md`
 
 ## Findings

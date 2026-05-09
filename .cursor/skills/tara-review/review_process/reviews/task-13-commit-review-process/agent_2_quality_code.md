@@ -6,8 +6,8 @@ Review iteration: 1
 Reviewer model: Composer 2
 Reviewed files:
 
-- `review_process/review_agents.md`
-- `review_process/report_template.md`
+- `.cursor/skills/tara-review/review_process/review_agents.md`
+- `.cursor/skills/tara-review/review_process/report_template.md`
 
 ## Findings
 

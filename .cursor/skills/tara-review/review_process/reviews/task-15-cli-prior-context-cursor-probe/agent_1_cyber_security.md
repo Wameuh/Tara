@@ -10,7 +10,7 @@ Reviewed files:
 - `src/tara/pipeline.py`
 - `src/tara/server.py`
 - `README.md`
-- `review_process/benchmarks/task-cursor-cli-pipeline-probe.md`
+- `.cursor/skills/tara-review/review_process/benchmarks/task-cursor-cli-pipeline-probe.md`
 
 ## Findings
 

@@ -10,7 +10,7 @@ Reviewed files:
 - `projet.md`
 - `src/tara/analysis/README.md`
 - `tmp/tasks/12_tests_benchmarks_acceptance.md`
-- `review_process/benchmarks/task-12-record19-acceptance.md`
+- `.cursor/skills/tara-review/review_process/benchmarks/task-12-record19-acceptance.md`
 
 ## Findings
 
