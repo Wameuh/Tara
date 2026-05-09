@@ -58,6 +58,29 @@ def test_load_config_reads_analysis_section(tmp_path: Path) -> None:
     assert config.analysis.pipeline == "blackboard_v1"
     assert config.analysis.llm.backend == "cursor_cli"
     assert config.analysis.llm.model == "Auto"
+    assert config.analysis.llm.cursor_cli_probe is False
+
+
+def test_load_config_reads_cursor_cli_probe_flag(tmp_path: Path) -> None:
+    """JSON config may enable the optional Cursor CLI pipeline probe."""
+    config_path = tmp_path / "configuration.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "analysis": {
+                    "llm": {
+                        "backend": "cursor_cli",
+                        "cursor_cli_probe": True,
+                    },
+                },
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.analysis.llm.cursor_cli_probe is True
 
 
 def test_process_transcriptions_writes_merged_input(tmp_path: Path) -> None:
@@ -95,6 +118,8 @@ def test_control_agent_runs_analysis_from_merged_transcription(tmp_path: Path) -
         payload["usage"]["estimated_cost_usd"]
         == payload["acceptance"]["estimated_cost_usd"]
     )
+    assert payload["usage"]["estimated_llm_tokens"] == 0
+    assert payload["usage"]["backend"] == "deterministic"
     assert "Résumé exécutif" in result.session_summary_markdown_path.read_text(
         encoding="utf-8",
     )

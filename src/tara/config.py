@@ -102,6 +102,7 @@ class AnalysisLLMConfig:
     cursor_args: list[str] = field(default_factory=lambda: ["-p"])
     timeout_seconds: int = 900
     retries: int = 2
+    cursor_cli_probe: bool = False
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> Self:
@@ -117,6 +118,9 @@ class AnalysisLLMConfig:
             cursor_args=[str(arg) for arg in cursor_args],
             timeout_seconds=int(data.get("timeout_seconds", defaults.timeout_seconds)),
             retries=int(data.get("retries", defaults.retries)),
+            cursor_cli_probe=bool(
+                data.get("cursor_cli_probe", defaults.cursor_cli_probe),
+            ),
         )
 
 

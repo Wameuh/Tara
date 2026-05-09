@@ -64,6 +64,16 @@ runtime outputs.
 Task `13` publishes the commit safety gate and five-role subagent review prompts
 under `review_process/` for repeatable reviews before each merge to `master`.
 
+### Cursor CLI pipeline probe (benchmarks)
+
+To validate the full stack through Cursor CLI `agent -p` without changing
+deterministic specialists yet, enable the optional probe: set
+`analysis.llm.cursor_cli_probe` to `true` with `analysis.llm.backend` set to
+`cursor_cli`, or export `TARA_CURSOR_CLI_PROBE=1` for a one-off run. See
+`review_process/benchmarks/task-cursor-cli-pipeline-probe.md`. Automated tests mock
+the CLI; set `TARA_CURSOR_CLI_E2E=1` to opt into a single real `pytest` smoke that
+calls the actual Cursor binary.
+
 ## Running
 
 Analyze an existing merged transcription:

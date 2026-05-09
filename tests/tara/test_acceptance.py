@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from tara.acceptance import evaluate_acceptance
 from tara.analysis import (
     AnalysisOrchestrator,
@@ -34,6 +36,19 @@ def test_acceptance_report_passes_for_supported_pipeline() -> None:
     assert report.unsupported_critical_claim_count == 0
     assert report.llm_call_count == 0
     assert report.estimated_llm_tokens == 0
+
+
+def test_acceptance_propagates_estimated_llm_tokens() -> None:
+    """Token totals on the final summary flow into acceptance metrics."""
+    result = AnalysisOrchestrator().run(_acceptance_index())
+    patched = result.final_summary.model_copy(
+        update={"llm_call_count": 2, "estimated_llm_tokens": 400},
+    )
+    adjusted = replace(result, final_summary=patched)
+    report = evaluate_acceptance(adjusted)
+
+    assert report.llm_call_count == 2
+    assert report.estimated_llm_tokens == 400
 
 
 def test_acceptance_report_detects_forbidden_leaks() -> None:

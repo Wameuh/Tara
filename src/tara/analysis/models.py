@@ -366,6 +366,7 @@ class FinalSummary(TaraModel):
     sections: list[SummarySection]
     findings: list[AuditFinding] = Field(default_factory=list)
     llm_call_count: int = Field(default=0, ge=0)
+    estimated_llm_tokens: int = Field(default=0, ge=0)
     estimated_cost_usd: float | None = Field(default=None, ge=0.0)
     warnings: list[str] = Field(default_factory=list)
     metadata: JsonObject = Field(default_factory=dict)

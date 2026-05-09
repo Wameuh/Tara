@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -12,8 +13,10 @@ from tara.acceptance import evaluate_acceptance
 from tara.analysis import (
     AnalysisOrchestrator,
     EvidenceIndex,
+    LLMRequest,
     LLMRunner,
     LLMRunnerConfig,
+    LLMRunnerError,
     MergedTranscription,
     PipelineResult,
 )
@@ -23,6 +26,15 @@ from tara.logging_config import apply_logging_config
 from tara.transcription import process_transcriptions, transcribe_audio_directory
 
 LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class _CursorCliProbeStats:
+    """Token accounting for the optional Cursor CLI pipeline probe."""
+
+    calls: int
+    tokens: int
+    cost_usd: float
 
 
 class TaraPipelineError(RuntimeError):
@@ -124,11 +136,17 @@ class TaraControlAgent:
         index.write_chunks_jsonl(analysis_output_dir / "evidence_chunks.jsonl")
         index.write_metadata_json(analysis_output_dir / "evidence_index_metadata.json")
 
+        llm_runner = _build_llm_runner(self._config)
+        probe_stats = _maybe_run_cursor_cli_pipeline_probe(
+            llm_runner,
+            self._config,
+        )
         result = AnalysisOrchestrator(
             max_audit_attempts=self._config.analysis.max_audit_attempts,
-            llm_runner=_build_llm_runner(self._config),
+            llm_runner=llm_runner,
             specialist_config={"backend": self._config.analysis.llm.backend},
         ).run(index)
+        result = _merge_cursor_cli_probe_into_result(result, probe_stats)
         _write_pipeline_debug_artifacts(
             result=result,
             output_dir=analysis_output_dir,
@@ -142,7 +160,11 @@ class TaraControlAgent:
         markdown_path.write_text(result.final_summary.markdown, encoding="utf-8")
         json_path.write_text(
             json.dumps(
-                _final_summary_payload(result, merged_transcription_path),
+                _final_summary_payload(
+                    result,
+                    merged_transcription_path,
+                    self._config,
+                ),
                 ensure_ascii=True,
                 indent=2,
             ),
@@ -213,6 +235,7 @@ def _write_pipeline_debug_artifacts(
 def _final_summary_payload(
     result: PipelineResult,
     merged_transcription_path: Path,
+    config: TaraConfig,
 ) -> dict[str, Any]:
     """Build the traceable `session_summary.json` payload."""
     acceptance = evaluate_acceptance(result)
@@ -237,10 +260,9 @@ def _final_summary_payload(
             "llm_call_count": acceptance.llm_call_count,
             "estimated_llm_tokens": acceptance.estimated_llm_tokens,
             "estimated_cost_usd": acceptance.estimated_cost_usd,
-            "backend": (
-                "deterministic"
-                if acceptance.llm_call_count == 0
-                else "analysis_llm"
+            "backend": _usage_backend_label(
+                configured_backend=config.analysis.llm.backend,
+                llm_call_count=acceptance.llm_call_count,
             ),
         },
         "acceptance": acceptance.to_dict(),
@@ -263,6 +285,96 @@ def _build_llm_runner(config: TaraConfig) -> LLMRunner:
             max_retries=config.analysis.llm.retries,
         ),
     )
+
+
+def _cursor_cli_probe_env_enabled() -> bool:
+    """Return True when `TARA_CURSOR_CLI_PROBE` requests a probe without JSON edits."""
+    return os.environ.get("TARA_CURSOR_CLI_PROBE", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _maybe_run_cursor_cli_pipeline_probe(
+    llm_runner: LLMRunner,
+    config: TaraConfig,
+) -> _CursorCliProbeStats:
+    """Optionally run one Cursor CLI completion before deterministic analysis."""
+    if config.analysis.llm.backend != "cursor_cli":
+        return _CursorCliProbeStats(calls=0, tokens=0, cost_usd=0.0)
+    if not (
+        config.analysis.llm.cursor_cli_probe or _cursor_cli_probe_env_enabled()
+    ):
+        return _CursorCliProbeStats(calls=0, tokens=0, cost_usd=0.0)
+    return _run_cursor_cli_pipeline_probe(llm_runner)
+
+
+def _run_cursor_cli_pipeline_probe(llm_runner: LLMRunner) -> _CursorCliProbeStats:
+    """Execute a single non-transcript health check via `LLMRunner`."""
+    LOGGER.info("Running Cursor CLI pipeline probe (agent -p).")
+    request = LLMRequest(
+        purpose="pipeline.cursor_cli_probe",
+        system_prompt=(
+            "You are a non-interactive health check for a local automation pipeline. "
+            "Reply with exactly the two letters OK and nothing else."
+        ),
+        user_prompt="Health check: respond with OK only.",
+    )
+    try:
+        response = llm_runner.run(request)
+    except LLMRunnerError as exc:
+        msg = (
+            "Cursor CLI pipeline probe failed. Install or fix the Cursor CLI, "
+            "or disable `analysis.llm.cursor_cli_probe` and unset "
+            "`TARA_CURSOR_CLI_PROBE`."
+        )
+        raise TaraPipelineError(msg) from exc
+    tokens = response.total_tokens
+    if tokens <= 0:
+        tokens = max(0, response.input_tokens) + max(0, response.output_tokens)
+    cost = float(response.estimated_cost_usd or 0.0)
+    return _CursorCliProbeStats(calls=1, tokens=max(tokens, 0), cost_usd=cost)
+
+
+def _merge_cursor_cli_probe_into_result(
+    result: PipelineResult,
+    probe: _CursorCliProbeStats,
+) -> PipelineResult:
+    """Add probe usage counters into the final summary for JSON acceptance."""
+    if probe.calls <= 0:
+        return result
+    fs = result.final_summary
+    merged_cost = (fs.estimated_cost_usd or 0.0) + probe.cost_usd
+    new_summary = fs.model_copy(
+        update={
+            "llm_call_count": fs.llm_call_count + probe.calls,
+            "estimated_llm_tokens": fs.estimated_llm_tokens + probe.tokens,
+            "estimated_cost_usd": merged_cost if merged_cost > 0 else None,
+        },
+    )
+    return PipelineResult(
+        plan=result.plan,
+        answers=result.answers,
+        blackboard=result.blackboard,
+        decisions=result.decisions,
+        draft=result.draft,
+        findings=result.findings,
+        final_summary=new_summary,
+        attempts=result.attempts,
+    )
+
+
+def _usage_backend_label(*, configured_backend: str, llm_call_count: int) -> str:
+    """Classify usage row for `session_summary.json` consumers."""
+    if llm_call_count == 0:
+        return "deterministic"
+    if configured_backend == "cursor_cli":
+        return "cursor_cli"
+    if configured_backend == "api":
+        return "api"
+    return "analysis_llm"
 
 
 def _path_to_str(path: Path | None) -> str | None:

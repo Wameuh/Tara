@@ -29,6 +29,12 @@ keys and unrelated secrets are not inherited by default. Argument-based prompt
 transport remains available through `cursor_prompt_transport="argv"` for
 compatibility testing.
 
+The standalone pipeline can run an optional **Cursor CLI probe** (one small
+non-transcript completion) before deterministic analysis when
+`analysis.llm.cursor_cli_probe` is true or `TARA_CURSOR_CLI_PROBE` is set, so
+benchmarks can record real `agent -p` usage without wiring LLM into every
+specialist yet.
+
 ## Core Models
 
 `models.py` defines the stable Pydantic schemas exchanged by future analysis

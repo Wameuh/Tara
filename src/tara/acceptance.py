@@ -118,7 +118,7 @@ def evaluate_acceptance(result: PipelineResult) -> AcceptanceReport:
         critical_conflict_count=len(critical_conflicts),
         affirmed_unresolved_critical_conflict_count=affirmed_conflicts,
         llm_call_count=result.final_summary.llm_call_count,
-        estimated_llm_tokens=0,
+        estimated_llm_tokens=result.final_summary.estimated_llm_tokens,
         estimated_cost_usd=result.final_summary.estimated_cost_usd or 0.0,
         final_claim_count=len(referenced_answer_ids),
     )

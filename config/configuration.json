@@ -33,7 +33,8 @@
       "cursor_command": "agent",
       "cursor_args": ["-p"],
       "timeout_seconds": 900,
-      "retries": 2
+      "retries": 2,
+      "cursor_cli_probe": false
     }
   }
 }

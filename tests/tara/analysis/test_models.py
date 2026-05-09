@@ -247,6 +247,7 @@ def test_summary_round_trip_json(tmp_path: Path) -> None:
             )
         ],
         llm_call_count=3,
+        estimated_llm_tokens=120,
         estimated_cost_usd=0.02,
     )
     path = tmp_path / "summary.json"
