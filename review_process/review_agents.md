@@ -1,168 +1,69 @@
-# 13 - Commit safety et subagent review
+# TaraRepo subagent reviewers (Composer 2)
 
-## Statut d'implementation
+This document is the **operational source** for Cursor subagent reviews during the
+Tara refactor. Reviewers must read `ARCHITECTURE.md`, respect the transcription /
+processing boundary in `projet.md`, and treat `LLMRunner` as the only LLM
+execution surface when that layer is touched.
 
-**Termine.** Les prompts subagent (Composer 2), le protocole de review, et la
-checklist commit safety sont consolides dans `review_process/review_agents.md`,
-avec gabarit de rapport dans `review_process/report_template.md` et index dans
-`review_process/README.md`. `projet.md` et le `README.md` racine pointent vers
-ces documents. Ce fichier reste la specification detaillee; les equipes peuvent
-s'appuyer sur `review_agents.md` pour l'execution quotidienne.
-
-## Objectif
-
-Adapter au refactor Tara les pratiques de commit et review utilisees dans `%USERPROFILE%\Documents\Projets\DiscordCalendarBot\AGENTS.md` et `review_process`, en utilisant des subagents Cursor pour les reviews.
-
-## A recuperer de DiscordCalendarBot
-
-- La discipline de commit safety:
-  - verifier les fichiers stages;
-  - eviter les secrets;
-  - utiliser des `git add <path>` explicites;
-  - inspecter le diff avant commit.
-- Le modele de review en cinq roles:
-  - cyber security;
-  - quality code;
-  - testing code;
-  - integration test;
-  - documentation.
-- Le format de rapport markdown.
-- La boucle d'approbation `Status: Approved` / `Status: Changes requested`.
-
-## A changer pour Tara
-
-- Les reviewers doivent etre invoques comme subagents Cursor.
-- Le modele demande pour les reviewers est Composer 2.
-- Les prompts doivent mentionner l'architecture Tara dans `ARCHITECTURE.md`.
-- Les reviewers doivent evaluer la preservation de la transcription et la migration vers l'architecture blackboard.
-- Les reviewers doivent verifier la couche `LLMRunner` API/Cursor CLI quand elle est touchee.
-
-## Structure cible
-
-Creer dans TaraRepo ou dans Tara selon le lieu d'implementation:
-
-```text
-review_process/
-  review_agents.md
-  report_template.md
-  reviews/
-    task-02-llm-runner-api-cursor/
-      agent_1_cyber_security.md
-      agent_2_quality_code.md
-      agent_3_testing_code.md
-      agent_4_integration_test.md
-      agent_5_documentation.md
-```
-
-Pendant la phase de planification, ce dossier peut rester dans `TaraRepo`. Pendant l'implementation code, il doit accompagner le depot ou les commits seront faits.
-
-## Commit safety
-
-Avant chaque commit:
-
-1. Verifier l'etat de travail:
-
-```powershell
-git status --short
-```
-
-2. Stager explicitement:
-
-```powershell
-git add <path>
-```
-
-3. Inspecter les fichiers stages:
-
-```powershell
-git diff --cached --name-only
-git diff --cached
-```
-
-4. Refuser tout commit contenant:
-   - `.env`, `.env.*`;
-   - credentials, tokens, API keys;
-   - OAuth files;
-   - bases SQLite locales;
-   - logs;
-   - caches;
-   - fichiers audio prives;
-   - transcriptions privees non voulues;
-   - artefacts runtime.
-5. Si un fichier sensible est stage:
-   - le retirer du staging;
-   - corriger `.gitignore` si necessaire;
-   - recommencer la verification.
-6. La reponse finale apres commit doit mentionner que les fichiers stages ont ete verifies contre les secrets.
-
-## Protocole de review
-
-1. Terminer une tache planifiee.
-2. Identifier:
-   - tache terminee;
-   - fichiers modifies;
-   - diff ou resume de diff;
-   - tests executes;
-   - notes d'architecture pertinentes.
-3. Creer un dossier:
+Reports are written under:
 
 ```text
 review_process/reviews/task-<number>-<short-slug>/
 ```
 
-4. Lancer les reviewers requis avec des subagents Cursor.
-5. Demander a chaque reviewer d'ecrire son rapport markdown dans le dossier.
-6. Corriger les findings confirmes.
-7. Relancer les reviewers concernes avec suffixe d'iteration:
+Use the report skeleton in [report_template.md](report_template.md). Set
+`Reviewer model: Composer 2` in every report.
 
-```text
-agent_2_quality_code.iteration_2.md
-```
+## Commit safety (before every commit)
 
-8. Ne pas marquer la tache complete tant que les reviewers requis n'ont pas `Status: Approved`.
-9. Si un finding demande une decision d'architecture, securite, produit ou strategie de test, demander l'arbitrage utilisateur avant de changer l'architecture.
+1. Inspect working tree: `git status --short`
+2. Stage with explicit paths: `git add <path>` (avoid blind `git add .`)
+3. Inspect staged names and diff:
 
-## Format de rapport
+   ```powershell
+   git diff --cached --name-only
+   git diff --cached
+   ```
 
-```markdown
-# Agent <number> - <reviewer name>
+4. **Reject** the commit if staged paths include, or diffs contain, any of:
+   `.env`, `.env.*` (except whitelisted examples), credentials, API keys, OAuth
+   artifacts, local SQLite/runtime DBs, logs, caches, private audio, private
+   transcriptions, or other runtime outputs meant to stay local.
+5. If something sensitive was staged: `git restore --staged -- <path>`, tighten
+   `.gitignore` when appropriate, and re-run the checks.
+6. Prefer a commit message that states staged files were checked for secrets when
+   the change is non-trivial.
 
-Status: Approved | Changes requested
-Reviewed task: <task title or identifier>
-Review iteration: <number>
-Reviewer model: Composer 2
-Reviewed files:
+## Review workflow
 
-- `<path>`
+1. Finish the planned roadmap task (implementation + tests + docs as required).
+2. Collect: task id, changed files, diff or summary, commands run (`ruff`,
+   `pytest`, and any integration smoke), and pointers to `ARCHITECTURE.md`
+   sections that apply.
+3. Create `review_process/reviews/task-<number>-<short-slug>/`.
+4. Run five subagent reviews (or the minimum set the task owner requires) using
+   the prompts below; each agent writes its own markdown file.
+5. Address **Changes requested** findings; re-run affected reviewers. For
+   follow-up rounds, bump `Review iteration` or add
+   `agent_<n>_<role>.iteration_<k>.md`.
+6. Do not mark the roadmap task complete in `projet.md` until every required
+   report shows `Status: Approved`.
 
-## Findings
+## Invocation checklist (paste into the subagent task)
 
-- Severity: Critical | High | Medium | Low
-  File: `<path>:<line>`
-  Issue: <what is wrong>
-  Impact: <why it matters>
-  Required change: <smallest useful fix>
+- Model: **Composer 2**
+- Output path: full path to `agent_<n>_*.md` under the task folder
+- Architecture: `ARCHITECTURE.md` (module boundaries and pipeline stages)
+- Plan: `projet.md`, relevant `tmp/tasks/*.md`
+- Inputs: completed task name, file list, diff or implementation summary, test
+  commands and outcomes
+- Remind reviewers: transcription reference code stays in legacy `Tara` unless
+  the task explicitly migrates it; TaraRepo analysis must consume
+  `merged_transcription.json` only at its boundary.
 
-## Approval Notes
+---
 
-<Explain why the reviewer approves, or what residual risk remains.>
-```
-
-## Invocation des subagents
-
-Le prompt doit indiquer explicitement:
-
-- modele attendu: Composer 2;
-- fichier de rapport a ecrire;
-- architecture source: `ARCHITECTURE.md`;
-- tache terminee;
-- fichiers modifies;
-- diff ou resume;
-- tests executes.
-
-## Prompts adaptes
-
-### Agent 1 - Cyber Security Reviewer
+## Agent 1 - Cyber Security Reviewer
 
 ```text
 You are Agent 1, the cyber security reviewer for the Tara refactor.
@@ -199,7 +100,7 @@ Output:
 - If there are no findings, say so clearly and mention residual security risk.
 ```
 
-### Agent 2 - Quality Code Reviewer
+## Agent 2 - Quality Code Reviewer
 
 ```text
 You are Agent 2, the quality code reviewer for the Tara refactor.
@@ -236,7 +137,7 @@ Output:
 - If there are no findings, say so clearly and mention residual quality risk.
 ```
 
-### Agent 3 - Testing Code Reviewer
+## Agent 3 - Testing Code Reviewer
 
 ```text
 You are Agent 3, the testing code reviewer for the Tara refactor.
@@ -273,7 +174,7 @@ Output:
 - If there are no findings, say so clearly and mention remaining test gaps.
 ```
 
-### Agent 4 - Integration Test Reviewer
+## Agent 4 - Integration Test Reviewer
 
 ```text
 You are Agent 4, the integration test reviewer for the Tara refactor.
@@ -310,7 +211,7 @@ Output:
 - If there are no findings, say so clearly and mention residual integration risk.
 ```
 
-### Agent 5 - Documentation Reviewer
+## Agent 5 - Documentation Reviewer
 
 ```text
 You are Agent 5, the documentation reviewer for the Tara refactor.
@@ -346,11 +247,3 @@ Output:
 - For each finding, explain what documentation is missing, stale, or misleading and propose the smallest useful update.
 - If there are no findings, say so clearly and mention residual documentation risk.
 ```
-
-## Criteres de validation
-
-- `projet.md` reference cette etape. **OK**
-- Les prompts de review subagent sont documentes. **OK** (`review_process/review_agents.md`)
-- Le protocole indique ou stocker les rapports. **OK** (`review_process/reviews/...`)
-- La politique de commit safety est explicite. **OK** (`review_agents.md`, `README.md`)
-- La definition de fini exige reviews approuvees pour les taches non triviales. **OK** (`projet.md`)

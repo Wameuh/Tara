@@ -128,3 +128,7 @@ La refactorisation est consideree terminee quand:
 - `12` Validation and acceptance: completed. Acceptance metrics are computed for
   each pipeline result, tested, included in `session_summary.json`, and checked
   on a private Record19 smoke with aggregate-only benchmark reporting.
+- `13` Commit safety and subagent review: completed. Composer 2 prompts, report
+  template, review folder layout, and explicit pre-commit checks are documented
+  under `review_process/` (`review_agents.md`, `report_template.md`, `README.md`)
+  and linked from the root `README.md`.

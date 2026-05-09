@@ -25,6 +25,16 @@ local runner behavior.
 - Run the review and commit safety gate after every roadmap task before moving
   to the next task.
 
+## Review and commit safety
+
+Operational workflow for Composer 2 subagents, staged-file checks, and report
+paths lives in `review_process/review_agents.md`. Copy the report layout from
+`review_process/report_template.md` and archive outputs under
+`review_process/reviews/task-<number>-<short-slug>/`. See `review_process/README.md`
+for a short index. Before every commit, run `git status --short`, stage explicit
+paths, inspect `git diff --cached`, and refuse anything that looks like secrets,
+`.env`, private media, or runtime analysis outputs.
+
 ## Reference Inputs
 
 `Record_session/Record19/transcriptions/merged_transcription.json` is the manual
@@ -51,6 +61,8 @@ transcription-server integration, processing, FastAPI endpoints, and final
 Task `12` adds acceptance metrics, validates those metrics in tests, and records
 a private Record19 aggregate benchmark without committing transcript-derived
 runtime outputs.
+Task `13` publishes the commit safety gate and five-role subagent review prompts
+under `review_process/` for repeatable reviews before each merge to `master`.
 
 ## Running
 
