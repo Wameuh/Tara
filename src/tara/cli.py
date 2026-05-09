@@ -33,6 +33,8 @@ class TaraArgs:
     start_from: str | None = None
     blackboard_path: Path | None = None
     analysis_plan_path: Path | None = None
+    prior_context_path: Path | None = None
+    cursor_cli_probe: bool = False
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -78,6 +80,19 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="FILE",
         help="Optional path for analysis plan debug JSON",
     )
+    parser.add_argument(
+        "--prior-context",
+        metavar="FILE",
+        help=(
+            "Optional markdown (e.g. prior session summary) included in the "
+            "Cursor CLI pipeline probe stdin when the probe runs"
+        ),
+    )
+    parser.add_argument(
+        "--cursor-cli-probe",
+        action="store_true",
+        help="Force the one-shot Cursor CLI probe before analysis (cursor_cli backend)",
+    )
     return parser
 
 
@@ -99,6 +114,7 @@ def parse_args(argv: Sequence[str] | None = None) -> TaraArgs:
     config = _optional_path(namespace.config)
     blackboard_path = _optional_path(namespace.blackboard_path)
     analysis_plan_path = _optional_path(namespace.analysis_plan_path)
+    prior_context_path = _optional_path(namespace.prior_context)
 
     if audio_dir is None and merged_transcription is None:
         raise ArgumentParserError(
@@ -118,6 +134,12 @@ def parse_args(argv: Sequence[str] | None = None) -> TaraArgs:
         )
     if config is not None and (not config.exists() or not config.is_file()):
         raise ArgumentParserError(f"Configuration file does not exist: {config}")
+    if prior_context_path is not None and (
+        not prior_context_path.exists() or not prior_context_path.is_file()
+    ):
+        raise ArgumentParserError(
+            f"Prior context file does not exist: {prior_context_path}",
+        )
 
     return TaraArgs(
         audio_dir=audio_dir.resolve() if audio_dir else None,
@@ -131,6 +153,10 @@ def parse_args(argv: Sequence[str] | None = None) -> TaraArgs:
         start_from=namespace.start_from,
         blackboard_path=blackboard_path.resolve() if blackboard_path else None,
         analysis_plan_path=analysis_plan_path.resolve() if analysis_plan_path else None,
+        prior_context_path=(
+            prior_context_path.resolve() if prior_context_path else None
+        ),
+        cursor_cli_probe=bool(namespace.cursor_cli_probe),
     )
 
 

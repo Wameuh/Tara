@@ -30,6 +30,29 @@ def test_parse_args_accepts_merged_transcription(tmp_path: Path) -> None:
 
     assert args.merged_transcription == merged.resolve()
     assert args.analysis_backend == "api"
+    assert args.prior_context_path is None
+    assert args.cursor_cli_probe is False
+
+
+def test_parse_args_accepts_prior_context_and_cursor_probe(tmp_path: Path) -> None:
+    """Optional prior markdown and Cursor CLI probe flags parse correctly."""
+    merged = tmp_path / "merged_transcription.json"
+    merged.write_text(_merged_payload(), encoding="utf-8")
+    prior = tmp_path / "prior.md"
+    prior.write_text("# Context\nLine.", encoding="utf-8")
+
+    args = parse_args(
+        [
+            "--merged-transcription",
+            str(merged),
+            "--prior-context",
+            str(prior),
+            "--cursor-cli-probe",
+        ],
+    )
+
+    assert args.prior_context_path == prior.resolve()
+    assert args.cursor_cli_probe is True
 
 
 def test_parse_args_rejects_missing_input() -> None:

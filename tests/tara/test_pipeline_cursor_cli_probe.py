@@ -14,6 +14,66 @@ from tara.config import TaraConfig
 from tara.pipeline import TaraControlAgent
 
 
+def test_prior_context_reaches_cursor_cli_probe_prompt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Prior-session markdown is embedded in the probe user prompt."""
+    merged = tmp_path / "merged_transcription.json"
+    merged.write_text(_merged_payload(), encoding="utf-8")
+    prior = tmp_path / "Resume.md"
+    prior.write_text("## Earlier\nThe temple was lost.", encoding="utf-8")
+    config_path = tmp_path / "configuration.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "analysis": {
+                    "llm": {
+                        "backend": "cursor_cli",
+                        "cursor_cli_probe": True,
+                    },
+                },
+            },
+        ),
+        encoding="utf-8",
+    )
+    seen: list[str] = []
+
+    class CapturingBackend:
+        backend_name: str = "cursor_cli"
+
+        def run(self, request: LLMRequest) -> LLMResponse:
+            seen.append(request.user_prompt)
+            return LLMResponse(
+                content="OK",
+                model="Auto",
+                backend="cursor_cli",
+                total_tokens=2,
+            )
+
+    monkeypatch.setattr(
+        "tara.pipeline._build_llm_runner",
+        lambda c: LLMRunner(
+            LLMRunnerConfig(backend="cursor_cli", model=None),
+            cursor_backend=CapturingBackend(),
+        ),
+    )
+    args = parse_args(
+        [
+            "--merged-transcription",
+            str(merged),
+            "--config",
+            str(config_path),
+            "--prior-context",
+            str(prior),
+        ],
+    )
+    TaraControlAgent(args).run()
+
+    assert seen and "--- prior sessions ---" in seen[0]
+    assert "The temple was lost." in seen[0]
+
+
 def test_cursor_cli_probe_merges_usage_into_session_summary(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -123,6 +183,51 @@ def test_cursor_cli_without_probe_skips_llm_runner(
         ["--merged-transcription", str(merged), "--config", str(config_path)],
     )
     TaraControlAgent(args).run()
+
+
+def test_cli_cursor_cli_probe_flag_enables_probe_without_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CLI `--cursor-cli-probe` enables the probe with a cursor_cli backend override."""
+    merged = tmp_path / "merged_transcription.json"
+    merged.write_text(_merged_payload(), encoding="utf-8")
+    config_path = tmp_path / "configuration.json"
+    cfg = {"analysis": {"llm": {"backend": "api", "cursor_cli_probe": False}}}
+    config_path.write_text(json.dumps(cfg), encoding="utf-8")
+
+    class StubCursorBackend:
+        backend_name: str = "cursor_cli"
+
+        def run(self, request: LLMRequest) -> LLMResponse:
+            return LLMResponse(
+                content="OK",
+                model="Auto",
+                backend="cursor_cli",
+                total_tokens=3,
+            )
+
+    monkeypatch.setattr(
+        "tara.pipeline._build_llm_runner",
+        lambda c: LLMRunner(
+            LLMRunnerConfig(backend="cursor_cli", model=None),
+            cursor_backend=StubCursorBackend(),
+        ),
+    )
+    args = parse_args(
+        [
+            "--merged-transcription",
+            str(merged),
+            "--config",
+            str(config_path),
+            "--analysis-backend",
+            "cursor_cli",
+            "--cursor-cli-probe",
+        ],
+    )
+    result = TaraControlAgent(args).run()
+    payload = json.loads(result.session_summary_json_path.read_text(encoding="utf-8"))
+    assert payload["usage"]["llm_call_count"] == 1
 
 
 def test_env_tara_cursor_cli_probe_enables_probe_without_json_flag(

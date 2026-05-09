@@ -137,9 +137,11 @@ class TaraControlAgent:
         index.write_metadata_json(analysis_output_dir / "evidence_index_metadata.json")
 
         llm_runner = _build_llm_runner(self._config)
+        prior_context = _read_prior_context_for_probe(self._args.prior_context_path)
         probe_stats = _maybe_run_cursor_cli_pipeline_probe(
             llm_runner,
             self._config,
+            prior_context=prior_context,
         )
         result = AnalysisOrchestrator(
             max_audit_attempts=self._config.analysis.max_audit_attempts,
@@ -191,6 +193,21 @@ def _apply_cli_overrides(config: TaraConfig, args: TaraArgs) -> None:
         config.analysis.llm.backend = args.analysis_backend
     if args.analysis_model:
         config.analysis.llm.model = args.analysis_model
+    if args.cursor_cli_probe:
+        config.analysis.llm.cursor_cli_probe = True
+
+
+_PRIOR_CONTEXT_PROBE_CHAR_LIMIT = 120_000
+
+
+def _read_prior_context_for_probe(path: Path | None) -> str | None:
+    """Load optional markdown prior-session context for the Cursor CLI probe."""
+    if path is None:
+        return None
+    text = path.read_text(encoding="utf-8")
+    if len(text) > _PRIOR_CONTEXT_PROBE_CHAR_LIMIT:
+        text = text[:_PRIOR_CONTEXT_PROBE_CHAR_LIMIT] + "\n\n[truncated]\n"
+    return text
 
 
 def _analysis_output_dir(
@@ -300,6 +317,7 @@ def _cursor_cli_probe_env_enabled() -> bool:
 def _maybe_run_cursor_cli_pipeline_probe(
     llm_runner: LLMRunner,
     config: TaraConfig,
+    prior_context: str | None = None,
 ) -> _CursorCliProbeStats:
     """Optionally run one Cursor CLI completion before deterministic analysis."""
     if config.analysis.llm.backend != "cursor_cli":
@@ -308,19 +326,32 @@ def _maybe_run_cursor_cli_pipeline_probe(
         config.analysis.llm.cursor_cli_probe or _cursor_cli_probe_env_enabled()
     ):
         return _CursorCliProbeStats(calls=0, tokens=0, cost_usd=0.0)
-    return _run_cursor_cli_pipeline_probe(llm_runner)
+    return _run_cursor_cli_pipeline_probe(llm_runner, prior_context=prior_context)
 
 
-def _run_cursor_cli_pipeline_probe(llm_runner: LLMRunner) -> _CursorCliProbeStats:
+def _run_cursor_cli_pipeline_probe(
+    llm_runner: LLMRunner,
+    prior_context: str | None = None,
+) -> _CursorCliProbeStats:
     """Execute a single non-transcript health check via `LLMRunner`."""
     LOGGER.info("Running Cursor CLI pipeline probe (agent -p).")
+    if prior_context and prior_context.strip():
+        user_prompt = (
+            "The following markdown is prior campaign context for reference only. "
+            "Do not repeat it.\n\n--- prior sessions ---\n"
+            f"{prior_context.strip()}\n"
+            "--- end prior sessions ---\n\n"
+            "Health check: respond with exactly OK and nothing else."
+        )
+    else:
+        user_prompt = "Health check: respond with OK only."
     request = LLMRequest(
         purpose="pipeline.cursor_cli_probe",
         system_prompt=(
             "You are a non-interactive health check for a local automation pipeline. "
             "Reply with exactly the two letters OK and nothing else."
         ),
-        user_prompt="Health check: respond with OK only.",
+        user_prompt=user_prompt,
     )
     try:
         response = llm_runner.run(request)

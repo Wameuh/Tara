@@ -25,9 +25,16 @@ Recorded fields (after a full run):
    `analysis.llm.cursor_cli_probe` to `true` (see root `config/configuration.json`
    for the default shape).
 
-2. **Environment override** — set `TARA_CURSOR_CLI_PROBE` to `1`, `true`, `yes`, or
+2. **CLI override** — pass `--analysis-backend cursor_cli` and `--cursor-cli-probe`
+   so the probe runs without changing the config file.
+
+3. **Environment override** — set `TARA_CURSOR_CLI_PROBE` to `1`, `true`, `yes`, or
    `on` to force the probe even when `cursor_cli_probe` is `false` in JSON (useful
    for one-off local runs without editing files).
+
+4. **Prior-session markdown** — optional `--prior-context path/to/resume.md` embeds
+   that file (truncated at 120k characters) inside the probe user prompt only; it
+   does not change deterministic specialist inputs.
 
 ## Example (local, private merged JSON)
 

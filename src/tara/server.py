@@ -103,6 +103,8 @@ def _request_to_args(request: RunRequest) -> TaraArgs:
         analysis_backend=request.analysis_backend,
         analysis_model=request.analysis_model,
         start_from=request.start_from,
+        prior_context_path=None,
+        cursor_cli_probe=False,
     )
 
 

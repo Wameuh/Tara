@@ -74,6 +74,11 @@ deterministic specialists yet, enable the optional probe: set
 the CLI; set `TARA_CURSOR_CLI_E2E=1` to opt into a single real `pytest` smoke that
 calls the actual Cursor binary.
 
+CLI shortcuts: `--analysis-backend cursor_cli` with `--cursor-cli-probe` forces
+the probe without editing JSON; `--prior-context FILE` attaches prior-session
+markdown to the probe stdin only (deterministic analysis still uses the merged
+transcription JSON on disk).
+
 ## Running
 
 Analyze an existing merged transcription:
