@@ -1,0 +1,592 @@
+"""Common LLM runner abstraction for Tara analysis agents.
+
+This module keeps concrete LLM execution details behind a small interface so
+analysis agents can request completions without knowing whether the call is sent
+to an API backend or to Cursor CLI.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import time
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
+from typing import Any, Literal, Protocol
+
+import requests
+
+LLMBackendName = Literal["api", "cursor_cli"]
+CursorPromptTransport = Literal["stdin", "argv"]
+RETRYABLE_HTTP_STATUS_CODES = {408, 409, 425, 429, 500, 502, 503, 504}
+DEFAULT_CURSOR_ENV_ALLOWLIST = (
+    "PATH",
+    "PATHEXT",
+    "SYSTEMROOT",
+    "COMSPEC",
+    "WINDIR",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+)
+
+
+class LLMRunnerError(RuntimeError):
+    """Base exception raised by LLM runner failures."""
+
+
+class LLMConfigurationError(LLMRunnerError):
+    """Raised when the LLM runner configuration is invalid."""
+
+
+class LLMBackendError(LLMRunnerError):
+    """Raised when a backend fails to produce a completion."""
+
+
+@dataclass(slots=True)
+class ModelPricing:
+    """Token pricing for cost estimation.
+
+    Attributes:
+        input_usd_per_million: Cost for one million non-cached input tokens.
+        output_usd_per_million: Cost for one million output tokens.
+        cached_input_usd_per_million: Cost for one million cached input tokens.
+    """
+
+    input_usd_per_million: float
+    output_usd_per_million: float
+    cached_input_usd_per_million: float = 0.0
+
+    def estimate_cost(
+        self,
+        input_tokens: int,
+        output_tokens: int,
+        cached_input_tokens: int = 0,
+    ) -> float:
+        """Estimate a request cost in USD.
+
+        Args:
+            input_tokens: Number of input tokens.
+            output_tokens: Number of output tokens.
+            cached_input_tokens: Number of cached input tokens, if available.
+
+        Returns:
+            Estimated cost in USD.
+        """
+        cached = min(max(cached_input_tokens, 0), max(input_tokens, 0))
+        uncached = max(input_tokens - cached, 0)
+        return (
+            uncached / 1_000_000.0 * self.input_usd_per_million
+            + cached / 1_000_000.0 * self.cached_input_usd_per_million
+            + max(output_tokens, 0) / 1_000_000.0 * self.output_usd_per_million
+        )
+
+
+@dataclass(slots=True)
+class LLMRequest:
+    """Structured request sent by analysis agents.
+
+    Attributes:
+        purpose: Business purpose used for telemetry and cost reports.
+        system_prompt: System-level instruction.
+        user_prompt: User/task prompt.
+        response_format: Optional structured response format descriptor.
+        model: Optional model override. API requests require either this value or
+            a configured model.
+        temperature: Sampling temperature.
+        max_output_tokens: Optional output token budget.
+        metadata: Additional agent/run metadata.
+    """
+
+    purpose: str
+    system_prompt: str
+    user_prompt: str
+    response_format: Mapping[str, Any] | None = None
+    model: str | None = None
+    temperature: float = 0.0
+    max_output_tokens: int | None = None
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class LLMResponse:
+    """Structured response returned by all LLM backends.
+
+    Attributes:
+        content: Completion text.
+        model: Model used by the backend.
+        backend: Backend name.
+        input_tokens: Input token count if available.
+        output_tokens: Output token count if available.
+        total_tokens: Total token count if available.
+        raw_usage: Raw backend usage payload.
+        estimated_cost_usd: Estimated request cost, if pricing is configured.
+        metadata: Backend-specific metadata safe for logs.
+    """
+
+    content: str
+    model: str
+    backend: LLMBackendName
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    raw_usage: Mapping[str, Any] = field(default_factory=dict)
+    estimated_cost_usd: float | None = None
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class LLMRunnerConfig:
+    """Configuration for the shared LLM runner.
+
+    Attributes:
+        backend: Selected backend, `api` or `cursor_cli`.
+        model: Default model. API backend requires an explicit non-empty model.
+        api_base_url: Base URL for OpenAI-compatible Responses API calls.
+        api_key_env: Environment variable that contains the API key.
+        timeout_seconds: Backend timeout in seconds.
+        max_retries: Retry count after the first attempt for transient failures.
+        retry_backoff_seconds: Initial exponential backoff duration.
+        cursor_command: Cursor CLI command.
+        cursor_args: Cursor CLI arguments preceding the prompt.
+        cursor_prompt_transport: How to pass the prompt to Cursor CLI. `stdin`
+            avoids exposing prompt text in process arguments and is the default.
+        cursor_env_allowlist: Environment variables inherited by Cursor CLI.
+        include_cursor_stderr: Include successful Cursor CLI stderr in response
+            metadata. Disabled by default to avoid leaking diagnostics.
+        telemetry_metadata_keys: Request metadata keys that are safe to forward
+            to telemetry. All metadata is dropped by default.
+        pricing_by_model: Optional pricing table for cost estimation.
+    """
+
+    backend: LLMBackendName = "api"
+    model: str | None = None
+    api_base_url: str = "https://api.openai.com/v1"
+    api_key_env: str = "OPENAI_API_KEY"
+    timeout_seconds: int = 900
+    max_retries: int = 3
+    retry_backoff_seconds: float = 1.0
+    cursor_command: str = "agent"
+    cursor_args: Sequence[str] = field(default_factory=lambda: ("-p",))
+    cursor_prompt_transport: CursorPromptTransport = "stdin"
+    cursor_env_allowlist: Sequence[str] = field(
+        default_factory=lambda: DEFAULT_CURSOR_ENV_ALLOWLIST
+    )
+    include_cursor_stderr: bool = False
+    telemetry_metadata_keys: Sequence[str] = field(default_factory=tuple)
+    pricing_by_model: Mapping[str, ModelPricing] = field(default_factory=dict)
+
+
+class TelemetryRecorder(Protocol):
+    """Protocol for telemetry services used by `LLMRunner`."""
+
+    def record(self, name: str, payload: Mapping[str, Any]) -> None:
+        """Record a telemetry event.
+
+        Args:
+            name: Event name.
+            payload: JSON-serializable event payload.
+        """
+
+
+class LLMBackend(Protocol):
+    """Protocol implemented by concrete LLM backends."""
+
+    backend_name: LLMBackendName
+
+    def run(self, request: LLMRequest) -> LLMResponse:
+        """Execute a request and return a normalized response."""
+
+
+class OpenAIAPIBackend:
+    """OpenAI-compatible Responses API backend."""
+
+    backend_name: LLMBackendName = "api"
+
+    def __init__(
+        self,
+        config: LLMRunnerConfig,
+        http_post: Callable[..., Any] | None = None,
+    ) -> None:
+        """Initialize the API backend.
+
+        Args:
+            config: Runner configuration.
+            http_post: Optional callable used for tests instead of
+                `requests.post`.
+
+        Raises:
+            LLMConfigurationError: If the API model is not configured.
+        """
+        if not config.model:
+            raise LLMConfigurationError("API backend requires an explicit model.")
+        self._config = config
+        self._http_post = http_post or requests.post
+
+    def run(self, request: LLMRequest) -> LLMResponse:
+        """Execute a request through an OpenAI-compatible Responses API."""
+        model = request.model or self._config.model
+        if not model:
+            raise LLMConfigurationError("API request requires an explicit model.")
+
+        api_key = os.getenv(self._config.api_key_env)
+        if not api_key:
+            raise LLMConfigurationError(
+                f"Missing API key environment variable: {self._config.api_key_env}"
+            )
+
+        payload: dict[str, Any] = {
+            "model": model,
+            "input": [
+                {"role": "system", "content": request.system_prompt},
+                {"role": "user", "content": request.user_prompt},
+            ],
+            "temperature": request.temperature,
+        }
+        if request.max_output_tokens is not None:
+            payload["max_output_tokens"] = request.max_output_tokens
+        if request.response_format is not None:
+            payload["response_format"] = dict(request.response_format)
+
+        try:
+            response = self._http_post(
+                f"{self._config.api_base_url.rstrip('/')}/responses",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=self._config.timeout_seconds,
+            )
+            self._raise_for_status(response)
+            data = self._to_mapping(response.json())
+        except LLMRunnerError:
+            raise
+        except requests.RequestException as exc:
+            raise LLMBackendError(f"API transport failed: {exc}") from exc
+        except ValueError as exc:
+            raise LLMBackendError("API response JSON could not be decoded.") from exc
+        content = self._extract_content(data)
+        usage = self._to_mapping(data.get("usage", {}))
+        input_tokens = self._to_int(
+            usage.get("input_tokens", usage.get("prompt_tokens", 0))
+        )
+        output_tokens = self._to_int(
+            usage.get("output_tokens", usage.get("completion_tokens", 0))
+        )
+        total_tokens = self._to_int(
+            usage.get("total_tokens", input_tokens + output_tokens)
+        )
+        cached_tokens = self._to_int(
+            self._to_mapping(usage.get("input_tokens_details", {})).get(
+                "cached_tokens",
+                usage.get("cached_input_tokens", 0),
+            )
+        )
+
+        pricing = self._config.pricing_by_model.get(model)
+        estimated_cost = (
+            pricing.estimate_cost(input_tokens, output_tokens, cached_tokens)
+            if pricing
+            else None
+        )
+        return LLMResponse(
+            content=content,
+            model=str(data.get("model", model)),
+            backend=self.backend_name,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+            raw_usage=usage,
+            estimated_cost_usd=estimated_cost,
+        )
+
+    @staticmethod
+    def _raise_for_status(response: Any) -> None:
+        """Raise a backend error if the HTTP response failed."""
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            status_code = int(getattr(response, "status_code", 0) or 0)
+            if status_code and status_code not in RETRYABLE_HTTP_STATUS_CODES:
+                raise LLMConfigurationError(
+                    f"API request failed with non-retryable status {status_code}."
+                ) from exc
+            raise LLMBackendError(f"API request failed: {exc}") from exc
+        except requests.RequestException as exc:
+            raise LLMBackendError(f"API request failed: {exc}") from exc
+
+    @classmethod
+    def _extract_content(cls, data: Mapping[str, Any]) -> str:
+        """Extract text from common OpenAI Responses API payload shapes."""
+        output_text = data.get("output_text")
+        if isinstance(output_text, str) and output_text:
+            return output_text
+
+        parts: list[str] = []
+        output = data.get("output", [])
+        if isinstance(output, list):
+            for item in output:
+                if not isinstance(item, Mapping):
+                    continue
+                content = item.get("content", [])
+                if not isinstance(content, list):
+                    continue
+                for block in content:
+                    if not isinstance(block, Mapping):
+                        continue
+                    text = block.get("text")
+                    if isinstance(text, str):
+                        parts.append(text)
+        if parts:
+            return "\n".join(parts)
+
+        raise LLMBackendError("API response did not contain completion text.")
+
+    @staticmethod
+    def _to_mapping(value: Any) -> Mapping[str, Any]:
+        """Return a mapping value or an empty mapping."""
+        return value if isinstance(value, Mapping) else {}
+
+    @staticmethod
+    def _to_int(value: Any) -> int:
+        """Convert backend token values to non-negative integers."""
+        try:
+            return max(0, int(value))
+        except (TypeError, ValueError):
+            return 0
+
+
+class CursorCLIBackend:
+    """Cursor CLI backend using `agent -p` in non-interactive mode."""
+
+    backend_name: LLMBackendName = "cursor_cli"
+
+    def __init__(
+        self,
+        config: LLMRunnerConfig,
+        subprocess_run: Callable[..., subprocess.CompletedProcess[str]] | None = None,
+    ) -> None:
+        """Initialize the Cursor CLI backend.
+
+        Args:
+            config: Runner configuration.
+            subprocess_run: Optional subprocess runner for tests.
+        """
+        self._config = config
+        self._subprocess_run = subprocess_run or subprocess.run
+
+    def run(self, request: LLMRequest) -> LLMResponse:
+        """Execute a request with Cursor CLI and normalize stdout.
+
+        Args:
+            request: Structured LLM request.
+
+        Returns:
+            Normalized Cursor CLI response.
+
+        Raises:
+            LLMBackendError: If Cursor CLI is missing, times out, exits with an
+                error, or returns empty output.
+        """
+        prompt = self._build_prompt(request)
+        command = [
+            self._config.cursor_command,
+            *[str(arg) for arg in self._config.cursor_args],
+        ]
+        input_text = prompt
+        if self._config.cursor_prompt_transport == "argv":
+            command.append(prompt)
+            input_text = None
+        try:
+            result = self._subprocess_run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=self._config.timeout_seconds,
+                check=False,
+                input=input_text,
+                env=self._cursor_environment(),
+            )
+        except FileNotFoundError as exc:
+            raise LLMBackendError(
+                f"Cursor CLI command not found: {self._config.cursor_command}"
+            ) from exc
+        except subprocess.TimeoutExpired as exc:
+            raise LLMBackendError("Cursor CLI request timed out.") from exc
+
+        if result.returncode != 0:
+            stderr = (result.stderr or "").strip()
+            raise LLMBackendError(
+                f"Cursor CLI failed with exit code {result.returncode}: {stderr}"
+            )
+
+        content = (result.stdout or "").strip()
+        if not content:
+            raise LLMBackendError("Cursor CLI returned empty output.")
+
+        metadata = (
+            {"stderr": (result.stderr or "").strip()}
+            if self._config.include_cursor_stderr
+            else {}
+        )
+        return LLMResponse(
+            content=content,
+            model=request.model or self._config.model or "Auto",
+            backend=self.backend_name,
+            metadata=metadata,
+        )
+
+    @staticmethod
+    def _build_prompt(request: LLMRequest) -> str:
+        """Build the JSON prompt payload for Cursor CLI.
+
+        Args:
+            request: Structured LLM request.
+
+        Returns:
+            JSON payload containing purpose, prompts, response format, and
+            metadata. The payload is sent via stdin by default to avoid process
+            argument exposure.
+        """
+        payload = {
+            "purpose": request.purpose,
+            "system_prompt": request.system_prompt,
+            "user_prompt": request.user_prompt,
+            "response_format": request.response_format,
+            "metadata": dict(request.metadata),
+        }
+        return json.dumps(payload, ensure_ascii=False)
+
+    def _cursor_environment(self) -> dict[str, str]:
+        """Build a sanitized environment for Cursor CLI.
+
+        Returns:
+            A dictionary containing only allow-listed environment variables.
+        """
+        allowlist = {item.upper() for item in self._config.cursor_env_allowlist}
+        return {
+            key: value
+            for key, value in os.environ.items()
+            if key.upper() in allowlist
+        }
+
+
+class LLMRunner:
+    """Stable facade used by Tara analysis agents."""
+
+    def __init__(
+        self,
+        config: LLMRunnerConfig,
+        telemetry: TelemetryRecorder | None = None,
+        api_backend: LLMBackend | None = None,
+        cursor_backend: LLMBackend | None = None,
+        sleep: Callable[[float], None] | None = None,
+    ) -> None:
+        """Initialize the runner.
+
+        Args:
+            config: Runner configuration.
+            telemetry: Optional telemetry recorder.
+            api_backend: Optional API backend override for tests.
+            cursor_backend: Optional Cursor CLI backend override for tests.
+            sleep: Optional sleep callable for retry tests.
+        """
+        self._config = config
+        self._telemetry = telemetry
+        self._sleep = sleep or time.sleep
+        self._backends: dict[LLMBackendName, LLMBackend] = {}
+        if api_backend is not None:
+            self._backends["api"] = api_backend
+        if cursor_backend is not None:
+            self._backends["cursor_cli"] = cursor_backend
+
+    def run(self, prompt: LLMRequest) -> LLMResponse:
+        """Execute an LLM request through the configured backend.
+
+        Args:
+            prompt: Structured LLM request.
+
+        Returns:
+            Normalized LLM response.
+
+        Raises:
+            LLMBackendError: If the backend fails after configured retries.
+            LLMConfigurationError: If the backend reports a non-retryable
+                configuration or client error.
+        """
+        backend = self._get_backend(self._config.backend)
+        attempts = 1 + max(0, self._config.max_retries)
+        last_error: LLMBackendError | None = None
+        for attempt in range(1, attempts + 1):
+            try:
+                response = backend.run(prompt)
+                self._record_telemetry(prompt, response, attempt)
+                return response
+            except LLMBackendError as exc:
+                last_error = exc
+                if attempt >= attempts:
+                    break
+                self._sleep(self._config.retry_backoff_seconds * (2 ** (attempt - 1)))
+
+        raise LLMBackendError(
+            f"LLM backend {self._config.backend!r} failed after {attempts} attempts."
+        ) from last_error
+
+    def _get_backend(self, name: LLMBackendName) -> LLMBackend:
+        """Create or return the selected backend."""
+        existing = self._backends.get(name)
+        if existing is not None:
+            return existing
+        if name == "api":
+            backend = OpenAIAPIBackend(self._config)
+        elif name == "cursor_cli":
+            backend = CursorCLIBackend(self._config)
+        else:
+            raise LLMConfigurationError(f"Unsupported LLM backend: {name}")
+        self._backends[name] = backend
+        return backend
+
+    def _record_telemetry(
+        self,
+        request: LLMRequest,
+        response: LLMResponse,
+        attempt: int,
+    ) -> None:
+        """Record usage telemetry when a recorder is configured."""
+        if self._telemetry is None:
+            return
+        self._telemetry.record(
+            "llm_runner.usage.recorded",
+            {
+                "purpose": request.purpose,
+                "backend": response.backend,
+                "model": response.model,
+                "input_tokens": response.input_tokens,
+                "output_tokens": response.output_tokens,
+                "total_tokens": response.total_tokens,
+                "estimated_cost_usd": response.estimated_cost_usd,
+                "attempt": attempt,
+                "metadata": self._safe_metadata(request.metadata),
+            },
+        )
+
+    def _safe_metadata(self, metadata: Mapping[str, Any]) -> dict[str, Any]:
+        """Return telemetry metadata restricted to configured safe keys.
+
+        Args:
+            metadata: Request metadata that may contain private or transcript
+                derived values.
+
+        Returns:
+            Metadata containing only configured safe keys and scalar values.
+        """
+        allowed = set(self._config.telemetry_metadata_keys)
+        safe: dict[str, Any] = {}
+        for key, value in metadata.items():
+            if key not in allowed:
+                continue
+            if isinstance(value, str | int | float | bool) or value is None:
+                safe[key] = value
+        return safe

@@ -31,8 +31,11 @@ Objectif: remplacer la partie analyse actuelle de Tara par l'architecture "Black
 Tous les appels LLM doivent passer par une couche commune capable de choisir entre:
 
 - une API LLM classique;
-- Cursor CLI en mode non interactif avec `agent -p`;
-- modele par defaut: `Auto`.
+- Cursor CLI en mode non interactif avec `agent -p`.
+
+La voie `api` exige un modele explicite dans la configuration ou la requete. La
+voie `cursor_cli` utilise `Auto` comme modele de repli quand aucun modele n'est
+configure.
 
 Le reste du pipeline ne doit pas connaitre le backend exact. Les agents demandent une completion structuree a un `LLMRunner`; le runner decide comment executer l'appel.
 
@@ -104,3 +107,6 @@ La refactorisation est consideree terminee quand:
   artifact/secret exclusions, and `run_tara.bat` compatibility reference are
   documented in `README.md` and
   `tmp/migration_inventory.md`.
+- `02` Shared LLM runner API/Cursor CLI: completed. `LLMRunner` now exposes API
+  and Cursor CLI backends through one typed interface, with mock-only tests,
+  retries, usage parsing, cost estimation, and telemetry event support.
