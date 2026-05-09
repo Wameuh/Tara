@@ -565,13 +565,21 @@ class FinalPatchAgent:
 class AnalysisOrchestrator:
     """Run the bounded blackboard analysis loop."""
 
-    def __init__(self, max_audit_attempts: int = 3) -> None:
+    def __init__(
+        self,
+        max_audit_attempts: int = 3,
+        llm_runner: object | None = None,
+        specialist_config: JsonObject | None = None,
+    ) -> None:
         """Initialize the orchestrator."""
         if max_audit_attempts < 1:
             raise ValueError("max_audit_attempts must be at least one.")
         self._max_audit_attempts = max_audit_attempts
         self._planner = AnalysisPlannerAgent()
-        self._specialists = _default_specialists()
+        self._specialists = _default_specialists(
+            llm_runner=llm_runner,
+            config=specialist_config,
+        )
         self._blackboard = BlackboardController()
         self._arbitration = ArbitrationPanel()
         self._composer = SummaryComposerAgent()
@@ -634,14 +642,23 @@ def _question(
     )
 
 
-def _default_specialists() -> dict[str, SpecialistAgent]:
+def _default_specialists(
+    llm_runner: object | None = None,
+    config: JsonObject | None = None,
+) -> dict[str, SpecialistAgent]:
     """Return the standard specialist registry."""
     return {
-        "ChronologyAgent": ChronologyAgent(),
-        "CombatOutcomeAgent": CombatOutcomeAgent(),
-        "CharacterStateAgent": CharacterStateAgent(),
-        "QuestContinuityAgent": QuestContinuityAgent(),
-        "UncertaintyAgent": UncertaintyAgent(),
+        "ChronologyAgent": ChronologyAgent(llm_runner=llm_runner, config=config),
+        "CombatOutcomeAgent": CombatOutcomeAgent(llm_runner=llm_runner, config=config),
+        "CharacterStateAgent": CharacterStateAgent(
+            llm_runner=llm_runner,
+            config=config,
+        ),
+        "QuestContinuityAgent": QuestContinuityAgent(
+            llm_runner=llm_runner,
+            config=config,
+        ),
+        "UncertaintyAgent": UncertaintyAgent(llm_runner=llm_runner, config=config),
     }
 
 

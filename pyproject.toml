@@ -4,9 +4,14 @@ version = "0.1.0"
 description = "Standalone Tara blackboard analysis application."
 requires-python = ">=3.13"
 dependencies = [
+  "fastapi>=0.115",
   "pydantic>=2.12",
   "requests>=2.32",
+  "uvicorn>=0.32",
 ]
+
+[project.scripts]
+tara = "tara.__main__:main"
 
 [project.optional-dependencies]
 dev = [

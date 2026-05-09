@@ -122,3 +122,6 @@ La refactorisation est consideree terminee quand:
   implementation. Planner, specialists, blackboard, arbitration, composer,
   adversarial audit, final patching, and a bounded three-attempt loop now share
   typed models and local retrieval.
+- `11` Standalone orchestration: completed. The new package exposes a `tara`
+  CLI, JSON config, local transcription-server integration, FastAPI endpoints,
+  and final `session_summary.md` / `session_summary.json` outputs.

@@ -102,4 +102,10 @@ pipeline:
 This first implementation is deterministic and uses the shared retrieval/model
 contracts. LLM-assisted behavior can be added behind the same typed boundaries.
 Specialist classes already accept optional `llm_runner` and config values, but
-the current CI-safe path does not invoke them.
+the current CI-safe path does not invoke them. The application layer passes the
+configured runner into that boundary so future LLM-assisted behavior does not
+need to change specialist construction.
+
+The standalone application layer in `tara.pipeline` builds this package from
+`merged_transcription.json`, writes private evidence/debug artifacts, and emits
+the user-facing `session_summary.md` plus traceable `session_summary.json`.

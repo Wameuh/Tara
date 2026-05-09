@@ -45,3 +45,43 @@ Tasks `05`-`10` add the deterministic planner, specialists, blackboard,
 arbitration, composer, audit, patching, and bounded audit loop.
 This is the first deterministic implementation; LLM-assisted specialist and
 composer behavior will be added behind the same typed boundaries later.
+Task `11` wires the standalone CLI, JSON configuration, `.env` loading,
+transcription-server integration, processing, FastAPI endpoints, and final
+`session_summary.md` / `session_summary.json` generation.
+
+## Running
+
+Analyze an existing merged transcription:
+
+```powershell
+conda activate DM
+$env:PYTHONPATH = "src"
+python -m tara --merged-transcription "C:\path\to\merged_transcription.json"
+```
+
+Successful CLI runs print a JSON `TaraRunResult` to stdout with the generated
+artifact paths.
+
+Run from an audio directory with the Windows helper, which starts the local
+transcription inference server from the old `Tara` reference project:
+
+```bat
+run_tara.bat --audio-dir "C:\path\to\audio"
+```
+
+Run the API server:
+
+```powershell
+conda activate DM
+$env:PYTHONPATH = "src"
+python -m uvicorn tara.server:app --host 127.0.0.1 --port 8080
+```
+
+The API exposes `GET /health`, `POST /v1/runs`, and `POST /v1/analysis`.
+It is localhost-oriented by default. Set `TARA_API_TOKEN` and send
+`Authorization: Bearer <token>` before exposing it beyond the local machine;
+non-local requests are rejected when no token is configured.
+
+`.env` is loaded from the TaraRepo project root, not from arbitrary process
+working directories. Generated summaries and analysis artifacts contain
+transcript-derived private content and should stay out of version control.
