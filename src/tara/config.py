@@ -96,8 +96,9 @@ class ProcessingConfig:
 class AnalysisLLMConfig:
     """Configuration for future LLM-assisted analysis calls."""
 
-    backend: str = "api"
+    backend: str = "deterministic"
     model: str = "Auto"
+    default_api_model: str | None = None
     cursor_command: str = "agent"
     cursor_args: list[str] = field(default_factory=lambda: ["-p"])
     timeout_seconds: int = 900
@@ -111,9 +112,13 @@ class AnalysisLLMConfig:
         cursor_args = data.get("cursor_args", defaults.cursor_args)
         if not isinstance(cursor_args, list):
             cursor_args = defaults.cursor_args
+        default_api = data.get("default_api_model", defaults.default_api_model)
+        if default_api is not None:
+            default_api = str(default_api)
         return cls(
             backend=str(data.get("backend", defaults.backend)),
             model=str(data.get("model", defaults.model)),
+            default_api_model=default_api,
             cursor_command=str(data.get("cursor_command", defaults.cursor_command)),
             cursor_args=[str(arg) for arg in cursor_args],
             timeout_seconds=int(data.get("timeout_seconds", defaults.timeout_seconds)),

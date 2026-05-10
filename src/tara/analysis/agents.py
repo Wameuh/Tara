@@ -1,10 +1,20 @@
-"""Deterministic agent layer for the Tara blackboard analysis pipeline."""
+"""Deterministic and agentic agent layer for the Tara blackboard analysis pipeline."""
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol, cast
 
+from tara.analysis.agentic_llm import (
+    LLMUsageDelta,
+    blackboard_facts_to_payload,
+    run_arbitration_llm,
+    run_audit_llm,
+    run_composer_llm,
+    run_specialist_extraction,
+)
+from tara.analysis.llm_runner import LLMRunner
 from tara.analysis.models import (
     AnalysisPlan,
     AnalysisQuestion,
@@ -25,6 +35,9 @@ from tara.analysis.models import (
     SummaryDraft,
     SummarySection,
 )
+from tara.analysis.structured_output import ArbitrationLLMVerdict
+
+LOGGER = logging.getLogger(__name__)
 
 
 class EvidenceRetriever(Protocol):
@@ -81,7 +94,11 @@ class AnalysisPlannerAgent:
                 "chronology",
                 "ChronologyAgent",
                 ClaimType.CHRONOLOGY,
-                ["chronologie evenement majeur", "mort sanctuaire temple"],
+                [
+                    "chronologie evenement majeur",
+                    "mort sanctuaire temple",
+                    "debut milieu fin session ordre des scenes",
+                ],
                 priority=1,
             ),
             _question(
@@ -96,7 +113,11 @@ class AnalysisPlannerAgent:
                 "character_state",
                 "CharacterStateAgent",
                 ClaimType.CHARACTER_STATE,
-                ["etat final personnage position ressource", "potion soin blessure"],
+                [
+                    "etat final personnage position ressource",
+                    "potion soin blessure",
+                    "fin session blessure position groupe",
+                ],
                 priority=1,
                 risk_level=ConflictSeverity.MAJOR,
             ),
@@ -130,7 +151,7 @@ class AnalysisPlannerAgent:
 
 
 class SpecialistAgent:
-    """Base deterministic specialist that answers from retrieved chunks only."""
+    """Specialist that answers from retrieved chunks, optionally via LLM extraction."""
 
     agent_name: str = "SpecialistAgent"
     claim_type: ClaimType = ClaimType.CHRONOLOGY
@@ -143,11 +164,23 @@ class SpecialistAgent:
         """Initialize a specialist agent.
 
         Args:
-            llm_runner: Optional future LLM runner injection point.
+            llm_runner: Optional LLM runner for agentic extraction.
             config: Optional JSON-compatible agent configuration.
         """
         self.llm_runner = llm_runner
         self.config = config or {}
+        self.last_llm_usage = LLMUsageDelta()
+
+    def _agentic_backend_enabled(self) -> bool:
+        """Return True when this specialist should call the LLM."""
+        backend = str(self.config.get("backend", "deterministic"))
+        if self.llm_runner is None:
+            return False
+        if backend == "api":
+            return True
+        if backend == "cursor_cli":
+            return bool(self.config.get("cursor_cli_probe"))
+        return False
 
     def answer(
         self,
@@ -166,6 +199,7 @@ class SpecialistAgent:
             Sourced evidence answers. If retrieval returns nothing, a single
             uncertain answer is emitted instead of hallucinated facts.
         """
+        self.last_llm_usage = LLMUsageDelta()
         results: list[RetrievedEvidence] = []
         for query in question.retrieval_queries:
             results.extend(retriever.retrieve(query, limit=limit_per_query))
@@ -183,10 +217,35 @@ class SpecialistAgent:
                     notes="Deterministic fallback after empty retrieval.",
                 )
             ]
+        if self._agentic_backend_enabled():
+            runner = cast(LLMRunner, self.llm_runner)
+            chunks = [item.chunk for item in deduped]
+            answers, usage = run_specialist_extraction(
+                runner,
+                question=question,
+                chunks=chunks,
+                default_claim_type=_question_claim_type(question, self.claim_type),
+                is_critical_default=question.risk_level == ConflictSeverity.CRITICAL,
+            )
+            self.last_llm_usage = usage
+            if len(answers) == 1 and answers[0].status == FactStatus.UNCERTAIN:
+                return [
+                    self._answer_from_evidence(question, result, index)
+                    for index, result in enumerate(deduped)
+                ]
+            return self._postprocess_llm_answers(question, answers)
         return [
             self._answer_from_evidence(question, result, index)
             for index, result in enumerate(deduped)
         ]
+
+    def _postprocess_llm_answers(
+        self,
+        question: AnalysisQuestion,
+        answers: list[EvidenceAnswer],
+    ) -> list[EvidenceAnswer]:
+        """Allow subclasses to adjust LLM answers before returning."""
+        return answers
 
     def _answer_from_evidence(
         self,
@@ -209,7 +268,7 @@ class SpecialistAgent:
         return EvidenceAnswer(
             answer_id=f"{question.question_id}_{index:02d}",
             question_id=question.question_id,
-            claim=f"{self.agent_name}: {_short_text(chunk.text)}",
+            claim=_short_text(chunk.text),
             status=FactStatus.SUPPORTED,
             importance=importance,
             support=support,
@@ -254,6 +313,28 @@ class UncertaintyAgent(SpecialistAgent):
     agent_name = "UncertaintyAgent"
     claim_type = ClaimType.FINAL_STATE
 
+    def _postprocess_llm_answers(
+        self,
+        question: AnalysisQuestion,
+        answers: list[EvidenceAnswer],
+    ) -> list[EvidenceAnswer]:
+        """Reject answers that restate explicitly forbidden transcript cues."""
+        adjusted: list[EvidenceAnswer] = []
+        for answer in answers:
+            if "interdit" in answer.claim.lower():
+                adjusted.append(
+                    answer.model_copy(
+                        update={
+                            "status": FactStatus.REJECTED,
+                            "confidence": Confidence.HIGH,
+                            "notes": "Claim explicitly marked as forbidden.",
+                        },
+                    ),
+                )
+            else:
+                adjusted.append(answer)
+        return adjusted
+
     def _answer_from_evidence(
         self,
         question: AnalysisQuestion,
@@ -268,7 +349,7 @@ class UncertaintyAgent(SpecialistAgent):
                     "status": FactStatus.REJECTED,
                     "confidence": Confidence.HIGH,
                     "notes": "Claim explicitly marked as forbidden.",
-                }
+                },
             )
         return answer
 
@@ -320,7 +401,7 @@ class BlackboardController:
 
     @staticmethod
     def _detect_conflicts(facts: list[BlackboardFact]) -> list[Conflict]:
-        """Detect simple competing critical claims by claim type."""
+        """Detect competing critical claims, skipping complementary duplicates."""
         conflicts: list[Conflict] = []
         grouped: dict[ClaimType, list[BlackboardFact]] = {}
         for fact in facts:
@@ -329,45 +410,89 @@ class BlackboardController:
             grouped.setdefault(fact.claim_type, []).append(fact)
         for claim_type, candidates in grouped.items():
             critical = [fact for fact in candidates if fact.importance >= 4]
-            claims = {_normalize_claim(fact.claim) for fact in critical}
-            if len(critical) > 1 and len(claims) > 1:
-                severity = (
-                    ConflictSeverity.CRITICAL
-                    if any(
-                        fact.is_critical or fact.importance >= 5
+            if len(critical) < 2:
+                continue
+            normalized = {_normalize_claim(fact.claim) for fact in critical}
+            if len(normalized) <= 1:
+                continue
+            if _critical_claims_are_complementary([fact.claim for fact in critical]):
+                continue
+            severity = (
+                ConflictSeverity.CRITICAL
+                if any(fact.is_critical or fact.importance >= 5 for fact in critical)
+                else ConflictSeverity.MAJOR
+            )
+            conflicts.append(
+                Conflict(
+                    conflict_id=f"conflict_{claim_type.value}",
+                    answer_ids=[
+                        fact.answer_id
                         for fact in critical
-                    )
-                    else ConflictSeverity.MAJOR
-                )
-                conflicts.append(
-                    Conflict(
-                        conflict_id=f"conflict_{claim_type.value}",
-                        answer_ids=[
-                            fact.answer_id
-                            for fact in critical
-                            if fact.answer_id is not None
-                        ],
-                        severity=severity,
-                        description=f"Competing critical {claim_type.value} claims.",
-                    )
-                )
+                        if fact.answer_id is not None
+                    ],
+                    severity=severity,
+                    description=f"Competing critical {claim_type.value} claims.",
+                ),
+            )
         return conflicts
 
 
 class ArbitrationPanel:
-    """Apply deterministic arbitration policies before composition."""
+    """Apply arbitration policies before composition."""
 
-    def arbitrate(self, blackboard: BlackboardState) -> list[ArbitrationDecision]:
+    def __init__(self) -> None:
+        """Initialize the arbitration panel."""
+        self.last_llm_usage = LLMUsageDelta()
+
+    def arbitrate(
+        self,
+        blackboard: BlackboardState,
+        *,
+        llm_runner: LLMRunner | None = None,
+        specialist_backend: str = "deterministic",
+        cursor_cli_probe: bool = False,
+        retriever: EvidenceRetriever | None = None,
+    ) -> list[ArbitrationDecision]:
         """Resolve or quarantine conflicts.
 
         Args:
             blackboard: Current blackboard state.
+            llm_runner: Optional runner for semantic arbitration.
+            specialist_backend: Active analysis backend label.
+            retriever: Optional evidence index for chunk snippets.
 
         Returns:
             Arbitration decisions.
         """
+        self.last_llm_usage = LLMUsageDelta()
         decisions: list[ArbitrationDecision] = []
+        agentic = llm_runner is not None and (
+            specialist_backend == "api"
+            or (specialist_backend == "cursor_cli" and cursor_cli_probe)
+        )
         for conflict in blackboard.conflicts:
+            if agentic:
+                rows = _conflict_fact_rows(conflict, blackboard, retriever)
+                verdict, usage = run_arbitration_llm(
+                    cast(LLMRunner, llm_runner),
+                    conflict=conflict,
+                    fact_rows=rows,
+                )
+                self.last_llm_usage = _merge_usage_delta(self.last_llm_usage, usage)
+                if verdict is not None and not verdict.is_contradiction:
+                    continue
+                if verdict is not None and verdict.outcome in {
+                    "accepted",
+                    "merged",
+                    "uncertain",
+                }:
+                    self._apply_llm_arbitration_verdict(
+                        blackboard,
+                        conflict,
+                        verdict,
+                        decisions,
+                    )
+                    continue
             policy = (
                 "claim_forbidden"
                 if conflict.severity == ConflictSeverity.CRITICAL
@@ -389,10 +514,77 @@ class ArbitrationPanel:
                     rejected_answer_ids=conflict.answer_ids,
                     basis=conflict.description,
                     required_summary_policy=policy,
-                )
+                ),
             )
             blackboard.do_not_claim_list.extend(rejected_claims)
         return decisions
+
+    @staticmethod
+    def _apply_llm_arbitration_verdict(
+        blackboard: BlackboardState,
+        conflict: Conflict,
+        verdict: ArbitrationLLMVerdict,
+        decisions: list[ArbitrationDecision],
+    ) -> None:
+        """Apply a structured arbitration verdict to the blackboard."""
+
+        verdict_typed = verdict
+        rejected = list(verdict_typed.rejected_answer_ids)
+        if verdict_typed.outcome == "do_not_claim":
+            rejected_claims = ArbitrationPanel._mark_conflict_facts(
+                blackboard,
+                conflict.answer_ids,
+            )
+            blackboard.do_not_claim_list.extend(rejected_claims)
+            decisions.append(
+                ArbitrationDecision(
+                    conflict_id=conflict.conflict_id,
+                    decision="claim_forbidden",
+                    rejected_answer_ids=conflict.answer_ids,
+                    basis=verdict_typed.basis or conflict.description,
+                    required_summary_policy="claim_forbidden",
+                ),
+            )
+            return
+        if verdict_typed.outcome == "uncertain":
+            rejected_claims = ArbitrationPanel._mark_conflict_facts(
+                blackboard,
+                conflict.answer_ids,
+            )
+            blackboard.do_not_claim_list.extend(rejected_claims)
+            decisions.append(
+                ArbitrationDecision(
+                    conflict_id=conflict.conflict_id,
+                    decision="reject_all",
+                    rejected_answer_ids=conflict.answer_ids,
+                    basis=verdict_typed.basis or conflict.description,
+                    required_summary_policy="mark_unconfirmed",
+                ),
+            )
+            return
+        rejected_set = set(rejected)
+        for fact in blackboard.facts:
+            if fact.answer_id in rejected_set:
+                fact.do_not_claim = True
+                blackboard.do_not_claim_list.append(fact.claim)
+        accepted_head = (
+            verdict_typed.accepted_answer_ids[0]
+            if verdict_typed.accepted_answer_ids
+            else None
+        )
+        arb_decision = (
+            "merge_claims" if verdict_typed.outcome == "merged" else "accept_claim"
+        )
+        decisions.append(
+            ArbitrationDecision(
+                conflict_id=conflict.conflict_id,
+                decision=arb_decision,
+                accepted_answer_id=accepted_head,
+                rejected_answer_ids=rejected,
+                basis=verdict_typed.basis or conflict.description,
+                required_summary_policy="claim_allowed",
+            ),
+        )
 
     @staticmethod
     def _mark_conflict_facts(
@@ -413,17 +605,56 @@ class ArbitrationPanel:
 class SummaryComposerAgent:
     """Compose a supported French summary draft from blackboard facts."""
 
+    def __init__(
+        self,
+        llm_runner: object | None = None,
+        config: JsonObject | None = None,
+    ) -> None:
+        """Initialize the composer."""
+        self.llm_runner = llm_runner
+        self.config = config or {}
+        self.last_llm_usage = LLMUsageDelta()
+
+    def _agentic_backend_enabled(self) -> bool:
+        """Return True when the composer should call the LLM."""
+        backend = str(self.config.get("backend", "deterministic"))
+        if self.llm_runner is None:
+            return False
+        if backend == "api":
+            return True
+        if backend == "cursor_cli":
+            return bool(self.config.get("cursor_cli_probe"))
+        return False
+
     def compose(
         self,
         blackboard: BlackboardState,
         decisions: list[ArbitrationDecision],
     ) -> SummaryDraft:
         """Create a summary draft without re-reading the transcription."""
+        self.last_llm_usage = LLMUsageDelta()
         usable = [
             fact
             for fact in blackboard.facts
             if fact.status == FactStatus.SUPPORTED and not fact.do_not_claim
         ]
+        if self._agentic_backend_enabled() and usable:
+            runner = cast(LLMRunner, self.llm_runner)
+            payload = [fact.model_dump(mode="json") for fact in usable]
+            draft, usage = run_composer_llm(
+                runner,
+                facts_payload=payload,
+                do_not_claim=list(blackboard.do_not_claim_list),
+            )
+            self.last_llm_usage = usage
+            return draft.model_copy(
+                update={
+                    "metadata": {
+                        "arbitration_decision_count": len(decisions),
+                        "source": "llm_composer",
+                    },
+                },
+            )
         executive = self._section(
             section_id="executive_summary",
             title="Résumé exécutif",
@@ -452,12 +683,12 @@ class SummaryComposerAgent:
         facts: list[BlackboardFact],
     ) -> SummarySection | None:
         """Build a supported summary section from facts."""
-        supported_ids = [
-            fact.answer_id for fact in facts if fact.answer_id is not None
-        ]
+        supported_ids = [fact.answer_id for fact in facts if fact.answer_id is not None]
         if not supported_ids:
             return None
-        bullets = "\n".join(f"- {fact.claim}" for fact in facts)
+        bullets = "\n".join(
+            f"- {_strip_agent_debug_prefix(fact.claim)}" for fact in facts
+        )
         return SummarySection(
             section_id=section_id,
             title=title,
@@ -468,6 +699,27 @@ class SummaryComposerAgent:
 
 class AdversarialAuditAgent:
     """Audit a summary draft for unsupported or forbidden claims."""
+
+    def __init__(
+        self,
+        llm_runner: object | None = None,
+        config: JsonObject | None = None,
+    ) -> None:
+        """Initialize the audit agent."""
+        self.llm_runner = llm_runner
+        self.config = config or {}
+        self.last_llm_usage = LLMUsageDelta()
+
+    def _agentic_backend_enabled(self) -> bool:
+        """Return True when a semantic audit LLM pass should run."""
+        backend = str(self.config.get("backend", "deterministic"))
+        if self.llm_runner is None:
+            return False
+        if backend == "api":
+            return True
+        if backend == "cursor_cli":
+            return bool(self.config.get("cursor_cli_probe"))
+        return False
 
     def audit(
         self,
@@ -483,6 +735,7 @@ class AdversarialAuditAgent:
         Returns:
             Audit findings.
         """
+        self.last_llm_usage = LLMUsageDelta()
         findings: list[AuditFinding] = []
         allowed_ids = {
             fact.answer_id
@@ -507,7 +760,7 @@ class AdversarialAuditAgent:
                         issue="Section references unsupported answer IDs.",
                         required_action="mark_unconfirmed",
                         related_answer_ids=unsupported,
-                    )
+                    ),
                 )
             leaks = [claim for claim in forbidden if claim and claim in section.content]
             if leaks:
@@ -519,7 +772,7 @@ class AdversarialAuditAgent:
                         issue="Section leaks a forbidden claim.",
                         required_action="remove",
                         related_answer_ids=section.supporting_answer_ids,
-                    )
+                    ),
                 )
         if not draft.sections:
             findings.append(
@@ -529,8 +782,28 @@ class AdversarialAuditAgent:
                     claim="empty_draft",
                     issue="No supported summary sections were produced.",
                     required_action="replan",
-                )
+                ),
             )
+        if self._agentic_backend_enabled():
+            runner = cast(LLMRunner, self.llm_runner)
+            issues, usage = run_audit_llm(
+                runner,
+                draft_markdown=draft.markdown,
+                facts_payload=blackboard_facts_to_payload(blackboard),
+                do_not_claim=list(blackboard.do_not_claim_list),
+            )
+            self.last_llm_usage = usage
+            for index, issue in enumerate(issues):
+                findings.append(
+                    AuditFinding(
+                        finding_id=f"audit_llm_{index:03d}",
+                        severity=ConflictSeverity.CRITICAL,
+                        claim=draft.markdown[:200],
+                        issue=issue,
+                        required_action="rewrite",
+                        related_answer_ids=[],
+                    ),
+                )
         return findings
 
 
@@ -575,6 +848,11 @@ class AnalysisOrchestrator:
         if max_audit_attempts < 1:
             raise ValueError("max_audit_attempts must be at least one.")
         self._max_audit_attempts = max_audit_attempts
+        self._specialist_config = specialist_config or {}
+        self._specialist_backend = str(
+            self._specialist_config.get("backend", "deterministic")
+        )
+        self._cursor_cli_probe = bool(self._specialist_config.get("cursor_cli_probe"))
         self._planner = AnalysisPlannerAgent()
         self._specialists = _default_specialists(
             llm_runner=llm_runner,
@@ -582,22 +860,69 @@ class AnalysisOrchestrator:
         )
         self._blackboard = BlackboardController()
         self._arbitration = ArbitrationPanel()
-        self._composer = SummaryComposerAgent()
-        self._audit = AdversarialAuditAgent()
+        self._composer = SummaryComposerAgent(
+            llm_runner=llm_runner,
+            config=specialist_config,
+        )
+        self._audit = AdversarialAuditAgent(
+            llm_runner=llm_runner,
+            config=specialist_config,
+        )
         self._patch = FinalPatchAgent()
 
     def run(self, retriever: EvidenceRetriever) -> PipelineResult:
         """Run the bounded analysis loop over a retriever."""
         audit_feedback: list[AuditFinding] = []
         last_result: PipelineResult | None = None
+        llm_runner_obj = self._specialists["ChronologyAgent"].llm_runner
+        llm_runner_typed = cast(LLMRunner, llm_runner_obj) if llm_runner_obj else None
         for attempt in range(1, self._max_audit_attempts + 1):
             plan = self._planner.plan(audit_feedback)
-            answers = _run_specialists(plan, retriever, self._specialists)
+            answers, specialist_usage = _run_specialists_with_usage(
+                plan,
+                retriever,
+                self._specialists,
+            )
             blackboard = self._blackboard.ingest(answers)
-            decisions = self._arbitration.arbitrate(blackboard)
+            decisions = self._arbitration.arbitrate(
+                blackboard,
+                llm_runner=llm_runner_typed,
+                specialist_backend=self._specialist_backend,
+                cursor_cli_probe=self._cursor_cli_probe,
+                retriever=retriever,
+            )
+            arbitration_usage = self._arbitration.last_llm_usage
             draft = self._composer.compose(blackboard, decisions)
+            composition_usage = self._composer.last_llm_usage
             findings = self._audit.audit(draft, blackboard)
+            audit_usage = self._audit.last_llm_usage
             final = self._patch.patch(draft, findings)
+            analysis_calls = specialist_usage.calls + arbitration_usage.calls
+            total_tokens = (
+                specialist_usage.tokens
+                + arbitration_usage.tokens
+                + composition_usage.tokens
+                + audit_usage.tokens
+            )
+            total_cost = (
+                specialist_usage.cost_usd
+                + arbitration_usage.cost_usd
+                + composition_usage.cost_usd
+                + audit_usage.cost_usd
+            )
+            merged_cost = (final.estimated_cost_usd or 0.0) + total_cost
+            final = final.model_copy(
+                update={
+                    "analysis_llm_call_count": analysis_calls,
+                    "composition_llm_call_count": composition_usage.calls,
+                    "audit_llm_call_count": audit_usage.calls,
+                    "llm_call_count": analysis_calls
+                    + composition_usage.calls
+                    + audit_usage.calls,
+                    "estimated_llm_tokens": final.estimated_llm_tokens + total_tokens,
+                    "estimated_cost_usd": merged_cost if merged_cost > 0 else None,
+                },
+            )
             last_result = PipelineResult(
                 plan=plan,
                 answers=answers,
@@ -662,17 +987,19 @@ def _default_specialists(
     }
 
 
-def _run_specialists(
+def _run_specialists_with_usage(
     plan: AnalysisPlan,
     retriever: EvidenceRetriever,
     specialists: dict[str, SpecialistAgent],
-) -> list[EvidenceAnswer]:
-    """Run all planned specialist questions."""
+) -> tuple[list[EvidenceAnswer], LLMUsageDelta]:
+    """Run all planned specialist questions and accumulate LLM usage."""
     answers: list[EvidenceAnswer] = []
+    usage = LLMUsageDelta()
     for question in plan.questions:
         specialist = specialists[question.responsible_agent]
         answers.extend(specialist.answer(question, retriever))
-    return answers
+        usage = _merge_usage_delta(usage, specialist.last_llm_usage)
+    return answers, usage
 
 
 def _question_claim_type(
@@ -709,3 +1036,96 @@ def _short_text(text: str, limit: int = 180) -> str:
 def _normalize_claim(claim: str) -> str:
     """Normalize a claim for exact deduplication."""
     return " ".join(claim.casefold().split())
+
+
+def _strip_agent_debug_prefix(claim: str) -> str:
+    """Remove internal specialist prefixes such as ``ChronologyAgent:``."""
+    if ":" not in claim:
+        return claim
+    head, tail = claim.split(":", 1)
+    if head.strip().endswith("Agent"):
+        return tail.strip()
+    return claim
+
+
+def _merge_usage_delta(left: LLMUsageDelta, right: LLMUsageDelta) -> LLMUsageDelta:
+    """Sum two usage deltas."""
+    return LLMUsageDelta(
+        calls=left.calls + right.calls,
+        tokens=left.tokens + right.tokens,
+        cost_usd=left.cost_usd + right.cost_usd,
+    )
+
+
+def _critical_claims_are_complementary(claims: list[str]) -> bool:
+    """Return True when competing claims look like complementary details."""
+    if len(claims) < 2:
+        return True
+    for i in range(len(claims)):
+        for j in range(i + 1, len(claims)):
+            if not _claims_pair_complementary(claims[i], claims[j]):
+                return False
+    return True
+
+
+def _claims_pair_complementary(left: str, right: str) -> bool:
+    """Heuristic: overlapping topical detail without hard contradiction."""
+    a, b = _normalize_claim(left), _normalize_claim(right)
+    if not a or not b:
+        return True
+    if a in b or b in a:
+        return True
+    tokens_a = {tok.strip(".,;:!?") for tok in a.split() if tok}
+    tokens_b = {tok.strip(".,;:!?") for tok in b.split() if tok}
+    overlap = tokens_a & tokens_b
+    union = tokens_a | tokens_b
+    jaccard = len(overlap) / len(union) if union else 0.0
+    if jaccard >= 0.45:
+        return True
+    death_tokens = {"mort", "meurt", "tué", "tue", "dead"}
+    life_tokens = {
+        "vivant",
+        "survit",
+        "surviv",
+        "debout",
+        "stable",
+        "inconscient",
+        "stabilise",
+        "stabilisé",
+    }
+    a_death = bool(tokens_a & death_tokens)
+    b_death = bool(tokens_b & death_tokens)
+    a_life = bool(tokens_a & life_tokens)
+    b_life = bool(tokens_b & life_tokens)
+    if (a_death and b_life) or (b_death and a_life):
+        return False
+    return jaccard >= 0.2
+
+
+def _conflict_fact_rows(
+    conflict: Conflict,
+    blackboard: BlackboardState,
+    retriever: EvidenceRetriever | None,
+) -> list[dict[str, Any]]:
+    """Serialize facts in a conflict for arbitration prompts."""
+    rows: list[dict[str, Any]] = []
+    for fact in blackboard.facts:
+        if fact.answer_id not in set(conflict.answer_ids):
+            continue
+        snippet = ""
+        getter = getattr(retriever, "get_chunk", None)
+        if callable(getter):
+            snippets: list[str] = []
+            for support in fact.support[:3]:
+                chunk = getter(support.chunk_id)
+                if chunk is not None and hasattr(chunk, "text"):
+                    snippets.append(str(chunk.text)[:400])
+            snippet = " | ".join(snippets)
+        rows.append(
+            {
+                "answer_id": fact.answer_id,
+                "claim": fact.claim,
+                "evidence_snippet": snippet,
+            },
+        )
+    return rows

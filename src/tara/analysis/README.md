@@ -14,9 +14,9 @@ Supported backends:
 - `cursor_cli`: Cursor CLI backend using `agent -p`, implemented behind the same
   interface and tested with mocked subprocess execution.
 
-The `api` backend requires an explicit model in the request or runner
-configuration. The `cursor_cli` backend reports `Auto` when neither request nor
-configuration provides a model.
+The `api` backend resolves `model: Auto` from `analysis.llm.default_api_model` in
+configuration (required when using Auto). The `cursor_cli` backend passes
+`Auto` through as an absent model so Cursor can auto-route.
 
 The runner records purpose, backend, model, token usage, estimated cost, retry
 attempt, and allow-listed request metadata when a telemetry recorder is
@@ -29,11 +29,16 @@ keys and unrelated secrets are not inherited by default. Argument-based prompt
 transport remains available through `cursor_prompt_transport="argv"` for
 compatibility testing.
 
-The standalone pipeline can run an optional **Cursor CLI probe** (one small
-non-transcript completion) before deterministic analysis when
-`analysis.llm.cursor_cli_probe` is true or `TARA_CURSOR_CLI_PROBE` is set, so
-benchmarks can record real `agent -p` usage without wiring LLM into every
-specialist yet.
+The standalone pipeline defaults to `analysis.llm.backend: deterministic` (no
+LLM runner). For `api` or `cursor_cli`, specialists, composer, arbitration, and
+audit can call the shared runner when enabled. With `cursor_cli`, LLM-backed
+analysis steps run only when `cursor_cli_probe` is true (or `TARA_CURSOR_CLI_PROBE`
+is set) so a probe-only configuration still avoids transcript analysis via CLI.
+
+Usage counters on `FinalSummary` and `session_summary.json` split
+`probe_llm_call_count`, `analysis_llm_call_count`, `composition_llm_call_count`,
+and `audit_llm_call_count`; the legacy `llm_call_count` is the total across those
+roles plus any merged probe totals.
 
 ## Core Models
 

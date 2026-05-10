@@ -127,13 +127,17 @@ def test_cursor_cli_probe_merges_usage_into_session_summary(
     result = TaraControlAgent(args).run()
 
     payload = json.loads(result.session_summary_json_path.read_text(encoding="utf-8"))
-    assert payload["usage"]["llm_call_count"] == 1
-    assert payload["usage"]["estimated_llm_tokens"] == 60
+    assert payload["usage"]["probe_llm_call_count"] == 1
+    assert payload["usage"]["llm_call_count"] >= 1
+    assert payload["usage"]["analysis_llm_call_count"] >= 1
+    assert payload["usage"]["estimated_llm_tokens"] >= 60
     assert payload["usage"]["backend"] == "cursor_cli"
-    assert payload["summary"]["llm_call_count"] == 1
-    assert payload["summary"]["estimated_llm_tokens"] == 60
-    assert payload["acceptance"]["llm_call_count"] == 1
-    assert payload["acceptance"]["estimated_llm_tokens"] == 60
+    assert payload["summary"]["probe_llm_call_count"] == 1
+    assert payload["summary"]["llm_call_count"] >= 1
+    assert payload["summary"]["estimated_llm_tokens"] >= 60
+    assert payload["acceptance"]["probe_llm_call_count"] == 1
+    assert payload["acceptance"]["llm_call_count"] >= 1
+    assert payload["acceptance"]["estimated_llm_tokens"] >= 60
     assert (
         payload["usage"]["estimated_llm_tokens"]
         == payload["acceptance"]["estimated_llm_tokens"]
@@ -227,7 +231,8 @@ def test_cli_cursor_cli_probe_flag_enables_probe_without_json(
     )
     result = TaraControlAgent(args).run()
     payload = json.loads(result.session_summary_json_path.read_text(encoding="utf-8"))
-    assert payload["usage"]["llm_call_count"] == 1
+    assert payload["usage"]["probe_llm_call_count"] == 1
+    assert payload["usage"]["llm_call_count"] >= 1
 
 
 def test_env_tara_cursor_cli_probe_enables_probe_without_json_flag(
@@ -282,7 +287,8 @@ def test_env_tara_cursor_cli_probe_enables_probe_without_json_flag(
         monkeypatch.delenv("TARA_CURSOR_CLI_PROBE", raising=False)
 
     payload = json.loads(result.session_summary_json_path.read_text(encoding="utf-8"))
-    assert payload["usage"]["llm_call_count"] == 1
+    assert payload["usage"]["probe_llm_call_count"] == 1
+    assert payload["usage"]["llm_call_count"] >= 1
 
 
 @pytest.mark.skipif(

@@ -92,7 +92,7 @@ def test_specialist_answers_only_from_retrieved_chunks() -> None:
     assert answers
     assert all(answer.status == FactStatus.SUPPORTED for answer in answers)
     assert all(answer.support for answer in answers)
-    assert "ChronologyAgent" in answers[0].claim
+    assert "Molnir" in answers[0].claim or "sanctuaire" in answers[0].claim.casefold()
 
 
 def test_specialist_fallback_is_uncertain_without_evidence() -> None:

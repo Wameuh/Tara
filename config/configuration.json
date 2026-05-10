@@ -28,7 +28,7 @@
     "target_window_seconds": 90,
     "overlap_seconds": 20,
     "llm": {
-      "backend": "api",
+      "backend": "deterministic",
       "model": "Auto",
       "cursor_command": "agent",
       "cursor_args": ["-p"],

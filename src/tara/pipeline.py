@@ -136,17 +136,27 @@ class TaraControlAgent:
         index.write_chunks_jsonl(analysis_output_dir / "evidence_chunks.jsonl")
         index.write_metadata_json(analysis_output_dir / "evidence_index_metadata.json")
 
-        llm_runner = _build_llm_runner(self._config)
-        prior_context = _read_prior_context_for_probe(self._args.prior_context_path)
-        probe_stats = _maybe_run_cursor_cli_pipeline_probe(
-            llm_runner,
-            self._config,
-            prior_context=prior_context,
-        )
+        if self._config.analysis.llm.backend == "deterministic":
+            llm_runner = None
+            probe_stats = _CursorCliProbeStats(calls=0, tokens=0, cost_usd=0.0)
+        else:
+            llm_runner = _build_llm_runner(self._config)
+            prior_context = _read_prior_context_for_probe(self._args.prior_context_path)
+            probe_stats = _maybe_run_cursor_cli_pipeline_probe(
+                llm_runner,
+                self._config,
+                prior_context=prior_context,
+            )
         result = AnalysisOrchestrator(
             max_audit_attempts=self._config.analysis.max_audit_attempts,
             llm_runner=llm_runner,
-            specialist_config={"backend": self._config.analysis.llm.backend},
+            specialist_config={
+                "backend": self._config.analysis.llm.backend,
+                "cursor_cli_probe": bool(
+                    self._config.analysis.llm.cursor_cli_probe
+                    or _cursor_cli_probe_env_enabled(),
+                ),
+            },
         ).run(index)
         result = _merge_cursor_cli_probe_into_result(result, probe_stats)
         _write_pipeline_debug_artifacts(
@@ -255,7 +265,10 @@ def _final_summary_payload(
     config: TaraConfig,
 ) -> dict[str, Any]:
     """Build the traceable `session_summary.json` payload."""
-    acceptance = evaluate_acceptance(result)
+    acceptance = evaluate_acceptance(
+        result,
+        analysis_backend=_acceptance_backend_for_quality(config),
+    )
     return {
         "summary": result.final_summary.to_dict(),
         "traceability": {
@@ -275,6 +288,10 @@ def _final_summary_payload(
         },
         "usage": {
             "llm_call_count": acceptance.llm_call_count,
+            "probe_llm_call_count": acceptance.probe_llm_call_count,
+            "analysis_llm_call_count": acceptance.analysis_llm_call_count,
+            "composition_llm_call_count": acceptance.composition_llm_call_count,
+            "audit_llm_call_count": acceptance.audit_llm_call_count,
             "estimated_llm_tokens": acceptance.estimated_llm_tokens,
             "estimated_cost_usd": acceptance.estimated_cost_usd,
             "backend": _usage_backend_label(
@@ -287,15 +304,27 @@ def _final_summary_payload(
 
 
 def _build_llm_runner(config: TaraConfig) -> LLMRunner:
-    """Build a configured LLM runner without invoking it in deterministic mode."""
+    """Build a configured LLM runner for agentic analysis backends."""
     backend = config.analysis.llm.backend
     if backend not in {"api", "cursor_cli"}:
         raise ValueError(f"Unsupported analysis LLM backend: {backend}")
-    model = config.analysis.llm.model
+    raw_model = config.analysis.llm.model
+    if backend == "cursor_cli":
+        resolved: str | None = None if raw_model == "Auto" else raw_model
+    elif backend == "api":
+        if raw_model == "Auto":
+            resolved = config.analysis.llm.default_api_model
+            if not resolved:
+                raise TaraPipelineError(
+                    "analysis.llm.default_api_model must be set when backend is api "
+                    "and model is Auto.",
+                )
+        else:
+            resolved = raw_model
     return LLMRunner(
         LLMRunnerConfig(
             backend=backend,
-            model=None if model == "Auto" else model,
+            model=resolved,
             cursor_command=config.analysis.llm.cursor_command,
             cursor_args=tuple(config.analysis.llm.cursor_args),
             timeout_seconds=config.analysis.llm.timeout_seconds,
@@ -322,9 +351,7 @@ def _maybe_run_cursor_cli_pipeline_probe(
     """Optionally run one Cursor CLI completion before deterministic analysis."""
     if config.analysis.llm.backend != "cursor_cli":
         return _CursorCliProbeStats(calls=0, tokens=0, cost_usd=0.0)
-    if not (
-        config.analysis.llm.cursor_cli_probe or _cursor_cli_probe_env_enabled()
-    ):
+    if not (config.analysis.llm.cursor_cli_probe or _cursor_cli_probe_env_enabled()):
         return _CursorCliProbeStats(calls=0, tokens=0, cost_usd=0.0)
     return _run_cursor_cli_pipeline_probe(llm_runner, prior_context=prior_context)
 
@@ -380,6 +407,7 @@ def _merge_cursor_cli_probe_into_result(
     merged_cost = (fs.estimated_cost_usd or 0.0) + probe.cost_usd
     new_summary = fs.model_copy(
         update={
+            "probe_llm_call_count": fs.probe_llm_call_count + probe.calls,
             "llm_call_count": fs.llm_call_count + probe.calls,
             "estimated_llm_tokens": fs.estimated_llm_tokens + probe.tokens,
             "estimated_cost_usd": merged_cost if merged_cost > 0 else None,
@@ -395,6 +423,18 @@ def _merge_cursor_cli_probe_into_result(
         final_summary=new_summary,
         attempts=result.attempts,
     )
+
+
+def _acceptance_backend_for_quality(config: TaraConfig) -> str:
+    """Map configuration to the backend label used for acceptance quality gates."""
+    backend = config.analysis.llm.backend
+    if backend == "deterministic":
+        return "deterministic"
+    if backend == "cursor_cli":
+        if config.analysis.llm.cursor_cli_probe or _cursor_cli_probe_env_enabled():
+            return "cursor_cli"
+        return "deterministic"
+    return "api"
 
 
 def _usage_backend_label(*, configured_backend: str, llm_call_count: int) -> str:

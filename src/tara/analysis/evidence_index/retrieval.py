@@ -190,7 +190,50 @@ class EvidenceIndex:
                 )
             )
         scored.sort(key=lambda result: result.score, reverse=True)
-        return scored[:max_results]
+        trimmed = scored[:max_results]
+        if not trimmed or query.filters:
+            return trimmed
+        return self._merge_timeline_coverage(trimmed, query, max_results)
+
+    def get_chunk(self, chunk_id: str) -> EvidenceChunk | None:
+        """Return a chunk by id for arbitration and debugging."""
+        for chunk in self.chunks:
+            if chunk.chunk_id == chunk_id:
+                return chunk
+        return None
+
+    def _merge_timeline_coverage(
+        self,
+        scored: list[RetrievedEvidence],
+        query: RetrievalQuery,
+        max_results: int,
+    ) -> list[RetrievedEvidence]:
+        """Blend lexical hits with start/middle/end timeline anchors."""
+        if not self.chunks or not scored:
+            return scored
+        merged = list(scored)
+        seen = {item.chunk.chunk_id for item in merged}
+        anchor_indexes = {
+            0,
+            max(0, len(self.chunks) // 2),
+            max(0, len(self.chunks) - 1),
+        }
+        for index in sorted(anchor_indexes):
+            chunk = self.chunks[index]
+            if chunk.chunk_id in seen:
+                continue
+            merged.append(
+                RetrievedEvidence(
+                    query_id=query.query_id,
+                    chunk=chunk,
+                    score=0.01,
+                    source="coverage_sweep",
+                    metadata={"coverage_anchor": index},
+                ),
+            )
+            seen.add(chunk.chunk_id)
+        merged.sort(key=lambda result: result.score, reverse=True)
+        return merged[:max_results]
 
     def write_chunks_jsonl(self, path: Path) -> None:
         """Write evidence chunks as newline-delimited JSON.
@@ -249,8 +292,7 @@ class EvidenceIndex:
         """Score a chunk for a tokenized query."""
         chunk_tokens = self._chunk_tokens[chunk.chunk_id]
         overlap = sum(
-            min(count, chunk_tokens[token])
-            for token, count in query_tokens.items()
+            min(count, chunk_tokens[token]) for token, count in query_tokens.items()
         )
         if overlap == 0:
             return 0.0
