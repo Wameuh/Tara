@@ -333,7 +333,9 @@ def _build_chunks(
         if text_segments:
             if len(chunks) >= max_chunks:
                 raise ValueError("Evidence index exceeds the maximum chunk count.")
-            text = " ".join(segment.text.strip() for _, segment in text_segments)
+            text = "\n".join(
+                _render_segment_for_evidence(segment) for _, segment in text_segments
+            )
             start = min(segment.start for _, segment in indexed_segments)
             end = max(segment.end for _, segment in indexed_segments)
             chunks.append(
@@ -440,6 +442,12 @@ def _transcription_duration(transcription: MergedTranscription) -> float:
     if not transcription.segments:
         return 0.0
     return max(segment.end for segment in transcription.segments)
+
+
+def _render_segment_for_evidence(segment: TranscriptionSegment) -> str:
+    """Render one transcript segment for LLM-facing evidence chunks."""
+    speaker = segment.author.speaker if segment.author else "unknown"
+    return f"[{speaker}] {segment.text.strip()}"
 
 
 def _detect_entities(text: str) -> list[str]:

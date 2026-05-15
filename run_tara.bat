@@ -6,6 +6,9 @@ rem Launches the local transcription inference server and standalone Tara.
 set "AUDIO_DIR="
 set "MERGED_TRANSCRIPTION="
 set "CONFIG="
+set "CONTEXT="
+set "PRIOR_CONTEXT="
+set "WRITE_CONTEXT_DEBUG="
 set "SERVER_PORT=8000"
 set "SERVER_HOST=localhost"
 set "SCRIPT_DIR=%~dp0"
@@ -33,6 +36,23 @@ if /i "%~1"=="--merged-transcription" (
 if /i "%~1"=="--config" (
   set "CONFIG=%~2"
   shift
+  shift
+  goto :parse_args
+)
+if /i "%~1"=="--context" (
+  set "CONTEXT=%~2"
+  shift
+  shift
+  goto :parse_args
+)
+if /i "%~1"=="--prior-context" (
+  set "PRIOR_CONTEXT=%~2"
+  shift
+  shift
+  goto :parse_args
+)
+if /i "%~1"=="--write-context-debug" (
+  set "WRITE_CONTEXT_DEBUG=1"
   shift
   goto :parse_args
 )
@@ -82,6 +102,9 @@ set "TARA_ARGS="
 if not "%AUDIO_DIR%"=="" set "TARA_ARGS=!TARA_ARGS! --audio-dir "%AUDIO_DIR%""
 if not "%MERGED_TRANSCRIPTION%"=="" set "TARA_ARGS=!TARA_ARGS! --merged-transcription "%MERGED_TRANSCRIPTION%""
 if not "%CONFIG%"=="" set "TARA_ARGS=!TARA_ARGS! --config "%CONFIG%""
+if not "%CONTEXT%"=="" set "TARA_ARGS=!TARA_ARGS! --context "%CONTEXT%""
+if not "%PRIOR_CONTEXT%"=="" set "TARA_ARGS=!TARA_ARGS! --prior-context "%PRIOR_CONTEXT%""
+if not "%WRITE_CONTEXT_DEBUG%"=="" set "TARA_ARGS=!TARA_ARGS! --write-context-debug"
 
 echo.
 echo Starting standalone Tara...
@@ -150,6 +173,9 @@ echo Usage: run_tara.bat [--audio-dir PATH ^| --merged-transcription FILE] [opti
 echo.
 echo Options:
 echo   --config PATH              Path to configuration JSON
+echo   --context PATH             General campaign context markdown/text
+echo   --prior-context PATH       Previous-session context markdown/text
+echo   --write-context-debug      Write redacted context debug artifact
 echo   --server-port PORT         Inference server port for audio runs (default: 8000)
 echo   --server-host HOST         Inference server host for audio runs (default: localhost)
 echo   -h, --help                 Show this help

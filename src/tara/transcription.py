@@ -12,7 +12,11 @@ from typing import Any
 
 import requests
 
-from tara.analysis.models import MergedTranscription, TranscriptionSegment
+from tara.analysis.models import (
+    MergedTranscription,
+    SegmentAuthor,
+    TranscriptionSegment,
+)
 from tara.config import TaraConfig
 
 LOGGER = logging.getLogger(__name__)
@@ -215,7 +219,7 @@ def process_transcriptions(output_dir: Path, config: TaraConfig) -> Path | None:
     transcription_files = [
         path
         for path in output_dir.rglob("*.json")
-        if path.is_file() and path.resolve() != output_path.resolve()
+        if _is_transcription_source_file(path, output_path)
     ]
     transcription_files.sort()
     if not transcription_files:
@@ -227,7 +231,15 @@ def process_transcriptions(output_dir: Path, config: TaraConfig) -> Path | None:
     durations: list[float] = []
     for file_path in transcription_files:
         loaded = _load_transcription_file(file_path)
-        segments.extend(_dedupe_consecutive_segments(loaded.segments))
+        author = SegmentAuthor(
+            speaker=_speaker_from_source_file(file_path),
+            source_file=file_path.name,
+        )
+        authored_segments = [
+            segment.model_copy(update={"author": author})
+            for segment in _dedupe_consecutive_segments(loaded.segments)
+        ]
+        segments.extend(authored_segments)
         if loaded.language:
             languages.add(loaded.language)
         if loaded.model:
@@ -235,7 +247,14 @@ def process_transcriptions(output_dir: Path, config: TaraConfig) -> Path | None:
         if loaded.duration is not None:
             durations.append(loaded.duration)
 
-    merged_segments = sorted(segments, key=lambda segment: (segment.start, segment.end))
+    merged_segments = sorted(
+        segments,
+        key=lambda segment: (
+            segment.start,
+            segment.end,
+            segment.author.source_file if segment.author else "",
+        ),
+    )
     merged = MergedTranscription(
         text=" ".join(segment.text for segment in merged_segments if segment.text),
         segments=merged_segments,
@@ -277,6 +296,34 @@ def _load_transcription_file(path: Path) -> _LoadedTranscription:
     )
 
 
+def _is_transcription_source_file(path: Path, output_path: Path) -> bool:
+    """Return whether a JSON file is a source transcription artifact."""
+    if not path.is_file():
+        return False
+    if path.name == output_path.name:
+        return False
+    if set(path.parts) & {"analysis", "scenes"}:
+        return False
+    if path.stem in {
+        "scene_analysis",
+        "scene_descriptions",
+        "session_summary",
+        "session_summary_verified",
+        "verification_report",
+    }:
+        return False
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(raw, Mapping):
+        return False
+    segments = raw.get("segments")
+    if not isinstance(segments, list):
+        return False
+    return any(_looks_like_transcription_segment(segment) for segment in segments)
+
+
 def _response_from_mapping(
     data: Mapping[str, Any],
     *,
@@ -308,7 +355,35 @@ def _segment_from_mapping(data: Mapping[str, Any]) -> TranscriptionSegment:
         start=float(data.get("start", 0.0) or 0.0),
         end=float(data.get("end", 0.0) or 0.0),
         text=str(data.get("text", "")),
+        author=_author_from_mapping(data.get("author")),
     )
+
+
+def _author_from_mapping(value: Any) -> SegmentAuthor | None:
+    """Parse optional author metadata from a raw segment mapping."""
+    if not isinstance(value, Mapping):
+        return None
+    speaker = _optional_str(value.get("speaker"))
+    source_file = _optional_str(value.get("source_file"))
+    if speaker is None or source_file is None:
+        return None
+    return SegmentAuthor(speaker=speaker, source_file=source_file)
+
+
+def _looks_like_transcription_segment(value: Any) -> bool:
+    """Return whether a value has the required transcription segment shape."""
+    if not isinstance(value, Mapping):
+        return False
+    return all(key in value for key in ("start", "end", "text"))
+
+
+def _speaker_from_source_file(path: Path) -> str:
+    """Infer a stable speaker identifier from a transcription file name."""
+    stem = path.stem
+    prefix, separator, suffix = stem.partition("-")
+    if separator and prefix.isdecimal() and suffix:
+        return suffix
+    return stem
 
 
 def _dedupe_consecutive_segments(

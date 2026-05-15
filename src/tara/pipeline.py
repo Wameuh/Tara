@@ -21,7 +21,13 @@ from tara.analysis import (
     PipelineResult,
 )
 from tara.cli import TaraArgs
-from tara.config import TaraConfig, load_config
+from tara.config import TaraConfig, find_default_config_path, load_config
+from tara.context import (
+    AnalysisContext,
+    load_analysis_context,
+    resolve_context_path,
+    write_context_debug_file,
+)
 from tara.logging_config import apply_logging_config
 from tara.transcription import process_transcriptions, transcribe_audio_directory
 
@@ -72,6 +78,7 @@ class TaraControlAgent:
     def __init__(self, args: TaraArgs, config: TaraConfig | None = None) -> None:
         """Initialize the standalone control agent."""
         self._args = args
+        self._config_base_dir = _config_base_dir(args.config)
         self._config = config or load_config(args.config)
         _apply_cli_overrides(self._config, args)
 
@@ -126,6 +133,13 @@ class TaraControlAgent:
             self._config,
         )
         analysis_output_dir.mkdir(parents=True, exist_ok=True)
+        context = _load_context_for_run(
+            args=self._args,
+            config=self._config,
+            config_base_dir=self._config_base_dir,
+        )
+        if self._args.write_context_debug:
+            write_context_debug_file(analysis_output_dir / "context_debug.md", context)
 
         index = EvidenceIndex.from_transcription(
             transcription,
@@ -141,11 +155,9 @@ class TaraControlAgent:
             probe_stats = _CursorCliProbeStats(calls=0, tokens=0, cost_usd=0.0)
         else:
             llm_runner = _build_llm_runner(self._config)
-            prior_context = _read_prior_context_for_probe(self._args.prior_context_path)
             probe_stats = _maybe_run_cursor_cli_pipeline_probe(
                 llm_runner,
                 self._config,
-                prior_context=prior_context,
             )
         result = AnalysisOrchestrator(
             max_audit_attempts=self._config.analysis.max_audit_attempts,
@@ -156,6 +168,8 @@ class TaraControlAgent:
                     self._config.analysis.llm.cursor_cli_probe
                     or _cursor_cli_probe_env_enabled(),
                 ),
+                "context_text": context.general.text or "",
+                "prior_context_text": context.prior.text or "",
             },
         ).run(index)
         result = _merge_cursor_cli_probe_into_result(result, probe_stats)
@@ -176,6 +190,7 @@ class TaraControlAgent:
                     result,
                     merged_transcription_path,
                     self._config,
+                    context,
                 ),
                 ensure_ascii=True,
                 indent=2,
@@ -188,7 +203,7 @@ class TaraControlAgent:
             session_summary_markdown_path=markdown_path,
             session_summary_json_path=json_path,
             attempts=result.attempts,
-            warning_count=len(result.final_summary.warnings),
+            warning_count=len(result.final_summary.warnings) + context.warning_count,
         )
 
 
@@ -205,19 +220,6 @@ def _apply_cli_overrides(config: TaraConfig, args: TaraArgs) -> None:
         config.analysis.llm.model = args.analysis_model
     if args.cursor_cli_probe:
         config.analysis.llm.cursor_cli_probe = True
-
-
-_PRIOR_CONTEXT_PROBE_CHAR_LIMIT = 120_000
-
-
-def _read_prior_context_for_probe(path: Path | None) -> str | None:
-    """Load optional markdown prior-session context for the Cursor CLI probe."""
-    if path is None:
-        return None
-    text = path.read_text(encoding="utf-8")
-    if len(text) > _PRIOR_CONTEXT_PROBE_CHAR_LIMIT:
-        text = text[:_PRIOR_CONTEXT_PROBE_CHAR_LIMIT] + "\n\n[truncated]\n"
-    return text
 
 
 def _analysis_output_dir(
@@ -263,6 +265,7 @@ def _final_summary_payload(
     result: PipelineResult,
     merged_transcription_path: Path,
     config: TaraConfig,
+    context: AnalysisContext,
 ) -> dict[str, Any]:
     """Build the traceable `session_summary.json` payload."""
     acceptance = evaluate_acceptance(
@@ -273,6 +276,8 @@ def _final_summary_payload(
         "summary": result.final_summary.to_dict(),
         "traceability": {
             "merged_transcription_path": str(merged_transcription_path),
+            "context_path": context.general.path_str,
+            "prior_context_path": context.prior.path_str,
             "attempts": result.attempts,
             "answer_count": len(result.answers),
             "fact_count": len(result.blackboard.facts),
@@ -346,32 +351,21 @@ def _cursor_cli_probe_env_enabled() -> bool:
 def _maybe_run_cursor_cli_pipeline_probe(
     llm_runner: LLMRunner,
     config: TaraConfig,
-    prior_context: str | None = None,
 ) -> _CursorCliProbeStats:
     """Optionally run one Cursor CLI completion before deterministic analysis."""
     if config.analysis.llm.backend != "cursor_cli":
         return _CursorCliProbeStats(calls=0, tokens=0, cost_usd=0.0)
     if not (config.analysis.llm.cursor_cli_probe or _cursor_cli_probe_env_enabled()):
         return _CursorCliProbeStats(calls=0, tokens=0, cost_usd=0.0)
-    return _run_cursor_cli_pipeline_probe(llm_runner, prior_context=prior_context)
+    return _run_cursor_cli_pipeline_probe(llm_runner)
 
 
 def _run_cursor_cli_pipeline_probe(
     llm_runner: LLMRunner,
-    prior_context: str | None = None,
 ) -> _CursorCliProbeStats:
     """Execute a single non-transcript health check via `LLMRunner`."""
     LOGGER.info("Running Cursor CLI pipeline probe (agent -p).")
-    if prior_context and prior_context.strip():
-        user_prompt = (
-            "The following markdown is prior campaign context for reference only. "
-            "Do not repeat it.\n\n--- prior sessions ---\n"
-            f"{prior_context.strip()}\n"
-            "--- end prior sessions ---\n\n"
-            "Health check: respond with exactly OK and nothing else."
-        )
-    else:
-        user_prompt = "Health check: respond with OK only."
+    user_prompt = "Health check: respond with OK only."
     request = LLMRequest(
         purpose="pipeline.cursor_cli_probe",
         system_prompt=(
@@ -451,3 +445,29 @@ def _usage_backend_label(*, configured_backend: str, llm_call_count: int) -> str
 def _path_to_str(path: Path | None) -> str | None:
     """Serialize an optional path."""
     return str(path) if path is not None else None
+
+
+def _config_base_dir(config_path: Path | None) -> Path | None:
+    """Return the base directory for relative config paths."""
+    if config_path is not None:
+        return config_path.resolve().parent
+    default_config = find_default_config_path()
+    return default_config.parent if default_config is not None else None
+
+
+def _load_context_for_run(
+    *,
+    args: TaraArgs,
+    config: TaraConfig,
+    config_base_dir: Path | None,
+) -> AnalysisContext:
+    """Resolve and load optional run context files."""
+    general_path = args.context_path or resolve_context_path(
+        config.analysis.context_path,
+        base_dir=config_base_dir,
+    )
+    prior_path = args.prior_context_path or resolve_context_path(
+        config.analysis.prior_context_path,
+        base_dir=config_base_dir,
+    )
+    return load_analysis_context(general_path=general_path, prior_path=prior_path)

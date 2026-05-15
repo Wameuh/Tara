@@ -21,6 +21,8 @@
   "analysis": {
     "enabled": true,
     "pipeline": "blackboard_v1",
+    "context_path": null,
+    "prior_context_path": null,
     "output_dir": "analysis",
     "summary_markdown_filename": "session_summary.md",
     "summary_json_filename": "session_summary.json",

@@ -14,11 +14,11 @@ from tara.config import TaraConfig
 from tara.pipeline import TaraControlAgent
 
 
-def test_prior_context_reaches_cursor_cli_probe_prompt(
+def test_prior_context_does_not_reach_cursor_cli_probe_prompt(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Prior-session markdown is embedded in the probe user prompt."""
+    """Prior-session markdown is reserved for analysis, not the health probe."""
     merged = tmp_path / "merged_transcription.json"
     merged.write_text(_merged_payload(), encoding="utf-8")
     prior = tmp_path / "Resume.md"
@@ -70,8 +70,9 @@ def test_prior_context_reaches_cursor_cli_probe_prompt(
     )
     TaraControlAgent(args).run()
 
-    assert seen and "--- prior sessions ---" in seen[0]
-    assert "The temple was lost." in seen[0]
+    assert seen
+    assert seen[0] == "Health check: respond with OK only."
+    assert "The temple was lost." not in seen[0]
 
 
 def test_cursor_cli_probe_merges_usage_into_session_summary(

@@ -24,6 +24,7 @@ from tara.analysis.models import (
     FinalSummary,
     MergedTranscription,
     RetrievalQuery,
+    SegmentAuthor,
     SummaryDraft,
     SummarySection,
     TranscriptionSegment,
@@ -65,6 +66,19 @@ def test_merged_transcription_allows_optional_metadata() -> None:
         TranscriptionSegment(start=0.0, end=1.0, text="On est parti.")
     ]
     assert merged.model_extra == {"source_file": "example.json"}
+
+
+def test_transcription_segment_accepts_author_metadata() -> None:
+    """Segments may carry deterministic speaker provenance."""
+    segment = TranscriptionSegment(
+        start=0.0,
+        end=1.0,
+        text="On est parti.",
+        author=SegmentAuthor(speaker="wameuh", source_file="2-wameuh.json"),
+    )
+
+    assert segment.author is not None
+    assert segment.author.speaker == "wameuh"
 
 
 def test_segment_rejects_invalid_time_order() -> None:

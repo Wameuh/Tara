@@ -146,6 +146,7 @@ def run_specialist_extraction(
     chunks: list[EvidenceChunk],
     default_claim_type: ClaimType,
     is_critical_default: bool,
+    context_text: str | None = None,
 ) -> tuple[list[EvidenceAnswer], LLMUsageDelta]:
     """Call the LLM once to extract structured facts from evidence chunks.
 
@@ -187,6 +188,7 @@ def run_specialist_extraction(
         "- Do not copy long raw transcript quotes as claims; "
         "synthesize short factual claims.\n"
         "- If evidence is weak, return fewer facts or mark uncertainty.\n\n"
+        f"{_general_context_block(context_text)}"
         f"Question metadata: {q_meta}\n\n"
         f"Evidence chunks JSON:\n{chunks_json}"
     )
@@ -271,6 +273,8 @@ def run_composer_llm(
     *,
     facts_payload: list[dict[str, Any]],
     do_not_claim: list[str],
+    context_text: str | None = None,
+    prior_context_text: str | None = None,
 ) -> tuple[SummaryDraft, LLMUsageDelta]:
     """Compose the session summary markdown from accepted facts via LLM.
 
@@ -295,6 +299,12 @@ def run_composer_llm(
         "Return strict JSON with keys markdown (full document) and sections "
         "(list of {section_id,title,content,supporting_answer_ids}).\n"
         "Do not include internal agent labels such as 'ChronologyAgent:'.\n\n"
+        "Use character names and MJ in the final summary when the general "
+        "context makes those names clear. Avoid player pseudonyms in the final "
+        "summary. If a character attribution is uncertain, stay neutral rather "
+        "than guessing.\n\n"
+        f"{_prior_context_block(prior_context_text)}"
+        f"{_general_context_block(context_text)}"
         f"Forbidden claims (do not restate): {forbidden_json}\n\n"
         f"Facts JSON:\n{facts_json}"
     )
@@ -349,6 +359,7 @@ def run_audit_llm(
     draft_markdown: str,
     facts_payload: list[dict[str, Any]],
     do_not_claim: list[str],
+    context_text: str | None = None,
 ) -> tuple[list[str], LLMUsageDelta]:
     """Run a short semantic audit pass.
 
@@ -368,7 +379,10 @@ def run_audit_llm(
         "'# Résumé de session', '## Résumé express', "
         "'## Impacts pour la suite', '## État final et ressources'.\n"
         "Reject if bullets look like raw transcript dumps rather than synthesis.\n"
+        "Check that clear player pseudonyms from evidence are normalized to "
+        "character names or MJ when the general context provides that mapping.\n"
         'Return JSON {"approved":bool,"issues":["..."]}\n\n'
+        f"{_general_context_block(context_text)}"
         f"Do-not-claim list: {json.dumps(do_not_claim, ensure_ascii=True)}\n\n"
         f"Facts JSON:\n{json.dumps(facts_payload, ensure_ascii=True)}\n\n"
         f"Summary markdown:\n{draft_markdown}"
@@ -401,6 +415,7 @@ def run_arbitration_llm(
     *,
     conflict: Conflict,
     fact_rows: list[dict[str, Any]],
+    context_text: str | None = None,
 ) -> tuple[ArbitrationLLMVerdict | None, LLMUsageDelta]:
     """Ask the LLM whether competing claims are contradictory.
 
@@ -418,6 +433,7 @@ def run_arbitration_llm(
         "Return JSON with keys: is_contradiction (bool), outcome "
         "(accepted|merged|uncertain|do_not_claim), accepted_answer_ids, "
         "rejected_answer_ids, merged_claim (optional string), basis (string).\n\n"
+        f"{_general_context_block(context_text)}"
         f"Conflict id: {conflict.conflict_id}\n"
         f"Facts JSON:\n{json.dumps(fact_rows, ensure_ascii=True, indent=2)}"
     )
@@ -453,6 +469,35 @@ def _looks_like_agent_prefixed_claim(claim: str) -> bool:
         return False
     head = stripped.split(":", 1)[0].strip()
     return head.endswith("Agent")
+
+
+def _general_context_block(context_text: str | None) -> str:
+    """Return the reusable prompt block for general campaign context."""
+    if not context_text or not context_text.strip():
+        return ""
+    return (
+        "General campaign context, provided by the user as reference only. "
+        "Use it to normalize character names, aliases, players, and MJ. "
+        "The transcript evidence remains authoritative for session events; "
+        "do not invent events from this context.\n"
+        "--- general context ---\n"
+        f"{context_text.strip()}\n"
+        "--- end general context ---\n\n"
+    )
+
+
+def _prior_context_block(prior_context_text: str | None) -> str:
+    """Return the summary-composer prompt block for previous sessions."""
+    if not prior_context_text or not prior_context_text.strip():
+        return ""
+    return (
+        "Previous-session context, provided by the user for continuity. "
+        "Use it only to understand campaign continuity; do not repeat it unless "
+        "the supported current-session facts require it.\n"
+        "--- previous sessions ---\n"
+        f"{prior_context_text.strip()}\n"
+        "--- end previous sessions ---\n\n"
+    )
 
 
 def _support_from_chunk_ids(

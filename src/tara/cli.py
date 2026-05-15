@@ -33,8 +33,10 @@ class TaraArgs:
     start_from: str | None = None
     blackboard_path: Path | None = None
     analysis_plan_path: Path | None = None
+    context_path: Path | None = None
     prior_context_path: Path | None = None
     cursor_cli_probe: bool = False
+    write_context_debug: bool = False
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -81,12 +83,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional path for analysis plan debug JSON",
     )
     parser.add_argument(
+        "--context",
+        metavar="FILE",
+        help="Optional markdown/text general campaign context for LLM analysis",
+    )
+    parser.add_argument(
         "--prior-context",
         metavar="FILE",
         help=(
-            "Optional markdown (e.g. prior session summary) included in the "
-            "Cursor CLI pipeline probe stdin when the probe runs"
+            "Optional markdown/text previous-session context for the summary composer"
         ),
+    )
+    parser.add_argument(
+        "--write-context-debug",
+        action="store_true",
+        help="Write redacted loaded context text into the analysis debug directory",
     )
     parser.add_argument(
         "--cursor-cli-probe",
@@ -114,6 +125,7 @@ def parse_args(argv: Sequence[str] | None = None) -> TaraArgs:
     config = _optional_path(namespace.config)
     blackboard_path = _optional_path(namespace.blackboard_path)
     analysis_plan_path = _optional_path(namespace.analysis_plan_path)
+    context_path = _optional_path(namespace.context)
     prior_context_path = _optional_path(namespace.prior_context)
 
     if audio_dir is None and merged_transcription is None:
@@ -134,12 +146,8 @@ def parse_args(argv: Sequence[str] | None = None) -> TaraArgs:
         )
     if config is not None and (not config.exists() or not config.is_file()):
         raise ArgumentParserError(f"Configuration file does not exist: {config}")
-    if prior_context_path is not None and (
-        not prior_context_path.exists() or not prior_context_path.is_file()
-    ):
-        raise ArgumentParserError(
-            f"Prior context file does not exist: {prior_context_path}",
-        )
+    _validate_context_extension(context_path, "--context")
+    _validate_context_extension(prior_context_path, "--prior-context")
 
     return TaraArgs(
         audio_dir=audio_dir.resolve() if audio_dir else None,
@@ -153,13 +161,23 @@ def parse_args(argv: Sequence[str] | None = None) -> TaraArgs:
         start_from=namespace.start_from,
         blackboard_path=blackboard_path.resolve() if blackboard_path else None,
         analysis_plan_path=analysis_plan_path.resolve() if analysis_plan_path else None,
+        context_path=context_path.resolve() if context_path else None,
         prior_context_path=(
             prior_context_path.resolve() if prior_context_path else None
         ),
         cursor_cli_probe=bool(namespace.cursor_cli_probe),
+        write_context_debug=bool(namespace.write_context_debug),
     )
 
 
 def _optional_path(value: str | None) -> Path | None:
     """Convert an optional string to a `Path`."""
     return Path(value) if value else None
+
+
+def _validate_context_extension(path: Path | None, option: str) -> None:
+    """Validate optional user context file extensions without requiring existence."""
+    if path is None:
+        return
+    if path.suffix.lower() not in {".md", ".txt"}:
+        raise ArgumentParserError(f"{option} must point to a .md or .txt file.")

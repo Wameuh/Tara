@@ -78,9 +78,10 @@ the CLI; set `TARA_CURSOR_CLI_E2E=1` to opt into a single real `pytest` smoke th
 calls the actual Cursor binary.
 
 CLI shortcuts: `--analysis-backend cursor_cli` with `--cursor-cli-probe` forces
-the probe without editing JSON; `--prior-context FILE` attaches prior-session
-markdown to the probe stdin only (deterministic analysis still uses the merged
-transcription JSON on disk).
+the probe without editing JSON. `--context FILE` attaches general campaign
+context to LLM analysis prompts, and `--prior-context FILE` attaches
+previous-session context to the summary composer. Both accept `.md` or `.txt`;
+relative config paths are resolved from the config file directory.
 
 ## Running
 
@@ -92,6 +93,18 @@ $env:PYTHONPATH = "src"
 python -m tara --merged-transcription "C:\path\to\merged_transcription.json"
 ```
 
+Add optional user context for LLM-assisted runs:
+
+```powershell
+python -m tara --merged-transcription "C:\path\to\merged_transcription.json" --context "C:\path\to\campaign_context.md" --prior-context "C:\path\to\previous_sessions.md"
+```
+
+The context files are freeform private text. Tara uses the current transcript as
+the source of truth for session events, while context can guide names, aliases,
+players, characters, and continuity. Context content is not copied to normal
+summary artifacts; `--write-context-debug` writes a redacted debug copy under the
+analysis output directory when explicitly requested.
+
 Successful CLI runs print a JSON `TaraRunResult` to stdout with the generated
 artifact paths.
 
@@ -101,6 +114,11 @@ transcription inference server shipped in this repo (`src/inference_server/`):
 ```bat
 run_tara.bat --audio-dir "C:\path\to\audio"
 ```
+
+Processing merges per-speaker transcription files into `merged_transcription.json`.
+When source files are named like `1-willygorn.json`, each output segment records
+speaker metadata such as `author.speaker = "willygorn"` and keeps the source file
+name for traceability. Existing merged files without author metadata remain valid.
 
 Install optional ASR dependencies when you need real transcription (not required
 for analysis-only runs on `merged_transcription.json`):

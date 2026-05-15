@@ -226,6 +226,7 @@ class SpecialistAgent:
                 chunks=chunks,
                 default_claim_type=_question_claim_type(question, self.claim_type),
                 is_critical_default=question.risk_level == ConflictSeverity.CRITICAL,
+                context_text=_config_text(self.config, "context_text"),
             )
             self.last_llm_usage = usage
             if len(answers) == 1 and answers[0].status == FactStatus.UNCERTAIN:
@@ -452,6 +453,7 @@ class ArbitrationPanel:
         specialist_backend: str = "deterministic",
         cursor_cli_probe: bool = False,
         retriever: EvidenceRetriever | None = None,
+        context_text: str | None = None,
     ) -> list[ArbitrationDecision]:
         """Resolve or quarantine conflicts.
 
@@ -477,6 +479,7 @@ class ArbitrationPanel:
                     cast(LLMRunner, llm_runner),
                     conflict=conflict,
                     fact_rows=rows,
+                    context_text=context_text,
                 )
                 self.last_llm_usage = _merge_usage_delta(self.last_llm_usage, usage)
                 if verdict is not None and not verdict.is_contradiction:
@@ -645,6 +648,8 @@ class SummaryComposerAgent:
                 runner,
                 facts_payload=payload,
                 do_not_claim=list(blackboard.do_not_claim_list),
+                context_text=_config_text(self.config, "context_text"),
+                prior_context_text=_config_text(self.config, "prior_context_text"),
             )
             self.last_llm_usage = usage
             return draft.model_copy(
@@ -791,6 +796,7 @@ class AdversarialAuditAgent:
                 draft_markdown=draft.markdown,
                 facts_payload=blackboard_facts_to_payload(blackboard),
                 do_not_claim=list(blackboard.do_not_claim_list),
+                context_text=_config_text(self.config, "context_text"),
             )
             self.last_llm_usage = usage
             for index, issue in enumerate(issues):
@@ -890,6 +896,7 @@ class AnalysisOrchestrator:
                 specialist_backend=self._specialist_backend,
                 cursor_cli_probe=self._cursor_cli_probe,
                 retriever=retriever,
+                context_text=_config_text(self._specialist_config, "context_text"),
             )
             arbitration_usage = self._arbitration.last_llm_usage
             draft = self._composer.compose(blackboard, decisions)
@@ -1011,6 +1018,15 @@ def _question_claim_type(
     if isinstance(raw_claim_type, str):
         return ClaimType(raw_claim_type)
     return fallback
+
+
+def _config_text(config: JsonObject, key: str) -> str | None:
+    """Return a non-empty string value from agent configuration."""
+    value = config.get(key)
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
 
 
 def _dedupe_results(results: list[RetrievedEvidence]) -> list[RetrievedEvidence]:

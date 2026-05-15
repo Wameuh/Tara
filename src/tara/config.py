@@ -135,6 +135,8 @@ class AnalysisConfig:
 
     enabled: bool = True
     pipeline: str = "blackboard_v1"
+    context_path: str | None = None
+    prior_context_path: str | None = None
     output_dir: str = "analysis"
     summary_markdown_filename: str = "session_summary.md"
     summary_json_filename: str = "session_summary.json"
@@ -153,6 +155,8 @@ class AnalysisConfig:
         return cls(
             enabled=bool(data.get("enabled", defaults.enabled)),
             pipeline=str(data.get("pipeline", defaults.pipeline)),
+            context_path=_optional_str(data.get("context_path")),
+            prior_context_path=_optional_str(data.get("prior_context_path")),
             output_dir=str(data.get("output_dir", defaults.output_dir)),
             summary_markdown_filename=str(
                 data.get(
@@ -247,6 +251,14 @@ def load_config(config_path: Path | None = None) -> TaraConfig:
 def _mapping(value: Any) -> Mapping[str, Any]:
     """Return a mapping value or an empty mapping for invalid sections."""
     return value if isinstance(value, Mapping) else {}
+
+
+def _optional_str(value: Any) -> str | None:
+    """Return a stripped string or `None`."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def _project_root() -> Path:

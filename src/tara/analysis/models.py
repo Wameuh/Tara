@@ -98,6 +98,13 @@ class TaraModel(BaseModel):
         return cls.model_validate_json(path.read_text(encoding="utf-8"))
 
 
+class SegmentAuthor(TaraModel):
+    """Deterministic speaker metadata for a transcription segment."""
+
+    speaker: str
+    source_file: str
+
+
 class TranscriptionSegment(TaraModel):
     """Segment from `merged_transcription.json`.
 
@@ -110,6 +117,7 @@ class TranscriptionSegment(TaraModel):
     start: float = Field(ge=0.0)
     end: float = Field(ge=0.0)
     text: str
+    author: SegmentAuthor | None = None
 
     @model_validator(mode="after")
     def validate_time_order(self) -> Self:

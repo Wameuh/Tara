@@ -54,6 +54,37 @@ def test_index_builds_overlapping_chunks_with_segment_ids() -> None:
     assert index.coverage.uncovered_ranges == []
 
 
+def test_index_renders_speaker_labels_in_chunk_text() -> None:
+    """LLM-facing chunks should expose the source speaker for each segment."""
+    transcription = MergedTranscription.model_validate(
+        {
+            "text": "Ah oui. Après c'est Molnir.",
+            "segments": [
+                {
+                    "start": 0.0,
+                    "end": 5.0,
+                    "text": "Ah oui.",
+                    "author": {
+                        "speaker": "willygorn",
+                        "source_file": "1-willygorn.json",
+                    },
+                },
+                {
+                    "start": 5.0,
+                    "end": 10.0,
+                    "text": "Après c'est Molnir.",
+                },
+            ],
+            "duration": 10.0,
+        }
+    )
+
+    index = EvidenceIndex.from_transcription(transcription, 20.0, 0.0)
+
+    assert "[willygorn] Ah oui." in index.chunks[0].text
+    assert "[unknown] Après c'est Molnir." in index.chunks[0].text
+
+
 def test_index_rejects_invalid_chunking_configuration() -> None:
     """Invalid overlap/window combinations should fail early."""
     with pytest.raises(ValueError, match="smaller"):
