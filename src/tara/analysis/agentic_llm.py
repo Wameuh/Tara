@@ -7,6 +7,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any, cast
 
+from pydantic import BaseModel
+
 from tara.analysis.llm_runner import LLMRequest, LLMResponse, LLMRunner
 from tara.analysis.models import (
     AnalysisQuestion,
@@ -26,6 +28,7 @@ from tara.analysis.structured_output import (
     ComposerLLMPayload,
     SpecialistExtractionPayload,
     claim_type_from_string,
+    extract_json_text,
     parse_typed_json_lenient,
 )
 
@@ -54,6 +57,86 @@ def _response_usage(response: LLMResponse) -> LLMUsageDelta:
         tokens = max(0, response.input_tokens) + max(0, response.output_tokens)
     cost = float(response.estimated_cost_usd or 0.0)
     return LLMUsageDelta(calls=1, tokens=max(tokens, 0), cost_usd=cost)
+
+
+def _merge_usage(a: LLMUsageDelta, b: LLMUsageDelta) -> LLMUsageDelta:
+    """Sum incremental usage from two backend calls."""
+    return LLMUsageDelta(
+        calls=a.calls + b.calls,
+        tokens=a.tokens + b.tokens,
+        cost_usd=a.cost_usd + b.cost_usd,
+    )
+
+
+def parse_with_single_json_repair[T: BaseModel](
+    model: type[T],
+    raw: str,
+    llm_runner: LLMRunner,
+    *,
+    repair_purpose_prefix: str,
+    schema_description: str,
+    initial_usage: LLMUsageDelta,
+) -> tuple[T | None, LLMUsageDelta]:
+    """Parse JSON; on failure run exactly one repair completion and re-parse.
+
+    Args:
+        model: Pydantic model for the expected payload.
+        raw: Raw completion text from the primary LLM call.
+        llm_runner: Runner used for the optional repair pass.
+        repair_purpose_prefix: Base ``purpose`` for telemetry; ``.json_repair``
+            is appended for the repair request.
+        schema_description: Short human-readable schema hint for the repair
+            prompt.
+        initial_usage: Usage already accrued from the primary call.
+
+    Returns:
+        Parsed instance (or ``None``) and merged usage including any repair
+        call.
+    """
+    parsed, err = parse_typed_json_lenient(model, raw)
+    if parsed is not None:
+        return parsed, initial_usage
+
+    snippet = extract_json_text(raw)
+    max_chars = 12_000
+    if len(snippet) > max_chars:
+        snippet = snippet[:max_chars] + "\n... (truncated)"
+
+    repair_request = LLMRequest(
+        purpose=f"{repair_purpose_prefix}.json_repair",
+        system_prompt=(
+            "You output a single valid JSON object only. "
+            "No markdown code fences, no commentary before or after."
+        ),
+        user_prompt=(
+            "The following text was meant to be JSON for this target schema:\n"
+            f"{schema_description}\n\n"
+            f"Parse/validation error:\n{err}\n\n"
+            "Rewrite it into one valid JSON object that satisfies the schema.\n"
+            "Invalid or partial output:\n"
+            f"{snippet}"
+        ),
+        temperature=0.0,
+    )
+    try:
+        repair_response = llm_runner.run(repair_request)
+    except Exception as exc:
+        LOGGER.warning(
+            "JSON repair LLM call failed for %s: %s",
+            repair_purpose_prefix,
+            exc,
+        )
+        return None, initial_usage
+
+    merged = _merge_usage(initial_usage, _response_usage(repair_response))
+    parsed2, err2 = parse_typed_json_lenient(model, repair_response.content)
+    if parsed2 is None:
+        LOGGER.warning(
+            "JSON repair did not yield a valid parse for %s: %s",
+            repair_purpose_prefix,
+            err2,
+        )
+    return parsed2, merged
 
 
 def run_specialist_extraction(
@@ -119,12 +202,21 @@ def run_specialist_extraction(
     )
     response = llm_runner.run(request)
     usage = _response_usage(response)
-    parsed, err = parse_typed_json_lenient(
-        SpecialistExtractionPayload, response.content
+    parsed, usage = parse_with_single_json_repair(
+        SpecialistExtractionPayload,
+        response.content,
+        llm_runner,
+        repair_purpose_prefix="analysis.specialist_extraction",
+        schema_description=(
+            '{"facts":[{"claim","type","confidence","supporting_chunk_ids",'
+            '"uncertainty"}...],"open_questions":[],"rejected_noise":[]}'
+        ),
+        initial_usage=usage,
     )
-    if parsed is None or err:
+    if parsed is None:
         LOGGER.warning(
-            "Specialist JSON parse failed for %s: %s", question.question_id, err
+            "Specialist JSON parse failed for %s after repair",
+            question.question_id,
         )
         return [], usage
 
@@ -217,9 +309,21 @@ def run_composer_llm(
     )
     response = llm_runner.run(request)
     usage = _response_usage(response)
-    parsed, err = parse_typed_json_lenient(ComposerLLMPayload, response.content)
-    if parsed is None or err:
-        LOGGER.warning("Composer LLM JSON invalid, using fallback draft: %s", err)
+    parsed, usage = parse_with_single_json_repair(
+        ComposerLLMPayload,
+        response.content,
+        llm_runner,
+        repair_purpose_prefix="analysis.summary_composer",
+        schema_description=(
+            '{"markdown":"French session summary markdown",'
+            '"sections":[{"section_id","title","content","supporting_answer_ids"}]}'
+        ),
+        initial_usage=usage,
+    )
+    if parsed is None:
+        LOGGER.warning(
+            "Composer LLM JSON invalid after repair, using fallback draft",
+        )
         return _fallback_composer_draft(facts_payload, do_not_claim), usage
     sections = [
         SummarySection(
@@ -277,9 +381,16 @@ def run_audit_llm(
     )
     response = llm_runner.run(request)
     usage = _response_usage(response)
-    parsed, err = parse_typed_json_lenient(AuditLLMPayload, response.content)
-    if parsed is None or err:
-        return [f"audit_json_error: {err}"], usage
+    parsed, usage = parse_with_single_json_repair(
+        AuditLLMPayload,
+        response.content,
+        llm_runner,
+        repair_purpose_prefix="analysis.adversarial_audit",
+        schema_description='{"approved":bool,"issues":["string",...]}',
+        initial_usage=usage,
+    )
+    if parsed is None:
+        return ["audit_json_error: parse failed after repair"], usage
     if parsed.approved:
         return [], usage
     return list(parsed.issues), usage
@@ -318,7 +429,18 @@ def run_arbitration_llm(
     )
     response = llm_runner.run(request)
     usage = _response_usage(response)
-    parsed, err = parse_typed_json_lenient(ArbitrationLLMVerdict, response.content)
+    parsed, usage = parse_with_single_json_repair(
+        ArbitrationLLMVerdict,
+        response.content,
+        llm_runner,
+        repair_purpose_prefix="analysis.arbitration",
+        schema_description=(
+            '{"is_contradiction":bool,"outcome":"accepted|merged|uncertain|'
+            'do_not_claim","accepted_answer_ids":[],"rejected_answer_ids":[],'
+            '"merged_claim":null|string,"basis":string}'
+        ),
+        initial_usage=usage,
+    )
     if parsed is None:
         return None, usage
     return parsed, usage

@@ -12,7 +12,9 @@ local runner behavior.
 ## Migration Guardrails
 
 - Do not modify the existing `../Tara`
-  transcription, inference server, or processing code as part of this refactor.
+  transcription or processing code as part of this refactor. The transcription
+  **inference server** is copied into TaraRepo as `src/inference_server/`; keep
+  parity fixes in TaraRepo unless you intentionally upstream them to legacy Tara.
 - Treat `merged_transcription.json` as the canonical input to the new analysis
   pipeline.
 - Support a full local run from audio by calling the configured transcription
@@ -94,10 +96,17 @@ Successful CLI runs print a JSON `TaraRunResult` to stdout with the generated
 artifact paths.
 
 Run from an audio directory with the Windows helper, which starts the local
-transcription inference server from the old `Tara` reference project:
+transcription inference server shipped in this repo (`src/inference_server/`):
 
 ```bat
 run_tara.bat --audio-dir "C:\path\to\audio"
+```
+
+Install optional ASR dependencies when you need real transcription (not required
+for analysis-only runs on `merged_transcription.json`):
+
+```powershell
+pip install -e ".[inference]"
 ```
 
 Run the API server:

@@ -13,7 +13,6 @@ set "LOG_FILE=%SCRIPT_DIR%inference_server.log"
 set "SERVER_PID="
 set "SERVER_CMD_FILE="
 set "DEFAULT_CONFIG=%SCRIPT_DIR%config\configuration.json"
-set "OLD_TARA_DIR=%SCRIPT_DIR%..\Tara"
 
 if "%~1"=="" goto :usage
 
@@ -94,15 +93,11 @@ exit /b %TARA_EXIT_CODE%
 
 :start_server
 echo Starting inference server on %SERVER_HOST%:%SERVER_PORT%...
-if not exist "%OLD_TARA_DIR%\" (
-  echo Error: old Tara reference directory not found at %OLD_TARA_DIR% 1>&2
-  exit /b 1
-)
 set "SERVER_CMD_FILE=%TEMP%\run_tara_repo_inference_%RANDOM%.cmd"
 (
   echo @echo off
-  echo set "PYTHONPATH=%OLD_TARA_DIR%\src;%PYTHONPATH%"
-  echo cd /d "%OLD_TARA_DIR%"
+  echo set "PYTHONPATH=%SCRIPT_DIR%src;%%PYTHONPATH%%"
+  echo cd /d "%SCRIPT_DIR%"
   echo python -m uvicorn inference_server.app:app --host %SERVER_HOST% --port %SERVER_PORT% ^> "%LOG_FILE%" 2^>^&1
 ) > "%SERVER_CMD_FILE%"
 start "" /b "%SERVER_CMD_FILE%"

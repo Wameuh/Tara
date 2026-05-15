@@ -17,6 +17,9 @@ _REQUIRED_MARKDOWN_SUBSTRINGS: tuple[str, ...] = (
     "## état final et ressources",
 )
 
+_LONG_BULLET_MIN_CHARS = 260
+_MAX_AGENTIC_LONG_BULLETS = 5
+
 
 @dataclass(frozen=True, slots=True)
 class AcceptanceReport:
@@ -39,6 +42,7 @@ class AcceptanceReport:
     agentic_quality_satisfied: bool
     internal_agent_label_hits: int
     missing_required_markdown_sections: list[str]
+    long_transcript_style_bullet_hits: int
 
     @property
     def accepted(self) -> bool:
@@ -75,6 +79,7 @@ class AcceptanceReport:
             "missing_required_markdown_sections": (
                 self.missing_required_markdown_sections
             ),
+            "long_transcript_style_bullet_hits": self.long_transcript_style_bullet_hits,
             "accepted": self.accepted,
         }
 
@@ -148,6 +153,7 @@ def evaluate_acceptance(
     agentic_backend = analysis_backend in {"api", "cursor_cli"}
     internal_hits = len(_AGENT_LABEL.findall(markdown))
     missing_sections = _missing_markdown_sections(markdown)
+    long_bullets = _long_transcript_style_bullet_hits(markdown)
     agentic_ok = True
     if agentic_backend:
         if fs.analysis_llm_call_count < 1:
@@ -157,6 +163,8 @@ def evaluate_acceptance(
         if internal_hits > 0:
             agentic_ok = False
         if missing_sections:
+            agentic_ok = False
+        if long_bullets > _MAX_AGENTIC_LONG_BULLETS:
             agentic_ok = False
     return AcceptanceReport(
         summary_support_rate=support_rate,
@@ -176,7 +184,18 @@ def evaluate_acceptance(
         agentic_quality_satisfied=agentic_ok,
         internal_agent_label_hits=internal_hits,
         missing_required_markdown_sections=missing_sections,
+        long_transcript_style_bullet_hits=long_bullets,
     )
+
+
+def _long_transcript_style_bullet_hits(markdown: str) -> int:
+    """Count markdown bullet lines long enough to suggest pasted raw transcript."""
+    hits = 0
+    for line in markdown.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("-") and len(stripped) >= _LONG_BULLET_MIN_CHARS:
+            hits += 1
+    return hits
 
 
 def _missing_markdown_sections(markdown: str) -> list[str]:

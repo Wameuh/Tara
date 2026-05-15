@@ -9,7 +9,7 @@ Objectif: remplacer la partie analyse actuelle de Tara par l'architecture "Black
 ### Reference contracts from `../Tara`
 
 - `src/tara/transcription/`: reference for transcription behavior; the old implementation is not modified.
-- `src/inference_server/`: reference for the transcription inference server; the old implementation is not modified.
+- `src/inference_server/` (legacy `Tara`): reference for the transcription inference server; the old tree is not modified. **TaraRepo** vendors the same package under `TaraRepo/src/inference_server/` for standalone runs (`run_tara.bat`, `uvicorn inference_server.app:app`).
 - `src/tara/processing/`: reference for the `merged_transcription.json` contract, preserved as the analysis input.
 - `src/tara/cli/`: reference for CLI behavior and arguments.
 - `src/tara/configuration/`: reference for JSON configuration patterns.

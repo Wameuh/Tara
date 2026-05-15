@@ -23,6 +23,16 @@ attempt, and allow-listed request metadata when a telemetry recorder is
 provided. Metadata is dropped from telemetry unless its key is explicitly listed
 in `LLMRunnerConfig.telemetry_metadata_keys`.
 
+On every successful completion, `LLMRunner.run` also emits a structured INFO log
+line (purpose, backend, model, combined prompt character count, attempt index,
+wall duration in milliseconds, and total tokens) for local observability without
+telemetry wiring.
+
+Structured agentic steps (`agentic_llm.py`) perform a single JSON repair LLM call
+when the primary completion fails Pydantic validation, using purpose suffix
+`.json_repair` before falling back (composer) or returning empty or error
+results (specialist, audit, arbitration).
+
 Cursor CLI prompts are sent through stdin by default to avoid exposing transcript
 content in process arguments. The subprocess environment is allow-listed so API
 keys and unrelated secrets are not inherited by default. Argument-based prompt

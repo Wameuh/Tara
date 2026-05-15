@@ -38,6 +38,50 @@ def test_acceptance_report_passes_for_supported_pipeline() -> None:
     assert report.estimated_llm_tokens == 0
 
 
+def test_long_bullets_counted_but_ok_without_agentic_backend() -> None:
+    """Long markdown bullets are tracked but do not fail non-agentic runs."""
+    baseline = AnalysisOrchestrator().run(_acceptance_index())
+    long_line = "- " + ("x" * 258)
+    spam = "\n".join([long_line] * 6)
+    patched = baseline.final_summary.model_copy(
+        update={"markdown": f"{baseline.final_summary.markdown}\n{spam}"},
+    )
+    result = replace(baseline, final_summary=patched)
+    report = evaluate_acceptance(result)
+
+    assert report.long_transcript_style_bullet_hits >= 6
+    assert report.accepted
+
+
+def test_agentic_api_fails_when_many_long_bullets() -> None:
+    """Agentic API quality gate rejects summaries with many transcript-like bullets."""
+    baseline = AnalysisOrchestrator().run(_acceptance_index())
+    long_line = "- " + ("z" * 258)
+    spam = "\n".join([long_line] * 6)
+    agentic_md = (
+        "# Résumé de session\n"
+        "## Résumé express\n"
+        f"{spam}\n"
+        "## Impacts pour la suite\n"
+        "- Court.\n"
+        "## État final et ressources\n"
+        "- Court.\n"
+    )
+    patched = baseline.final_summary.model_copy(
+        update={
+            "markdown": agentic_md,
+            "analysis_llm_call_count": 2,
+            "composition_llm_call_count": 1,
+        },
+    )
+    result = replace(baseline, final_summary=patched)
+    report = evaluate_acceptance(result, analysis_backend="api")
+
+    assert report.long_transcript_style_bullet_hits >= 6
+    assert not report.agentic_quality_satisfied
+    assert not report.accepted
+
+
 def test_acceptance_propagates_estimated_llm_tokens() -> None:
     """Token totals on the final summary flow into acceptance metrics."""
     result = AnalysisOrchestrator().run(_acceptance_index())

@@ -5,6 +5,7 @@ description = "Standalone Tara blackboard analysis application."
 requires-python = ">=3.13"
 dependencies = [
   "fastapi>=0.115",
+  "numpy>=1.26",
   "pydantic>=2.12",
   "requests>=2.32",
   "uvicorn>=0.32",
@@ -17,6 +18,12 @@ tara = "tara.__main__:main"
 dev = [
   "pytest>=8.0",
   "ruff>=0.8",
+]
+# Faster-Whisper / Parakeet paths for the bundled transcription inference server.
+inference = [
+  "faster-whisper>=1.0.0",
+  "librosa>=0.10.0",
+  "soundfile>=0.12.0",
 ]
 
 [tool.pytest.ini_options]

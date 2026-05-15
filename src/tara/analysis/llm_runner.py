@@ -8,14 +8,19 @@ to an API backend or to Cursor CLI.
 from __future__ import annotations
 
 import json
+import logging
 import os
+import shutil
 import subprocess
+import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
 import requests
+
+_LOGGER = logging.getLogger(__name__)
 
 LLMBackendName = Literal["api", "cursor_cli"]
 CursorPromptTransport = Literal["stdin", "argv"]
@@ -29,6 +34,13 @@ DEFAULT_CURSOR_ENV_ALLOWLIST = (
     "TEMP",
     "TMP",
     "USERPROFILE",
+    # Cursor CLI reads credentials and config from standard Windows profile paths.
+    "APPDATA",
+    "LOCALAPPDATA",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "USERNAME",
+    "USERDOMAIN",
 )
 
 
@@ -358,6 +370,33 @@ class OpenAIAPIBackend:
             return 0
 
 
+def _resolve_cursor_cli_executable(command: str) -> str:
+    """Return an executable path for the Cursor ``agent`` CLI.
+
+    On Windows, ``CreateProcess`` often fails for the bare name ``agent`` even
+    when ``PATH`` contains ``cursor-agent``; ``shutil.which`` or the default
+    install location yields ``agent.cmd``.
+
+    Args:
+        command: Configured ``cursor_command`` (typically ``agent``).
+
+    Returns:
+        Path or name to pass as the subprocess argv0.
+    """
+    if command.strip().lower() not in {"agent", "agent.cmd", "cursor-agent"}:
+        return command
+    found = shutil.which(command)
+    if found:
+        return found
+    if sys.platform == "win32":
+        local_app = os.environ.get("LOCALAPPDATA", "")
+        if local_app:
+            candidate = os.path.join(local_app, "cursor-agent", "agent.cmd")
+            if os.path.isfile(candidate):
+                return candidate
+    return command
+
+
 class CursorCLIBackend:
     """Cursor CLI backend using `agent -p` in non-interactive mode."""
 
@@ -391,24 +430,39 @@ class CursorCLIBackend:
                 error, or returns empty output.
         """
         prompt = self._build_prompt(request)
-        command = [
-            self._config.cursor_command,
-            *[str(arg) for arg in self._config.cursor_args],
-        ]
+        executable = _resolve_cursor_cli_executable(self._config.cursor_command)
+        command = [executable, *[str(arg) for arg in self._config.cursor_args]]
         input_text = prompt
         if self._config.cursor_prompt_transport == "argv":
             command.append(prompt)
             input_text = None
+        run_kwargs: dict[str, Any] = {
+            "capture_output": True,
+            "text": True,
+            "timeout": self._config.timeout_seconds,
+            "check": False,
+            "input": input_text,
+            "env": self._cursor_environment(),
+        }
         try:
+            # Force UTF-8 decoding for Cursor CLI output to avoid Windows locale
+            # mojibake in French summaries.
             result = self._subprocess_run(
                 command,
-                capture_output=True,
-                text=True,
-                timeout=self._config.timeout_seconds,
-                check=False,
-                input=input_text,
-                env=self._cursor_environment(),
+                encoding="utf-8",
+                errors="replace",
+                **run_kwargs,
             )
+        except TypeError:
+            # Test doubles may not accept encoding/errors kwargs.
+            try:
+                result = self._subprocess_run(command, **run_kwargs)
+            except FileNotFoundError as exc:
+                raise LLMBackendError(
+                    f"Cursor CLI command not found: {self._config.cursor_command}"
+                ) from exc
+            except subprocess.TimeoutExpired as exc:
+                raise LLMBackendError("Cursor CLI request timed out.") from exc
         except FileNotFoundError as exc:
             raise LLMBackendError(
                 f"Cursor CLI command not found: {self._config.cursor_command}"
@@ -520,8 +574,22 @@ class LLMRunner:
         attempts = 1 + max(0, self._config.max_retries)
         last_error: LLMBackendError | None = None
         for attempt in range(1, attempts + 1):
+            start = time.perf_counter()
             try:
                 response = backend.run(prompt)
+                elapsed_ms = int((time.perf_counter() - start) * 1000)
+                prompt_chars = len(prompt.system_prompt) + len(prompt.user_prompt)
+                _LOGGER.info(
+                    "llm_runner completed purpose=%s backend=%s model=%s "
+                    "prompt_chars=%s attempt=%s duration_ms=%s total_tokens=%s",
+                    prompt.purpose,
+                    response.backend,
+                    response.model,
+                    prompt_chars,
+                    attempt,
+                    elapsed_ms,
+                    response.total_tokens,
+                )
                 self._record_telemetry(prompt, response, attempt)
                 return response
             except LLMBackendError as exc:

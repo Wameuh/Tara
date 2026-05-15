@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -82,6 +84,23 @@ class AlwaysFailingBackend:
         """Always raise a backend error."""
         self.calls += 1
         raise LLMBackendError("still failing")
+
+
+class OkBackend:
+    """Backend that always returns a successful response."""
+
+    backend_name = "api"
+
+    def run(self, request: LLMRequest) -> LLMResponse:
+        """Return minimal JSON and non-zero token counts."""
+        return LLMResponse(
+            content="{}",
+            model="gpt-test",
+            backend="api",
+            input_tokens=5,
+            output_tokens=7,
+            total_tokens=12,
+        )
 
 
 def _request() -> LLMRequest:
@@ -281,7 +300,9 @@ def test_cursor_cli_backend_runs_agent_prompt() -> None:
 
     assert response.content == "done"
     assert response.model == "Auto"
-    assert commands[0][0:2] == ["agent", "-p"]
+    exe0, arg0 = commands[0][0:2]
+    assert arg0 == "-p"
+    assert exe0 == "agent" or Path(exe0).name.lower() == "agent.cmd"
     assert len(commands[0]) == 2
     assert inputs and "\"purpose\": \"unit-test\"" in str(inputs[0])
     assert "OPENAI_API_KEY" not in environments[0]
@@ -406,6 +427,24 @@ def test_cursor_cli_backend_reports_timeout() -> None:
 
     with pytest.raises(LLMBackendError, match="timed out"):
         backend.run(_request())
+
+
+def test_runner_logs_completion_metrics_on_success(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Each successful completion emits INFO with purpose, size, and timing."""
+    caplog.set_level(logging.INFO, logger="tara.analysis.llm_runner")
+    runner = LLMRunner(
+        LLMRunnerConfig(model="gpt-test", max_retries=0),
+        api_backend=OkBackend(),
+    )
+    runner.run(_request())
+    joined = " | ".join(rec.message for rec in caplog.records)
+    assert "llm_runner completed" in joined
+    assert "purpose=unit-test" in joined
+    assert "prompt_chars=" in joined
+    assert "duration_ms=" in joined
+    assert "total_tokens=12" in joined
 
 
 def test_runner_retries_backend_and_records_telemetry() -> None:
