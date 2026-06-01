@@ -130,6 +130,54 @@ class AnalysisLLMConfig:
 
 
 @dataclass(slots=True)
+class AnalysisScenesConfig:
+    """Configuration for scene-driven blackboard enrichment."""
+
+    enabled: bool = True
+    boundaries_filename: str = "scene_analysis.json"
+    descriptions_filename: str = "scene_descriptions.json"
+    scenes_dir: str = "scenes"
+    scene_file_prefix: str = "scene_"
+    boundary_block_seconds: float = 1800.0
+    resume_partial_descriptions: bool = True
+    inject_into_blackboard: bool = True
+    fail_on_scene_error: bool = False
+
+    @classmethod
+    def from_mapping(cls, data: Mapping[str, Any]) -> Self:
+        """Create scene analysis configuration from a raw mapping."""
+        defaults = cls()
+        return cls(
+            enabled=bool(data.get("enabled", defaults.enabled)),
+            boundaries_filename=str(
+                data.get("boundaries_filename", defaults.boundaries_filename),
+            ),
+            descriptions_filename=str(
+                data.get("descriptions_filename", defaults.descriptions_filename),
+            ),
+            scenes_dir=str(data.get("scenes_dir", defaults.scenes_dir)),
+            scene_file_prefix=str(
+                data.get("scene_file_prefix", defaults.scene_file_prefix),
+            ),
+            boundary_block_seconds=float(
+                data.get("boundary_block_seconds", defaults.boundary_block_seconds),
+            ),
+            resume_partial_descriptions=bool(
+                data.get(
+                    "resume_partial_descriptions",
+                    defaults.resume_partial_descriptions,
+                ),
+            ),
+            inject_into_blackboard=bool(
+                data.get("inject_into_blackboard", defaults.inject_into_blackboard),
+            ),
+            fail_on_scene_error=bool(
+                data.get("fail_on_scene_error", defaults.fail_on_scene_error),
+            ),
+        )
+
+
+@dataclass(slots=True)
 class AnalysisConfig:
     """Configuration for blackboard analysis output and loop behavior."""
 
@@ -143,6 +191,7 @@ class AnalysisConfig:
     max_audit_attempts: int = 3
     target_window_seconds: float = 90.0
     overlap_seconds: float = 20.0
+    scenes: AnalysisScenesConfig = field(default_factory=AnalysisScenesConfig)
     llm: AnalysisLLMConfig = field(default_factory=AnalysisLLMConfig)
 
     @classmethod
@@ -152,6 +201,9 @@ class AnalysisConfig:
         llm_data = data.get("llm", {})
         if not isinstance(llm_data, Mapping):
             llm_data = {}
+        scenes_data = data.get("scenes", {})
+        if not isinstance(scenes_data, Mapping):
+            scenes_data = {}
         return cls(
             enabled=bool(data.get("enabled", defaults.enabled)),
             pipeline=str(data.get("pipeline", defaults.pipeline)),
@@ -176,6 +228,7 @@ class AnalysisConfig:
             overlap_seconds=float(
                 data.get("overlap_seconds", defaults.overlap_seconds),
             ),
+            scenes=AnalysisScenesConfig.from_mapping(scenes_data),
             llm=AnalysisLLMConfig.from_mapping(llm_data),
         )
 

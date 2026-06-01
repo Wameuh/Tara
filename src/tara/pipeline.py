@@ -20,6 +20,8 @@ from tara.analysis import (
     MergedTranscription,
     PipelineResult,
 )
+from tara.analysis.scenes import SceneAnalysisPipeline, SceneBlackboardIngestor
+from tara.analysis.scenes.models import ScenePipelineResult, SceneTimeline
 from tara.cli import TaraArgs
 from tara.config import TaraConfig, find_default_config_path, load_config
 from tara.context import (
@@ -141,15 +143,6 @@ class TaraControlAgent:
         if self._args.write_context_debug:
             write_context_debug_file(analysis_output_dir / "context_debug.md", context)
 
-        index = EvidenceIndex.from_transcription(
-            transcription,
-            target_window_seconds=self._config.analysis.target_window_seconds,
-            overlap_seconds=self._config.analysis.overlap_seconds,
-            metadata={"pipeline": self._config.analysis.pipeline},
-        )
-        index.write_chunks_jsonl(analysis_output_dir / "evidence_chunks.jsonl")
-        index.write_metadata_json(analysis_output_dir / "evidence_index_metadata.json")
-
         if self._config.analysis.llm.backend == "deterministic":
             llm_runner = None
             probe_stats = _CursorCliProbeStats(calls=0, tokens=0, cost_usd=0.0)
@@ -159,6 +152,28 @@ class TaraControlAgent:
                 llm_runner,
                 self._config,
             )
+
+        scene_result = _run_scene_pipeline(
+            transcription=transcription,
+            merged_transcription_path=merged_transcription_path,
+            config=self._config,
+            llm_runner=llm_runner,
+        )
+        scene_answers = (
+            SceneBlackboardIngestor().to_evidence_answers(scene_result.timeline)
+            if self._config.analysis.scenes.inject_into_blackboard
+            else []
+        )
+
+        index = EvidenceIndex.from_transcription(
+            transcription,
+            target_window_seconds=self._config.analysis.target_window_seconds,
+            overlap_seconds=self._config.analysis.overlap_seconds,
+            metadata={"pipeline": self._config.analysis.pipeline},
+        )
+        index.write_chunks_jsonl(analysis_output_dir / "evidence_chunks.jsonl")
+        index.write_metadata_json(analysis_output_dir / "evidence_index_metadata.json")
+
         result = AnalysisOrchestrator(
             max_audit_attempts=self._config.analysis.max_audit_attempts,
             llm_runner=llm_runner,
@@ -171,8 +186,13 @@ class TaraControlAgent:
                 "context_text": context.general.text or "",
                 "prior_context_text": context.prior.text or "",
             },
-        ).run(index)
+        ).run(
+            index,
+            scene_timeline=scene_result.timeline,
+            initial_answers=scene_answers,
+        )
         result = _merge_cursor_cli_probe_into_result(result, probe_stats)
+        result = _merge_scene_usage_into_result(result, scene_result)
         _write_pipeline_debug_artifacts(
             result=result,
             output_dir=analysis_output_dir,
@@ -191,6 +211,7 @@ class TaraControlAgent:
                     merged_transcription_path,
                     self._config,
                     context,
+                    scene_result,
                 ),
                 ensure_ascii=True,
                 indent=2,
@@ -230,6 +251,30 @@ def _analysis_output_dir(
     return merged_transcription_path.parent / config.analysis.output_dir
 
 
+def _run_scene_pipeline(
+    *,
+    transcription: MergedTranscription,
+    merged_transcription_path: Path,
+    config: TaraConfig,
+    llm_runner: LLMRunner | None,
+) -> ScenePipelineResult:
+    """Run the optional scene pipeline with fallback semantics."""
+    try:
+        return SceneAnalysisPipeline(config.analysis.scenes).run(
+            transcription=transcription,
+            merged_transcription_path=merged_transcription_path,
+            llm_runner=llm_runner,
+        )
+    except Exception:
+        if config.analysis.scenes.fail_on_scene_error:
+            raise
+        LOGGER.warning(
+            "Scene pipeline failed; falling back to blackboard-only.",
+            exc_info=True,
+        )
+        return ScenePipelineResult(timeline=SceneTimeline())
+
+
 def _write_pipeline_debug_artifacts(
     *,
     result: PipelineResult,
@@ -266,6 +311,7 @@ def _final_summary_payload(
     merged_transcription_path: Path,
     config: TaraConfig,
     context: AnalysisContext,
+    scene_result: ScenePipelineResult,
 ) -> dict[str, Any]:
     """Build the traceable `session_summary.json` payload."""
     acceptance = evaluate_acceptance(
@@ -278,6 +324,9 @@ def _final_summary_payload(
             "merged_transcription_path": str(merged_transcription_path),
             "context_path": context.general.path_str,
             "prior_context_path": context.prior.path_str,
+            "scene_count": scene_result.scene_count,
+            "scene_analysis_path": scene_result.scene_analysis_path,
+            "scene_descriptions_path": scene_result.scene_descriptions_path,
             "attempts": result.attempts,
             "answer_count": len(result.answers),
             "fact_count": len(result.blackboard.facts),
@@ -299,6 +348,7 @@ def _final_summary_payload(
             "audit_llm_call_count": acceptance.audit_llm_call_count,
             "estimated_llm_tokens": acceptance.estimated_llm_tokens,
             "estimated_cost_usd": acceptance.estimated_cost_usd,
+            "scene_llm_call_count": scene_result.scene_llm_call_count,
             "backend": _usage_backend_label(
                 configured_backend=config.analysis.llm.backend,
                 llm_call_count=acceptance.llm_call_count,
@@ -405,6 +455,44 @@ def _merge_cursor_cli_probe_into_result(
             "llm_call_count": fs.llm_call_count + probe.calls,
             "estimated_llm_tokens": fs.estimated_llm_tokens + probe.tokens,
             "estimated_cost_usd": merged_cost if merged_cost > 0 else None,
+        },
+    )
+    return PipelineResult(
+        plan=result.plan,
+        answers=result.answers,
+        blackboard=result.blackboard,
+        decisions=result.decisions,
+        draft=result.draft,
+        findings=result.findings,
+        final_summary=new_summary,
+        attempts=result.attempts,
+    )
+
+
+def _merge_scene_usage_into_result(
+    result: PipelineResult,
+    scene_result: ScenePipelineResult,
+) -> PipelineResult:
+    """Add scene LLM usage counters into the final summary totals."""
+    if scene_result.scene_llm_call_count <= 0:
+        return result
+    fs = result.final_summary
+    scene_cost = float(scene_result.estimated_scene_cost_usd or 0.0)
+    merged_cost = (fs.estimated_cost_usd or 0.0) + scene_cost
+    new_summary = fs.model_copy(
+        update={
+            "analysis_llm_call_count": (
+                fs.analysis_llm_call_count + scene_result.scene_llm_call_count
+            ),
+            "llm_call_count": fs.llm_call_count + scene_result.scene_llm_call_count,
+            "estimated_llm_tokens": (
+                fs.estimated_llm_tokens + scene_result.estimated_scene_llm_tokens
+            ),
+            "estimated_cost_usd": merged_cost if merged_cost > 0 else None,
+            "metadata": {
+                **fs.metadata,
+                "scene_llm_call_count": scene_result.scene_llm_call_count,
+            },
         },
     )
     return PipelineResult(

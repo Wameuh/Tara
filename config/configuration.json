@@ -1,42 +1,19 @@
 {
-  "language": "fr",
-  "logging": {
-    "level": "INFO",
-    "console_enabled": true,
-    "console_format": "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
-  },
-  "transcription": {
-    "model": "parakeet:nvidia/parakeet-tdt-0.6b-v3",
-    "inference_endpoint": "http://localhost:8000",
-    "request_timeout_seconds": 1800,
-    "streaming_enabled": true,
-    "output_dir": "transcriptions",
-    "recursive": true,
-    "audio_extensions": [".mp3", ".wav", ".ogg", ".flac", ".m4a", ".aac", ".wma"]
-  },
-  "processing": {
-    "enabled": true,
-    "output_filename": "merged_transcription.json"
-  },
   "analysis": {
     "enabled": true,
     "pipeline": "blackboard_v1",
-    "context_path": null,
-    "prior_context_path": null,
     "output_dir": "analysis",
-    "summary_markdown_filename": "session_summary.md",
-    "summary_json_filename": "session_summary.json",
     "max_audit_attempts": 3,
     "target_window_seconds": 90,
     "overlap_seconds": 20,
     "llm": {
-      "backend": "deterministic",
+      "backend": "cursor_cli",
       "model": "Auto",
-      "cursor_command": "agent",
+      "cursor_command": "cursor-agent",
       "cursor_args": ["-p"],
       "timeout_seconds": 900,
       "retries": 2,
-      "cursor_cli_probe": false
+      "cursor_cli_probe": true
     }
   }
 }

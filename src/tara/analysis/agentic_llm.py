@@ -273,6 +273,7 @@ def run_composer_llm(
     *,
     facts_payload: list[dict[str, Any]],
     do_not_claim: list[str],
+    scene_timeline: object | None = None,
     context_text: str | None = None,
     prior_context_text: str | None = None,
 ) -> tuple[SummaryDraft, LLMUsageDelta]:
@@ -290,12 +291,52 @@ def run_composer_llm(
     facts_json = json.dumps(facts_payload, ensure_ascii=True, indent=2)
     user_prompt = (
         "Compose a French campaign session summary from supported facts only.\n"
+        "The goal is to remind players what happened before the next session: "
+        "give them a clear overview of the story, stakes, scene state, and "
+        "important consequences.\n"
+        "Use the scene timeline as the narrative backbone when it is provided. "
+        "Do not flatten the session into disconnected facts; preserve the "
+        "progression of major scenes and the key actions that shaped them.\n"
+        "The 'Résumé express' section must stay concise but not skeletal: aim "
+        "for 5 to 7 broad phase groups, usually two compact sentences per "
+        "group. One sentence is fine for a simple transition; avoid more than "
+        "three short sentences in a group. A good two-sentence group is: "
+        "sentence one names the major event/outcome, sentence two names the "
+        "lasting consequence or transition. Do not produce a blow-by-blow "
+        "complete recap in that section.\n"
+        "Prefer synthesis over blow-by-blow combat narration. Group tactical "
+        "exchanges into meaningful phases and outcomes.\n"
+        "Do not include dice rolls, attack totals, save DCs, initiative order, "
+        "or opportunity attacks unless that mechanical detail directly changes "
+        "the story state, a character's final condition, or a resource players "
+        "must remember.\n"
+        "Keep low-level mechanics out of 'Résumé express': do not mention Ki, "
+        "action economy, exact movement limits, exact positioning, temporary "
+        "combat modifiers, or per-attack details there unless they are the "
+        "main story consequence. Put essential remaining resources in "
+        "'État final et ressources' instead.\n"
+        "In 'Résumé express', avoid bookkeeping examples such as temporary hit "
+        "point amounts, exact healing numbers, spell-slot accounting, named "
+        "concentration bookkeeping, specific turret/ballista mechanics, weapon "
+        "string failures, or special movement rules. Summarize their narrative "
+        "effect instead, such as 'the group falls back', 'support magic is "
+        "spent', or 'the party is badly wounded'.\n"
+        "Avoid low-value details such as isolated missed attacks, exact rolls "
+        "to hit, or transient positioning when they do not affect the next "
+        "session.\n"
         "The markdown MUST include these headings exactly (including accents):\n"
         "# Résumé de session\n"
         "## Résumé express\n"
         "## Impacts pour la suite\n"
         "## État final et ressources\n"
+        "After '# Résumé de session', include at most one short orientation "
+        "sentence before '## Résumé express'. Do not put a complete recap "
+        "before the first section; 'Résumé express' must be the first "
+        "substantive player-facing content.\n"
         "Each section must use supporting_answer_ids from the input facts only.\n"
+        "Do not print answer IDs, chunk IDs, scene IDs, or evidence citations in "
+        "the markdown text. Those references belong only in the JSON "
+        "supporting_answer_ids fields.\n"
         "Return strict JSON with keys markdown (full document) and sections "
         "(list of {section_id,title,content,supporting_answer_ids}).\n"
         "Do not include internal agent labels such as 'ChronologyAgent:'.\n\n"
@@ -305,6 +346,7 @@ def run_composer_llm(
         "than guessing.\n\n"
         f"{_prior_context_block(prior_context_text)}"
         f"{_general_context_block(context_text)}"
+        f"{_scene_timeline_block(scene_timeline)}"
         f"Forbidden claims (do not restate): {forbidden_json}\n\n"
         f"Facts JSON:\n{facts_json}"
     )
@@ -359,6 +401,7 @@ def run_audit_llm(
     draft_markdown: str,
     facts_payload: list[dict[str, Any]],
     do_not_claim: list[str],
+    scene_timeline: object | None = None,
     context_text: str | None = None,
 ) -> tuple[list[str], LLMUsageDelta]:
     """Run a short semantic audit pass.
@@ -378,11 +421,36 @@ def run_audit_llm(
         "Reject if required headings are missing: "
         "'# Résumé de session', '## Résumé express', "
         "'## Impacts pour la suite', '## État final et ressources'.\n"
+        "Reject if there is more than one short orientation sentence between "
+        "'# Résumé de session' and '## Résumé express'; the first substantive "
+        "content must be the 'Résumé express' section.\n"
+        "Reject if markdown text exposes answer IDs, chunk IDs, scene IDs, or "
+        "evidence citations; those are internal traceability only.\n"
         "Reject if bullets look like raw transcript dumps rather than synthesis.\n"
+        "Reject if the summary over-focuses on low-impact mechanics such as "
+        "dice rolls, attack totals, isolated opportunity attacks, or initiative "
+        "order instead of player-facing story overview and consequences.\n"
+        "Reject if 'Résumé express' reads like a complete recap: groups should "
+        "usually be two compact sentences, not blow-by-blow paragraphs, and "
+        "should not include low-level mechanics such as Ki spending, action "
+        "economy, exact movement limits, exact positioning, transient combat "
+        "modifiers, or per-attack details unless they are the main consequence.\n"
+        "Reject if 'Résumé express' includes bookkeeping details such as "
+        "temporary hit point amounts, exact healing numbers, spell-slot "
+        "accounting, named concentration bookkeeping, turret/ballista mechanics, "
+        "weapon string failures, or special movement rules when a narrative "
+        "effect would be enough.\n"
+        "Reject if the evidence indicates multiple distinct scenes but the "
+        "summary collapses them into one event.\n"
+        "Reject if supported aftermath or end-of-session consequences are omitted "
+        "from the narrative arc.\n"
+        "When a scene timeline is provided, lightly check for major omitted "
+        "scene consequences, but do not require every scene to be named.\n"
         "Check that clear player pseudonyms from evidence are normalized to "
         "character names or MJ when the general context provides that mapping.\n"
         'Return JSON {"approved":bool,"issues":["..."]}\n\n'
         f"{_general_context_block(context_text)}"
+        f"{_scene_timeline_block(scene_timeline)}"
         f"Do-not-claim list: {json.dumps(do_not_claim, ensure_ascii=True)}\n\n"
         f"Facts JSON:\n{json.dumps(facts_payload, ensure_ascii=True)}\n\n"
         f"Summary markdown:\n{draft_markdown}"
@@ -500,6 +568,56 @@ def _prior_context_block(prior_context_text: str | None) -> str:
     )
 
 
+def _scene_timeline_block(scene_timeline: object | None) -> str:
+    """Return a compact scene timeline prompt block."""
+    payload = scene_timeline_to_payload(scene_timeline)
+    if not payload:
+        return ""
+    return (
+        "Scene timeline, generated from the current transcript. Use it as the "
+        "primary narrative ordering and to avoid missing major consequences.\n"
+        "--- scene timeline ---\n"
+        f"{json.dumps(payload, ensure_ascii=True, indent=2)}\n"
+        "--- end scene timeline ---\n\n"
+    )
+
+
+def scene_timeline_to_payload(scene_timeline: object | None) -> list[dict[str, Any]]:
+    """Serialize a scene timeline-like object for prompts."""
+    if scene_timeline is None:
+        return []
+    scenes = getattr(scene_timeline, "scenes", None)
+    if not isinstance(scenes, list):
+        return []
+    payload: list[dict[str, Any]] = []
+    for scene in scenes:
+        row = {
+            "scene_id": getattr(scene, "scene_id", None),
+            "title": getattr(scene, "title", ""),
+            "start": getattr(scene, "start", None),
+            "end": getattr(scene, "end", None),
+            "summary": getattr(scene, "summary", ""),
+            "key_actions": list(getattr(scene, "key_actions", []) or []),
+            "state_changes": list(getattr(scene, "state_changes", []) or []),
+            "continuity_impacts": list(
+                getattr(scene, "continuity_impacts", []) or []
+            ),
+            "facts": [
+                {
+                    "claim": getattr(fact, "claim", ""),
+                    "claim_type": (
+                        getattr(getattr(fact, "claim_type", None), "value", None)
+                        or str(getattr(fact, "claim_type", ""))
+                    ),
+                    "importance": getattr(fact, "importance", None),
+                }
+                for fact in list(getattr(scene, "facts", []) or [])
+            ],
+        }
+        payload.append(row)
+    return payload
+
+
 def _support_from_chunk_ids(
     chunks: list[EvidenceChunk],
     chunk_ids: list[str],
@@ -590,6 +708,7 @@ def blackboard_facts_to_payload(blackboard: object) -> list[dict[str, Any]]:
                 "is_critical": fact.is_critical,
                 "confidence": fact.confidence.value,
                 "chunk_ids": [s.chunk_id for s in fact.support],
+                "metadata": fact.metadata,
             },
         )
     return rows

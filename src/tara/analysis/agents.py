@@ -128,6 +128,7 @@ class AnalysisPlannerAgent:
                 [
                     "lieu objet mecanisme sanctuaire temple",
                     "consequence prochaine session",
+                    "suite immediate et resolution des consequences",
                 ],
                 priority=2,
             ),
@@ -633,6 +634,7 @@ class SummaryComposerAgent:
         self,
         blackboard: BlackboardState,
         decisions: list[ArbitrationDecision],
+        scene_timeline: object | None = None,
     ) -> SummaryDraft:
         """Create a summary draft without re-reading the transcription."""
         self.last_llm_usage = LLMUsageDelta()
@@ -648,6 +650,7 @@ class SummaryComposerAgent:
                 runner,
                 facts_payload=payload,
                 do_not_claim=list(blackboard.do_not_claim_list),
+                scene_timeline=scene_timeline,
                 context_text=_config_text(self.config, "context_text"),
                 prior_context_text=_config_text(self.config, "prior_context_text"),
             )
@@ -730,6 +733,7 @@ class AdversarialAuditAgent:
         self,
         draft: SummaryDraft,
         blackboard: BlackboardState,
+        scene_timeline: object | None = None,
     ) -> list[AuditFinding]:
         """Audit a summary draft.
 
@@ -796,6 +800,7 @@ class AdversarialAuditAgent:
                 draft_markdown=draft.markdown,
                 facts_payload=blackboard_facts_to_payload(blackboard),
                 do_not_claim=list(blackboard.do_not_claim_list),
+                scene_timeline=scene_timeline,
                 context_text=_config_text(self.config, "context_text"),
             )
             self.last_llm_usage = usage
@@ -804,7 +809,7 @@ class AdversarialAuditAgent:
                     AuditFinding(
                         finding_id=f"audit_llm_{index:03d}",
                         severity=ConflictSeverity.CRITICAL,
-                        claim=draft.markdown[:200],
+                        claim=issue,
                         issue=issue,
                         required_action="rewrite",
                         related_answer_ids=[],
@@ -829,9 +834,15 @@ class FinalPatchAgent:
         ]
         warnings = [finding.issue for finding in critical_findings]
         markdown = draft.markdown
-        if critical_findings:
+        non_confirmed_claims = [
+            _strip_agent_debug_prefix(finding.claim).strip()
+            for finding in critical_findings
+            if finding.required_action == "mark_unconfirmed"
+            and finding.claim.strip()
+        ]
+        if non_confirmed_claims:
             markdown += "\n\n## Non-confirmed\n"
-            markdown += "\n".join(f"- {finding.claim}" for finding in critical_findings)
+            markdown += "\n".join(f"- {claim}" for claim in non_confirmed_claims)
         return FinalSummary(
             markdown=markdown,
             sections=draft.sections,
@@ -876,9 +887,16 @@ class AnalysisOrchestrator:
         )
         self._patch = FinalPatchAgent()
 
-    def run(self, retriever: EvidenceRetriever) -> PipelineResult:
+    def run(
+        self,
+        retriever: EvidenceRetriever,
+        *,
+        scene_timeline: object | None = None,
+        initial_answers: list[EvidenceAnswer] | None = None,
+    ) -> PipelineResult:
         """Run the bounded analysis loop over a retriever."""
         audit_feedback: list[AuditFinding] = []
+        seed_answers = list(initial_answers or [])
         last_result: PipelineResult | None = None
         llm_runner_obj = self._specialists["ChronologyAgent"].llm_runner
         llm_runner_typed = cast(LLMRunner, llm_runner_obj) if llm_runner_obj else None
@@ -889,6 +907,7 @@ class AnalysisOrchestrator:
                 retriever,
                 self._specialists,
             )
+            answers = [*seed_answers, *answers]
             blackboard = self._blackboard.ingest(answers)
             decisions = self._arbitration.arbitrate(
                 blackboard,
@@ -899,9 +918,17 @@ class AnalysisOrchestrator:
                 context_text=_config_text(self._specialist_config, "context_text"),
             )
             arbitration_usage = self._arbitration.last_llm_usage
-            draft = self._composer.compose(blackboard, decisions)
+            draft = self._composer.compose(
+                blackboard,
+                decisions,
+                scene_timeline=scene_timeline,
+            )
             composition_usage = self._composer.last_llm_usage
-            findings = self._audit.audit(draft, blackboard)
+            findings = self._audit.audit(
+                draft,
+                blackboard,
+                scene_timeline=scene_timeline,
+            )
             audit_usage = self._audit.last_llm_usage
             final = self._patch.patch(draft, findings)
             analysis_calls = specialist_usage.calls + arbitration_usage.calls

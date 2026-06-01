@@ -3,11 +3,12 @@
 TaraRepo is the standalone implementation workspace for the new Tara analysis
 pipeline described in `ARCHITECTURE.md`.
 
-The project replaces the old scene-based analysis flow with a blackboard,
-local retrieval, arbitration, and adversarial audit architecture. The old
-`Tara` project remains the source of reference contracts for transcription,
-processing, configuration patterns, logging, telemetry, usage reporting, and
-local runner behavior.
+The project now uses a scene-driven blackboard architecture: scene boundaries
+and long scene descriptions provide the narrative timeline, then local
+retrieval, specialist agents, arbitration, and adversarial audit enrich and
+control the final summary. The old `Tara` project remains the source of
+reference contracts for transcription, processing, configuration patterns,
+logging, telemetry, usage reporting, and local runner behavior.
 
 ## Migration Guardrails
 
@@ -55,8 +56,10 @@ Task `04` adds local CPU evidence chunking and lexical retrieval over merged
 transcriptions.
 Tasks `05`-`10` add the deterministic planner, specialists, blackboard,
 arbitration, composer, audit, patching, and bounded audit loop.
-This is the first deterministic implementation; LLM-assisted specialist and
-composer behavior will be added behind the same typed boundaries later.
+The analysis package also includes the scene-driven enrichment layer under
+`src/tara/analysis/scenes/`: it identifies narrative scene boundaries, writes
+per-scene transcript slices, generates long scene descriptions, and injects
+scene-derived facts into the blackboard before specialist retrieval runs.
 Task `11` wires the standalone CLI, JSON configuration, `.env` loading,
 transcription-server integration, processing, FastAPI endpoints, and final
 `session_summary.md` / `session_summary.json` generation.
@@ -82,6 +85,34 @@ the probe without editing JSON. `--context FILE` attaches general campaign
 context to LLM analysis prompts, and `--prior-context FILE` attaches
 previous-session context to the summary composer. Both accept `.md` or `.txt`;
 relative config paths are resolved from the config file directory.
+
+### Scene-driven blackboard enrichment
+
+Scene enrichment is configured under `analysis.scenes` and is enabled by
+default. It only performs LLM work when the analysis backend is `api` or
+`cursor_cli`; deterministic runs fall back to the blackboard-only path and log a
+non-fatal warning.
+
+The scene flow writes private runtime artifacts beside `merged_transcription.json`:
+
+- `scene_analysis.json`: ordered scene boundaries and short summaries.
+- `scenes/scene_001.json`: one transcript slice per scene, including speaker
+  metadata and original segment ids.
+- `scene_descriptions.json`: long scene descriptions, key actions, state
+  changes, continuity impacts, and scene facts.
+
+Scene facts are converted into `EvidenceAnswer` rows before the regular
+specialist agents run. Their answer ids include the specialist type and scene id,
+for example `chronology_scene_003_00`, and their metadata records
+`source: scene_description`, `scene_id`, title, and timestamps. The final
+composer receives the full scene timeline plus blackboard facts so it can use
+the scenes as the narrative backbone without copying raw transcript prose.
+
+For a high-quality Cursor CLI run:
+
+```powershell
+python -m tara --merged-transcription "C:\path\to\merged_transcription.json" --analysis-backend cursor_cli --cursor-cli-probe --context "C:\path\to\campaign_context.md" --prior-context "C:\path\to\previous_sessions.md"
+```
 
 ## Running
 

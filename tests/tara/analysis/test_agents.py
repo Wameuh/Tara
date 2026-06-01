@@ -9,15 +9,18 @@ from tara.analysis.agents import (
     ArbitrationPanel,
     BlackboardController,
     ChronologyAgent,
+    FinalPatchAgent,
     QuestContinuityAgent,
     SummaryComposerAgent,
     UncertaintyAgent,
 )
 from tara.analysis.evidence_index import EvidenceIndex
 from tara.analysis.models import (
+    AuditFinding,
     BlackboardFact,
     ClaimType,
     Confidence,
+    ConflictSeverity,
     EvidenceAnswer,
     EvidenceSupport,
     FactStatus,
@@ -320,6 +323,36 @@ def test_audit_detects_unsupported_section_references() -> None:
 
     assert findings
     assert findings[0].required_action == "mark_unconfirmed"
+
+
+def test_final_patch_does_not_append_rewrite_findings_as_claims() -> None:
+    """LLM rewrite findings should remain warnings, not duplicated markdown."""
+    draft = SummaryDraft(
+        markdown="# Résumé de session\n\nLa bataille reste en suspens.",
+        sections=[
+            SummarySection(
+                section_id="summary",
+                title="Résumé de session",
+                content="La bataille reste en suspens.",
+                supporting_answer_ids=["a001"],
+            )
+        ],
+    )
+    findings = [
+        AuditFinding(
+            finding_id="audit_llm_000",
+            severity=ConflictSeverity.CRITICAL,
+            claim="Too much mechanical detail.",
+            issue="Too much mechanical detail.",
+            required_action="rewrite",
+        )
+    ]
+
+    final = FinalPatchAgent().patch(draft, findings)
+
+    assert "## Non-confirmed" not in final.markdown
+    assert "Too much mechanical detail." not in final.markdown
+    assert final.warnings == ["Too much mechanical detail."]
 
 
 def test_orchestrator_runs_bounded_pipeline() -> None:

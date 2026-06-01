@@ -263,6 +263,9 @@ def test_composer_receives_prior_then_general_context() -> None:
         "willygorn plays Karknyr."
     )
     assert "Use character names and MJ" in backend.prompt
+    assert "remind players what happened before the next session" in backend.prompt
+    assert "Prefer synthesis over blow-by-blow combat narration" in backend.prompt
+    assert "Do not include dice rolls, attack totals" in backend.prompt
 
 
 def test_audit_and_arbitration_receive_general_context() -> None:
@@ -314,6 +317,13 @@ def test_audit_and_arbitration_receive_general_context() -> None:
     )
 
     assert all(context in prompt for prompt in backend.prompts)
+    assert "over-focuses on low-impact mechanics" in backend.prompts[0]
+    assert "'Résumé express' reads like a complete recap" in backend.prompts[0]
+    assert "two compact sentences" in backend.prompts[0]
+    assert "temporary hit point amounts" in backend.prompts[0]
+    assert "turret/ballista mechanics" in backend.prompts[0]
+    assert "first substantive content" in backend.prompts[0]
+    assert "answer IDs, chunk IDs, scene IDs" in backend.prompts[0]
 
 
 def test_orchestrator_wires_context_to_real_agent_llm_calls() -> None:

@@ -103,6 +103,10 @@ def test_load_config_reads_analysis_section(tmp_path: Path) -> None:
                     "pipeline": "blackboard_v1",
                     "context_path": "campaign.md",
                     "prior_context_path": "previous.md",
+                    "scenes": {
+                        "enabled": True,
+                        "descriptions_filename": "scene_descriptions.json",
+                    },
                     "llm": {"backend": "cursor_cli", "model": "Auto"},
                 },
             },
@@ -115,6 +119,8 @@ def test_load_config_reads_analysis_section(tmp_path: Path) -> None:
     assert config.analysis.pipeline == "blackboard_v1"
     assert config.analysis.context_path == "campaign.md"
     assert config.analysis.prior_context_path == "previous.md"
+    assert config.analysis.scenes.enabled is True
+    assert config.analysis.scenes.descriptions_filename == "scene_descriptions.json"
     assert config.analysis.llm.backend == "cursor_cli"
     assert config.analysis.llm.model == "Auto"
     assert config.analysis.llm.cursor_cli_probe is False

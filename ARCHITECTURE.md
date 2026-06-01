@@ -1,12 +1,19 @@
-# Design 2 - Blackboard, retrieval local et audit adversarial
+# Design 2 - Scenes, blackboard, retrieval local et audit adversarial
 
 ## Intention
 
 Ce design repart de zero pour la partie analyse uniquement. La transcription reste intacte.
 
-L'idee centrale est de ne plus organiser le pipeline autour des scenes. Les scenes deviennent optionnelles. Le pipeline est organise autour d'une blackboard d'analyse: plusieurs agents specialistes remplissent une memoire commune avec des faits sources, puis un agent de synthese compose le resume final et un agent auditeur controle les claims importants.
+L'idee centrale a evolue: les scenes redeviennent la colonne vertebrale
+narrative, mais elles ne remplacent pas la blackboard. Le pipeline commence par
+une timeline de scenes, genere des descriptions longues par scene, convertit ces
+descriptions en facts sources, puis laisse la blackboard, les agents
+specialistes, l'arbitrage et l'audit controler la synthese finale.
 
-Ce design est plus ambitieux que le Design 1. Il vise une meilleure qualite sur les sessions longues, chaotiques ou tres tactiques, en evitant que le decoupage en scenes devienne le point de defaillance principal.
+Ce design vise une meilleure qualite sur les sessions longues, chaotiques ou
+tres tactiques: les scenes preservent l'arc de session et les actions cles,
+tandis que la blackboard evite que le resume final depende seulement d'une prose
+intermediaire non controlee.
 
 ## Diagnostic du pipeline actuel
 
@@ -25,7 +32,7 @@ Cette chaine a trois faiblesses agentiques:
 Le Design 2 remplace cette chaine par:
 
 ```text
-transcription -> index local -> questions d'analyse -> agents specialistes -> blackboard -> synthese -> audit cible
+transcription -> scenes -> descriptions -> scene facts -> blackboard -> synthese -> audit cible
 ```
 
 ## Pipeline propose
@@ -34,8 +41,15 @@ transcription -> index local -> questions d'analyse -> agents specialistes -> bl
 
 ```mermaid
 flowchart TD
-    A[merged_transcription.json] --> B[EvidenceIndexAgent]
-    B --> C[evidence_chunks.jsonl<br/>BM25 + embeddings locaux]
+    A[merged_transcription.json] --> S1[SceneBoundaryAgent]
+    S1 --> S2[scene_analysis.json]
+    S2 --> S3[SceneSplitter]
+    S3 --> S4[scenes/scene_001.json]
+    S4 --> S5[SceneDescriptorAgent]
+    S5 --> S6[scene_descriptions.json]
+    S6 --> S7[SceneBlackboardIngestor]
+    A --> B[EvidenceIndexAgent]
+    B --> C[evidence_chunks.jsonl<br/>BM25 local]
     C --> D[AnalysisPlannerAgent]
     D --> E[analysis_plan.json]
     E --> F1[ChronologyAgent]
@@ -48,23 +62,56 @@ flowchart TD
     C --> F3
     C --> F4
     C --> F5
-    F1 --> G[BlackboardController]
+    S7 --> G[BlackboardController]
+    F1 --> G
     F2 --> G
     F3 --> G
     F4 --> G
     F5 --> G
     G --> H{Contradictions ?}
-    H -- non --> I[SummaryComposerAgent<br/>modele fort]
+    H -- non --> I[SummaryComposerAgent<br/>timeline + facts]
     H -- oui --> J[ArbitrationPanel]
     J --> K[retrieval cible + evidence brute]
     K --> G
     I --> L[draft summary + supporting_answer_ids]
+    S6 --> I
     L --> M[AdversarialAuditAgent]
+    S6 --> M
     M --> N{Audit OK ?}
     N -- oui --> O[session_summary final]
     N -- non --> P[FinalPatchAgent]
     P --> M
 ```
+
+### 0. Pipeline de scenes
+
+Entree: `merged_transcription.json`.
+
+Role: construire la structure narrative principale avant la blackboard.
+
+Agents:
+
+- `SceneBoundaryAgent`: lit la transcription complete et produit
+  `scene_analysis.json`. Si le contexte est trop grand, il bascule en analyse
+  par gros blocs puis fusionne les bornes.
+- `SceneSplitter`: ecrit `scenes/scene_001.json`, etc., avec texte, segments,
+  timestamps et metadonnees de speaker.
+- `SceneDescriptorAgent`: fait un appel LLM par scene pour produire une
+  description longue, des actions cles, des changements d'etat, des impacts de
+  continuite et des facts.
+- `SceneBlackboardIngestor`: convertit les facts de scenes en `EvidenceAnswer`
+  avec metadata `source: scene_description` et `scene_id`.
+
+Sorties:
+
+- `scene_analysis.json`
+- `scenes/scene_001.json`
+- `scene_descriptions.json`
+
+Les artefacts de scenes sont prives et peuvent contenir du texte de
+transcription. Ils servent de scaffolding narratif: le composeur final recoit la
+timeline complete, mais chaque claim final reste trace via des
+`supporting_answer_ids`.
 
 ### Diagramme de la blackboard
 
