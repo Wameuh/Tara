@@ -58,11 +58,13 @@ class TranscriptionConfig:
         extensions = data.get("audio_extensions", defaults.audio_extensions)
         if not isinstance(extensions, list):
             extensions = defaults.audio_extensions
+        endpoint = os.environ.get(
+            "TARA_INFERENCE_ENDPOINT",
+            data.get("inference_endpoint", defaults.inference_endpoint),
+        )
         return cls(
             model=str(data.get("model", defaults.model)),
-            inference_endpoint=str(
-                data.get("inference_endpoint", defaults.inference_endpoint),
-            ),
+            inference_endpoint=str(endpoint),
             request_timeout_seconds=int(
                 data.get("request_timeout_seconds", defaults.request_timeout_seconds),
             ),

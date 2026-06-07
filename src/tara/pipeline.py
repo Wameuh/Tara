@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -108,6 +109,8 @@ class TaraControlAgent:
         if self._args.audio_dir is None:
             return None
         output_dir = self._args.audio_dir / self._config.transcription.output_dir
+        if _should_reset_full_job_cache(self._args):
+            _reset_full_job_cache(output_dir, self._config)
         if self._args.start_from == "evidence-index":
             merged_path = output_dir / self._config.processing.output_filename
             if not merged_path.exists():
@@ -158,6 +161,7 @@ class TaraControlAgent:
             merged_transcription_path=merged_transcription_path,
             config=self._config,
             llm_runner=llm_runner,
+            context_text=context.general.text or "",
         )
         scene_answers = (
             SceneBlackboardIngestor().to_evidence_answers(scene_result.timeline)
@@ -251,12 +255,35 @@ def _analysis_output_dir(
     return merged_transcription_path.parent / config.analysis.output_dir
 
 
+def _should_reset_full_job_cache(args: TaraArgs) -> bool:
+    """Return whether this invocation starts a fresh audio-dir job."""
+    return args.audio_dir is not None and args.start_from in {None, "transcription"}
+
+
+def _reset_full_job_cache(output_dir: Path, config: TaraConfig) -> None:
+    """Remove generated analysis/scene cache artifacts for a fresh full job."""
+    generated_paths = [
+        output_dir / config.analysis.output_dir,
+        output_dir / config.analysis.scenes.scenes_dir,
+        output_dir / config.analysis.scenes.boundaries_filename,
+        output_dir / config.analysis.scenes.descriptions_filename,
+    ]
+    for path in generated_paths:
+        if path.is_dir():
+            LOGGER.info("Resetting full-job cache directory: %s", path)
+            shutil.rmtree(path)
+        elif path.exists():
+            LOGGER.info("Resetting full-job cache file: %s", path)
+            path.unlink()
+
+
 def _run_scene_pipeline(
     *,
     transcription: MergedTranscription,
     merged_transcription_path: Path,
     config: TaraConfig,
     llm_runner: LLMRunner | None,
+    context_text: str | None = None,
 ) -> ScenePipelineResult:
     """Run the optional scene pipeline with fallback semantics."""
     try:
@@ -264,6 +291,7 @@ def _run_scene_pipeline(
             transcription=transcription,
             merged_transcription_path=merged_transcription_path,
             llm_runner=llm_runner,
+            context_text=context_text,
         )
     except Exception:
         if config.analysis.scenes.fail_on_scene_error:

@@ -20,6 +20,7 @@ from tara.analysis.models import (
 from tara.config import TaraConfig
 
 LOGGER = logging.getLogger(__name__)
+MAX_MERGED_SEGMENT_TEXT_CHARS = 12_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,7 +240,14 @@ def process_transcriptions(output_dir: Path, config: TaraConfig) -> Path | None:
             segment.model_copy(update={"author": author})
             for segment in _dedupe_consecutive_segments(loaded.segments)
         ]
-        segments.extend(authored_segments)
+        for segment in authored_segments:
+            segments.extend(
+                _split_long_segment(
+                    segment,
+                    max_chars=MAX_MERGED_SEGMENT_TEXT_CHARS,
+                    fallback_duration=loaded.duration,
+                ),
+            )
         if loaded.language:
             languages.add(loaded.language)
         if loaded.model:
@@ -256,7 +264,7 @@ def process_transcriptions(output_dir: Path, config: TaraConfig) -> Path | None:
         ),
     )
     merged = MergedTranscription(
-        text=" ".join(segment.text for segment in merged_segments if segment.text),
+        text=_render_merged_text(merged_segments),
         segments=merged_segments,
         language=_single_value(languages),
         duration=max(
@@ -399,6 +407,85 @@ def _dedupe_consecutive_segments(
         cleaned.append(segment)
         previous = normalized
     return cleaned
+
+
+def _split_long_segment(
+    segment: TranscriptionSegment,
+    *,
+    max_chars: int,
+    fallback_duration: float | None,
+) -> list[TranscriptionSegment]:
+    """Split oversized segment text so evidence indexing can stay bounded."""
+    if len(segment.text) <= max_chars:
+        return [segment]
+    parts = _split_text_by_words(segment.text, max_chars=max_chars)
+    if len(parts) <= 1:
+        return [segment]
+
+    start = segment.start
+    end = segment.end
+    if end <= start and fallback_duration is not None and fallback_duration > start:
+        end = fallback_duration
+    total_span = max(0.0, end - start)
+    total_chars = sum(len(part) for part in parts)
+    cursor = start
+    split_segments: list[TranscriptionSegment] = []
+    for index, part in enumerate(parts):
+        if total_span > 0 and total_chars > 0:
+            if index == len(parts) - 1:
+                part_end = end
+            else:
+                part_end = cursor + total_span * (len(part) / total_chars)
+        else:
+            part_end = cursor
+        split_segments.append(
+            segment.model_copy(
+                update={
+                    "start": cursor,
+                    "end": part_end,
+                    "text": part,
+                },
+            ),
+        )
+        cursor = part_end
+    return split_segments
+
+
+def _split_text_by_words(text: str, *, max_chars: int) -> list[str]:
+    """Split text on word boundaries while respecting a character budget."""
+    words = text.split()
+    if not words:
+        return [text]
+    parts: list[str] = []
+    current: list[str] = []
+    current_len = 0
+    for word in words:
+        separator = 1 if current else 0
+        if current and current_len + separator + len(word) > max_chars:
+            parts.append(" ".join(current))
+            current = [word]
+            current_len = len(word)
+        else:
+            current.append(word)
+            current_len += separator + len(word)
+    if current:
+        parts.append(" ".join(current))
+    return parts
+
+
+def _render_merged_text(segments: Iterable[TranscriptionSegment]) -> str:
+    """Render merged transcription text with deterministic speaker labels."""
+    return "\n".join(
+        _render_authored_segment_line(segment)
+        for segment in segments
+        if segment.text.strip()
+    )
+
+
+def _render_authored_segment_line(segment: TranscriptionSegment) -> str:
+    """Render one merged transcription line with its source speaker."""
+    speaker = segment.author.speaker if segment.author else "unknown"
+    return f"[{speaker}] {' '.join(segment.text.split())}"
 
 
 def _optional_str(value: Any) -> str | None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol, cast
 
@@ -394,6 +395,7 @@ class BlackboardController:
                     metadata=dict(answer.metadata),
                 )
             )
+        self._mark_ambiguous_actor_event_claims(facts, do_not_claim)
         conflicts = self._detect_conflicts(facts)
         return BlackboardState(
             facts=facts,
@@ -402,12 +404,38 @@ class BlackboardController:
         )
 
     @staticmethod
+    def _mark_ambiguous_actor_event_claims(
+        facts: list[BlackboardFact],
+        do_not_claim: list[str],
+    ) -> None:
+        """Prefer neutral event facts when actor-specific variants conflict."""
+        for event_key in _ambiguous_actor_event_keys(facts):
+            event_facts = [
+                fact
+                for fact in facts
+                if fact.status == FactStatus.SUPPORTED
+                and not fact.do_not_claim
+                and _actor_event_key(fact.claim) == event_key
+            ]
+            if not any(_has_neutral_actor(fact.claim) for fact in event_facts):
+                continue
+            for fact in event_facts:
+                if _has_neutral_actor(fact.claim):
+                    continue
+                fact.do_not_claim = True
+                do_not_claim.append(fact.claim)
+
+    @staticmethod
     def _detect_conflicts(facts: list[BlackboardFact]) -> list[Conflict]:
         """Detect competing critical claims, skipping complementary duplicates."""
         conflicts: list[Conflict] = []
         grouped: dict[ClaimType, list[BlackboardFact]] = {}
         for fact in facts:
-            if fact.claim_type is None or fact.status != FactStatus.SUPPORTED:
+            if (
+                fact.claim_type is None
+                or fact.status != FactStatus.SUPPORTED
+                or fact.do_not_claim
+            ):
                 continue
             grouped.setdefault(fact.claim_type, []).append(fact)
         for claim_type, candidates in grouped.items():
@@ -834,21 +862,50 @@ class FinalPatchAgent:
         ]
         warnings = [finding.issue for finding in critical_findings]
         markdown = draft.markdown
-        non_confirmed_claims = [
-            _strip_agent_debug_prefix(finding.claim).strip()
-            for finding in critical_findings
-            if finding.required_action == "mark_unconfirmed"
-            and finding.claim.strip()
-        ]
-        if non_confirmed_claims:
-            markdown += "\n\n## Non-confirmed\n"
-            markdown += "\n".join(f"- {claim}" for claim in non_confirmed_claims)
         return FinalSummary(
             markdown=markdown,
             sections=draft.sections,
             findings=findings,
             warnings=warnings,
             metadata={"patched": bool(findings)},
+        )
+
+
+class CharacterAttributionVerifierAgent:
+    """Correct fragile character attributions in the final summary."""
+
+    def verify(
+        self,
+        final: FinalSummary,
+        blackboard: BlackboardState,
+    ) -> FinalSummary:
+        """Neutralize actor names for events marked ambiguous by the blackboard."""
+        rules = _ambiguous_actor_verification_rules(blackboard)
+        if not rules:
+            return final
+        markdown, markdown_count = _apply_actor_verification_rules(
+            final.markdown,
+            rules,
+        )
+        sections: list[SummarySection] = []
+        section_count = 0
+        for section in final.sections:
+            content, count = _apply_actor_verification_rules(section.content, rules)
+            section_count += count
+            sections.append(section.model_copy(update={"content": content}))
+        correction_count = markdown_count + section_count
+        if correction_count <= 0:
+            return final
+        return final.model_copy(
+            update={
+                "markdown": markdown,
+                "sections": sections,
+                "metadata": {
+                    **final.metadata,
+                    "character_attribution_verified": True,
+                    "character_attribution_correction_count": correction_count,
+                },
+            },
         )
 
 
@@ -886,6 +943,7 @@ class AnalysisOrchestrator:
             config=specialist_config,
         )
         self._patch = FinalPatchAgent()
+        self._character_verifier = CharacterAttributionVerifierAgent()
 
     def run(
         self,
@@ -931,6 +989,7 @@ class AnalysisOrchestrator:
             )
             audit_usage = self._audit.last_llm_usage
             final = self._patch.patch(draft, findings)
+            final = self._character_verifier.verify(final, blackboard)
             analysis_calls = specialist_usage.calls + arbitration_usage.calls
             total_tokens = (
                 specialist_usage.tokens
@@ -1074,6 +1133,250 @@ def _short_text(text: str, limit: int = 180) -> str:
     if len(compact) <= limit:
         return compact
     return compact[: limit - 3].rstrip() + "..."
+
+
+def _ambiguous_actor_verification_rules(
+    blackboard: BlackboardState,
+) -> dict[str, set[str]]:
+    """Build event-key to actor-name rules for final summary verification."""
+    neutral_event_keys = {
+        key
+        for fact in blackboard.facts
+        if fact.status == FactStatus.SUPPORTED
+        and not fact.do_not_claim
+        and (key := _actor_event_key(fact.claim)) is not None
+        and _has_neutral_actor(fact.claim)
+    }
+    rules: dict[str, set[str]] = {}
+    forbidden_claims = list(blackboard.do_not_claim_list)
+    forbidden_claims.extend(
+        fact.claim
+        for fact in blackboard.facts
+        if fact.do_not_claim and fact.status == FactStatus.SUPPORTED
+    )
+    for claim in forbidden_claims:
+        event_key = _actor_event_key(claim)
+        if event_key is None or event_key not in neutral_event_keys:
+            continue
+        names = _actor_names_from_claim(claim)
+        if names:
+            rules.setdefault(event_key, set()).update(names)
+    return rules
+
+
+def _apply_actor_verification_rules(
+    text: str,
+    rules: dict[str, set[str]],
+) -> tuple[str, int]:
+    """Apply actor-neutralization rules to summary text."""
+    if not text:
+        return text, 0
+    replacement = text
+    total = 0
+    for event_key, names in rules.items():
+        for name in sorted(names, key=len, reverse=True):
+            replacement, count = _neutralize_actor_in_event_clauses(
+                replacement,
+                event_key,
+                name,
+            )
+            total += count
+    return replacement, total
+
+
+def _neutralize_actor_in_event_clauses(
+    text: str,
+    event_key: str,
+    actor_name: str,
+) -> tuple[str, int]:
+    """Replace one actor name with neutral wording in matching clauses."""
+    if not actor_name:
+        return text, 0
+    pattern = re.compile(
+        rf"(?P<clause>[^.;\n]*\b{re.escape(actor_name)}\b[^.;\n]*)",
+        flags=re.IGNORECASE,
+    )
+    count = 0
+
+    def replace(match: re.Match[str]) -> str:
+        nonlocal count
+        clause = match.group("clause")
+        if not _clause_mentions_actor_event(clause, event_key):
+            return clause
+        count += 1
+        neutral = _neutral_actor_label(clause)
+        return re.sub(
+            rf"\b{re.escape(actor_name)}\b",
+            neutral,
+            clause,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+
+    return pattern.sub(replace, text), count
+
+
+def _clause_mentions_actor_event(clause: str, event_key: str) -> bool:
+    """Return True when a clause describes the ambiguous event kind."""
+    text = _normalize_claim(clause)
+    event_terms = {
+        "poisoned_projectile": (
+            "arbalete",
+            "arrow",
+            "bolt",
+            "carreau",
+            "crossbow",
+            "empoison",
+            "poison",
+            "tir",
+            "touch",
+        ),
+        "projectile_hit": (
+            "arbalete",
+            "arrow",
+            "bolt",
+            "carreau",
+            "crossbow",
+            "frappe",
+            "hit",
+            "shot",
+            "tir",
+            "touch",
+        ),
+        "poison_condition": (
+            "cleared",
+            "condition",
+            "dissip",
+            "empoison",
+            "no longer",
+            "poison",
+            "removed",
+        ),
+        "river_crossing_fall": (
+            "chute",
+            "eau",
+            "emport",
+            "fall",
+            "fleuve",
+            "river",
+            "tomb",
+            "water",
+        ),
+    }
+    terms = event_terms.get(event_key, ())
+    return any(term in text for term in terms)
+
+
+def _neutral_actor_label(clause: str) -> str:
+    """Choose a French neutral actor label that fits the local wording."""
+    text = _normalize_claim(clause)
+    if "groupe" in text:
+        return "un membre du groupe"
+    return "un compagnon"
+
+
+def _actor_names_from_claim(claim: str) -> set[str]:
+    """Extract likely actor names from a forbidden actor-specific claim."""
+    blocked = {
+        "ASR",
+        "At",
+        "Constitution",
+        "During",
+        "From",
+        "Misty",
+        "Mystic",
+        "The",
+        "While",
+    }
+    names = set(re.findall(r"\b[A-ZÀ-ÖØ-Þ][\wÀ-ÖØ-öø-ÿ'ùûîïéèêëàâäôöç-]{2,}\b", claim))
+    return {name for name in names if name not in blocked}
+
+
+def _ambiguous_actor_event_keys(facts: list[BlackboardFact]) -> set[str]:
+    """Return event keys that have both neutral and actor-specific variants."""
+    has_neutral: set[str] = set()
+    has_named_actor: set[str] = set()
+    for fact in facts:
+        if fact.status != FactStatus.SUPPORTED or fact.do_not_claim:
+            continue
+        event_key = _actor_event_key(fact.claim)
+        if event_key is None:
+            continue
+        if _has_neutral_actor(fact.claim):
+            has_neutral.add(event_key)
+        else:
+            has_named_actor.add(event_key)
+    return has_neutral & has_named_actor
+
+
+def _actor_event_key(claim: str) -> str | None:
+    """Classify claims where actor confusion is safer to neutralize."""
+    text = _normalize_claim(claim)
+    projectile_terms = (
+        "arrow",
+        "bolt",
+        "carreau",
+        "crossbow",
+        "projectile",
+        "shot",
+        "shoot",
+        "tir",
+    )
+    poison_terms = ("poison", "poisoned", "empoison")
+    if any(term in text for term in projectile_terms) and any(
+        term in text for term in poison_terms
+    ):
+        return "poisoned_projectile"
+    hit_terms = ("hit", "struck", "touch", "frappe")
+    if any(term in text for term in projectile_terms) and any(
+        term in text for term in hit_terms
+    ):
+        return "projectile_hit"
+
+    poison_state_terms = (
+        "cleared",
+        "condition",
+        "gained",
+        "gains",
+        "later loses",
+        "lost",
+        "no longer",
+        "removed",
+    )
+    if any(term in text for term in poison_terms) and any(
+        term in text for term in poison_state_terms
+    ):
+        return "poison_condition"
+
+    water_terms = ("eau", "fleuve", "river", "water")
+    fall_terms = ("carried", "emport", "fall", "fell", "swept", "tomb")
+    crossing_terms = ("bridge", "crossing", "passage", "tronc", "travers")
+    if (
+        any(term in text for term in water_terms)
+        and any(term in text for term in fall_terms)
+        and any(term in text for term in crossing_terms)
+    ):
+        return "river_crossing_fall"
+    return None
+
+
+def _has_neutral_actor(claim: str) -> bool:
+    """Return True when a claim intentionally avoids naming the actor."""
+    text = _normalize_claim(claim)
+    neutral_terms = (
+        "a character",
+        "a companion",
+        "a party member",
+        "a party-member",
+        "a group member",
+        "at least one party member",
+        "quelqu'un",
+        "the group",
+        "un compagnon",
+        "un membre",
+        "un personnage",
+    )
+    return any(term in text for term in neutral_terms)
 
 
 def _normalize_claim(claim: str) -> str:

@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+import shutil
+import tempfile
 import threading
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
-from inference_server.base_backend import AbstractTranscriptionBackend
 from inference_server.backend import BackendError
+from inference_server.base_backend import AbstractTranscriptionBackend
 from inference_server.models import TranscriptionResponse, TranscriptionSegment
 from inference_server.parakeet_utils import (
     ensure_mono_audio,
@@ -212,7 +216,19 @@ class ParakeetBackend(AbstractTranscriptionBackend):
             raise BackendError(message) from exc
 
         try:
-            instance = nemo_asr.models.ASRModel.from_pretrained(model_name=model_name)
+            connector = self._build_persistent_restore_connector(
+                nemo_asr.models.ASRModel,
+                model_name,
+            )
+            if connector is None:
+                instance = nemo_asr.models.ASRModel.from_pretrained(
+                    model_name=model_name,
+                )
+            else:
+                instance = nemo_asr.models.ASRModel.from_pretrained(
+                    model_name=model_name,
+                    save_restore_connector=connector,
+                )
             self._models[model_name] = instance
             self._logger.info("Loaded NeMo model: %s", model_name)
             return instance
@@ -220,6 +236,78 @@ class ParakeetBackend(AbstractTranscriptionBackend):
             message = f"Failed to load NeMo model '{model_name}': {exc}"
             self._logger.error(message, exc_info=True)
             raise BackendError(message) from exc
+
+    def _build_persistent_restore_connector(
+        self,
+        asr_model_cls: Any,
+        model_name: str,
+    ) -> Any | None:
+        """Extract cached .nemo models outside NeMo's short-lived temp dir."""
+        try:
+            model_file = asr_model_cls.from_pretrained(
+                model_name=model_name,
+                return_model_file=True,
+            )
+        except TypeError:
+            return None
+        model_path = Path(str(model_file))
+        if not model_path.is_file() or model_path.suffix.lower() != ".nemo":
+            return None
+
+        try:
+            from nemo.core.connectors.save_restore_connector import SaveRestoreConnector
+        except ImportError:
+            return None
+
+        connector = SaveRestoreConnector()
+        extract_dir = self._ensure_extracted_model_dir(
+            model_name=model_name,
+            model_path=model_path,
+            connector=connector,
+        )
+        connector.model_extracted_dir = str(extract_dir)
+        return connector
+
+    def _ensure_extracted_model_dir(
+        self,
+        *,
+        model_name: str,
+        model_path: Path,
+        connector: Any,
+    ) -> Path:
+        root = Path(
+            os.getenv(
+                "TARA_NEMO_EXTRACT_DIR",
+                str(Path(tempfile.gettempdir()) / "tara_nemo_models"),
+            ),
+        )
+        root.mkdir(parents=True, exist_ok=True)
+        safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", model_name).strip("_")
+        extract_dir = root / f"{safe_name}_{model_path.stat().st_size}"
+        marker = extract_dir / ".tara_extract_complete"
+        weights = extract_dir / "model_weights.ckpt"
+        config = extract_dir / "model_config.yaml"
+        if marker.exists() and weights.exists() and config.exists():
+            return extract_dir
+
+        resolved_root = root.resolve()
+        resolved_extract = (
+            extract_dir.resolve() if extract_dir.exists() else extract_dir
+        )
+        if extract_dir.exists() and resolved_root not in resolved_extract.parents:
+            raise BackendError(
+                f"Refusing to clear unexpected model cache: {extract_dir}",
+            )
+        if extract_dir.exists():
+            shutil.rmtree(extract_dir)
+        extract_dir.mkdir(parents=True, exist_ok=True)
+        self._logger.info("Extracting NeMo model cache to %s", extract_dir)
+        connector._unpack_nemo_file(
+            path2file=str(model_path),
+            out_folder=str(extract_dir),
+        )
+        marker.write_text(str(model_path), encoding="utf-8")
+        return extract_dir
 
     def release_all(self) -> None:
         """Release cached models and free GPU memory.
@@ -232,8 +320,6 @@ class ParakeetBackend(AbstractTranscriptionBackend):
             # For more aggressive cleanup, we could move models to CPU or delete them
             self._models.clear()
             self._logger.info("Released all cached Parakeet models")
-
-
 
 
 

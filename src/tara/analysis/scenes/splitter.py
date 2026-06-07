@@ -40,8 +40,8 @@ class SceneSplitter:
                 for segment in serialized_segments
                 if _overlaps(segment, boundary.start, boundary.end)
             ]
-            text = " ".join(
-                str(segment.get("text", "")).strip()
+            text = "\n".join(
+                _render_serialized_segment_line(segment)
                 for segment in scene_segments
                 if str(segment.get("text", "")).strip()
             )
@@ -83,3 +83,13 @@ def _overlaps(segment: dict, start: float, end: float) -> bool:
     seg_end = float(segment.get("end", seg_start))
     return seg_start < end and seg_end > start
 
+
+def _render_serialized_segment_line(segment: dict) -> str:
+    """Render one serialized scene segment with its source speaker."""
+    speaker = "unknown"
+    author = segment.get("author")
+    if isinstance(author, dict):
+        raw_speaker = author.get("speaker")
+        if isinstance(raw_speaker, str) and raw_speaker.strip():
+            speaker = raw_speaker.strip()
+    return f"[{speaker}] {' '.join(str(segment.get('text', '')).split())}"

@@ -146,6 +146,15 @@ transcription inference server shipped in this repo (`src/inference_server/`):
 run_tara.bat --audio-dir "C:\path\to\audio"
 ```
 
+The inference server log is written to `inference_server.log` in the TaraRepo
+root by default. Use `--inference-log "C:\path\to\inference.log"` to override it.
+
+For transcription and merge only, skip the analysis stage:
+
+```bat
+run_tara.bat --audio-dir "C:\path\to\audio" --transcription-only
+```
+
 Processing merges per-speaker transcription files into `merged_transcription.json`.
 When source files are named like `1-willygorn.json`, each output segment records
 speaker metadata such as `author.speaker = "willygorn"` and keeps the source file

@@ -20,6 +20,7 @@ Scene rules:
 - Do not force a fixed number of scenes.
 - Timestamps must use the supplied segment times.
 - Small overlaps or gaps are acceptable, but keep scenes ordered.
+- Do not infer unseen scenes or objectives; split only from transcript evidence.
 
 Return JSON:
 {{
@@ -36,6 +37,41 @@ Return JSON:
 
 Transcript:
 {transcript}
+"""
+
+EVIDENCE_STRICTNESS_POLICY = """Evidence strictness policy:
+- Do not extrapolate beyond the transcript, supplied scene metadata, and
+  user-provided context.
+- Do not invent events, motives, outcomes, items, locations, resources, damage
+  states, or relationships to make the description smoother.
+- Do not fill gaps from genre expectations, module knowledge, previous sessions,
+  or likely D&D mechanics unless current-scene evidence explicitly supports the
+  claim.
+- Treat weak ASR, jokes, table chatter, corrections, and interrupted sentences
+  as insufficient evidence for specific claims.
+- If you are not sure that something happened, either omit it or state the
+  uncertainty explicitly; never present a guess as fact.
+- Prefer fewer high-confidence facts over a richer but speculative narrative.
+"""
+
+SPEAKER_ATTRIBUTION_POLICY = """Speaker attribution policy:
+- Audio speaker labels identify the recording track owner, not necessarily the
+  in-story actor.
+- The MJ/DM speaker may narrate any NPC, adjudicate any player action, repeat a
+  player's declaration, or joke out of character; do not turn MJ first-person
+  phrasing into an MJ character action.
+- A player speaker may talk about another character, quote someone, ask rules
+  questions, or joke out of character. Treat player-to-character mapping as a
+  weak clue only.
+- ASR may mangle French fantasy names and second-person narration; phonetic
+  fragments or near-name variants are weak evidence by themselves.
+- Attribute an action to a named character only when the evidence explicitly
+  names that character or the declaration is unambiguous in context. If
+  attribution is uncertain, use neutral wording such as "the group", "a
+  character", or omit the actor.
+- If multiple supported facts describe the same event but disagree about the
+  actor, preserve the event and neutralize the actor instead of choosing one
+  named character.
 """
 
 BOUNDARY_MERGE_USER_PROMPT = """Merge these block-level scene boundaries into one
@@ -82,7 +118,7 @@ Return JSON:
   "facts": [
     {{
       "claim": "short factual claim",
-      "claim_type": "one allowed claim type",
+      "claim_type": "chronology|combat_outcome|character_state|quest_continuity|resource_state|final_state",
       "confidence": "high|medium|low",
       "importance": 3,
       "is_critical": false,
@@ -97,6 +133,9 @@ Return JSON:
 Scene metadata:
 {scene_metadata}
 
+{context_block}
+{evidence_policy}
+{speaker_policy}
 Scene transcript:
 {transcript}
 """
@@ -155,6 +194,30 @@ def description_user_prompt(scene: SceneTranscription) -> str:
     }
     return DESCRIPTION_USER_PROMPT.format(
         scene_metadata=json.dumps(metadata, ensure_ascii=True, indent=2),
+        context_block=_context_block(None),
+        evidence_policy=EVIDENCE_STRICTNESS_POLICY,
+        speaker_policy=SPEAKER_ATTRIBUTION_POLICY,
+        transcript=format_scene_transcript(scene),
+    )
+
+
+def description_user_prompt_with_context(
+    scene: SceneTranscription,
+    context_text: str | None,
+) -> str:
+    """Build the scene description prompt with optional campaign context."""
+    metadata = {
+        "scene_id": scene.scene_id,
+        "title": scene.title,
+        "start": scene.start,
+        "end": scene.end,
+        "summary": scene.summary,
+    }
+    return DESCRIPTION_USER_PROMPT.format(
+        scene_metadata=json.dumps(metadata, ensure_ascii=True, indent=2),
+        context_block=_context_block(context_text),
+        evidence_policy=EVIDENCE_STRICTNESS_POLICY,
+        speaker_policy=SPEAKER_ATTRIBUTION_POLICY,
         transcript=format_scene_transcript(scene),
     )
 
@@ -176,3 +239,16 @@ def _speaker_from_raw_segment(segment: dict) -> str:
         if isinstance(speaker, str) and speaker.strip():
             return speaker.strip()
     return "unknown"
+
+
+def _context_block(context_text: str | None) -> str:
+    """Render optional user-provided campaign context for scene prompts."""
+    if not context_text or not context_text.strip():
+        return ""
+    return (
+        "General campaign context for names, aliases, player-character mapping, "
+        "and MJ identity. Use transcript evidence for events.\n"
+        "--- general context ---\n"
+        f"{context_text.strip()}\n"
+        "--- end general context ---\n\n"
+    )

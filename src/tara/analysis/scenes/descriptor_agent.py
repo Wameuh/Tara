@@ -25,10 +25,11 @@ from tara.analysis.scenes.models import (
 )
 from tara.analysis.scenes.prompts import (
     DESCRIPTION_SYSTEM_PROMPT,
-    description_user_prompt,
+    description_user_prompt_with_context,
 )
 
 LOGGER = logging.getLogger(__name__)
+SCENE_DESCRIPTION_PROMPT_VERSION = "speaker_attribution_v4"
 
 
 class _DescriptionsPayload(TaraModel):
@@ -62,7 +63,12 @@ class SceneDescriptorAgent:
         self._output_path = output_path
         self._resume_partial = resume_partial
 
-    def describe_all(self, scenes: list[SceneTranscription]) -> DescriptionResult:
+    def describe_all(
+        self,
+        scenes: list[SceneTranscription],
+        *,
+        context_text: str | None = None,
+    ) -> DescriptionResult:
         """Describe all scenes, reusing fresh cached rows when available."""
         cached = self._load_cached_descriptions() if self._resume_partial else {}
         descriptions: list[SceneDescription] = []
@@ -90,7 +96,10 @@ class SceneDescriptorAgent:
                     LLMRequest(
                         purpose="analysis.scenes.describe",
                         system_prompt=DESCRIPTION_SYSTEM_PROMPT,
-                        user_prompt=description_user_prompt(scene),
+                        user_prompt=description_user_prompt_with_context(
+                            scene,
+                            context_text,
+                        ),
                         temperature=0.0,
                         metadata={"scene_id": scene.scene_id},
                     ),
@@ -163,6 +172,8 @@ class SceneDescriptorAgent:
             payload = _DescriptionsPayload.from_dict(data)
         except ValueError:
             return {}
+        if payload.metadata.get("prompt_version") != SCENE_DESCRIPTION_PROMPT_VERSION:
+            return {}
         return {scene.scene_id: scene for scene in payload.scene_descriptions}
 
     def _write_output(self, timeline: SceneTimeline) -> None:
@@ -174,6 +185,9 @@ class SceneDescriptorAgent:
                     scene.to_dict() for scene in timeline.scenes
                 ],
                 "warnings": [warning.to_dict() for warning in timeline.warnings],
-                "metadata": timeline.metadata,
+                "metadata": {
+                    **timeline.metadata,
+                    "prompt_version": SCENE_DESCRIPTION_PROMPT_VERSION,
+                },
             },
         )

@@ -5,9 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Self
 
-from pydantic import Field, model_validator
+from typing import Any
+
+from pydantic import Field, field_validator, model_validator
 
 from tara.analysis.models import ClaimType, Confidence, JsonObject, TaraModel
+from tara.analysis.structured_output import claim_type_from_string
 
 
 class ScenePipelineWarning(TaraModel):
@@ -64,6 +67,18 @@ class SceneFact(TaraModel):
 
     claim: str = Field(min_length=1, max_length=2000)
     claim_type: ClaimType = ClaimType.CHRONOLOGY
+
+    @field_validator("claim_type", mode="before")
+    @classmethod
+    def coerce_claim_type(cls, value: Any) -> Any:
+        """Map loose LLM claim-type strings to :class:`ClaimType`."""
+        if isinstance(value, ClaimType):
+            return value
+        if isinstance(value, str):
+            mapped = claim_type_from_string(value)
+            if mapped is not None:
+                return mapped
+        return value
     confidence: Confidence = Confidence.MEDIUM
     importance: int = Field(default=3, ge=1, le=5)
     is_critical: bool = False

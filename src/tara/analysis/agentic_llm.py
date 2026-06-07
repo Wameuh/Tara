@@ -189,6 +189,8 @@ def run_specialist_extraction(
         "synthesize short factual claims.\n"
         "- If evidence is weak, return fewer facts or mark uncertainty.\n\n"
         f"{_general_context_block(context_text)}"
+        f"{_evidence_strictness_policy_block()}"
+        f"{_speaker_attribution_policy_block()}"
         f"Question metadata: {q_meta}\n\n"
         f"Evidence chunks JSON:\n{chunks_json}"
     )
@@ -329,6 +331,8 @@ def run_composer_llm(
         "## Résumé express\n"
         "## Impacts pour la suite\n"
         "## État final et ressources\n"
+        "Do not add any other markdown heading, including 'Non-confirmed' or "
+        "debug/audit sections.\n"
         "After '# Résumé de session', include at most one short orientation "
         "sentence before '## Résumé express'. Do not put a complete recap "
         "before the first section; 'Résumé express' must be the first "
@@ -343,9 +347,13 @@ def run_composer_llm(
         "Use character names and MJ in the final summary when the general "
         "context makes those names clear. Avoid player pseudonyms in the final "
         "summary. If a character attribution is uncertain, stay neutral rather "
-        "than guessing.\n\n"
+        "than guessing. If Facts JSON contains neutral wording for a hit, fall, "
+        "condition, spell, or other action, do not replace it with a named "
+        "character from the scene timeline.\n\n"
         f"{_prior_context_block(prior_context_text)}"
         f"{_general_context_block(context_text)}"
+        f"{_evidence_strictness_policy_block()}"
+        f"{_speaker_attribution_policy_block()}"
         f"{_scene_timeline_block(scene_timeline)}"
         f"Forbidden claims (do not restate): {forbidden_json}\n\n"
         f"Facts JSON:\n{facts_json}"
@@ -448,8 +456,14 @@ def run_audit_llm(
         "scene consequences, but do not require every scene to be named.\n"
         "Check that clear player pseudonyms from evidence are normalized to "
         "character names or MJ when the general context provides that mapping.\n"
+        "Reject if a player character is credited with an action that is only "
+        "weakly inferred from an audio speaker label, an out-of-character joke, "
+        "or MJ narration. Audio speaker labels are evidence provenance, not "
+        "proof of who acted in the story.\n"
         'Return JSON {"approved":bool,"issues":["..."]}\n\n'
         f"{_general_context_block(context_text)}"
+        f"{_evidence_strictness_policy_block()}"
+        f"{_speaker_attribution_policy_block()}"
         f"{_scene_timeline_block(scene_timeline)}"
         f"Do-not-claim list: {json.dumps(do_not_claim, ensure_ascii=True)}\n\n"
         f"Facts JSON:\n{json.dumps(facts_payload, ensure_ascii=True)}\n\n"
@@ -501,7 +515,16 @@ def run_arbitration_llm(
         "Return JSON with keys: is_contradiction (bool), outcome "
         "(accepted|merged|uncertain|do_not_claim), accepted_answer_ids, "
         "rejected_answer_ids, merged_claim (optional string), basis (string).\n\n"
+        "Actor conflict rule: if claims agree on the event but disagree about "
+        "which character acted, was hit, fell, cast a spell, or suffered a "
+        "condition, do not choose a named actor from noisy ASR/proper-name "
+        "snippets. Prefer an already-supported neutral claim that says "
+        "'a character', 'a party member', or 'the group'; reject the "
+        "actor-specific variants. If no neutral claim exists, outcome should "
+        "be uncertain or merged with a neutral merged_claim.\n\n"
         f"{_general_context_block(context_text)}"
+        f"{_evidence_strictness_policy_block()}"
+        f"{_speaker_attribution_policy_block()}"
         f"Conflict id: {conflict.conflict_id}\n"
         f"Facts JSON:\n{json.dumps(fact_rows, ensure_ascii=True, indent=2)}"
     )
@@ -554,6 +577,53 @@ def _general_context_block(context_text: str | None) -> str:
     )
 
 
+def _speaker_attribution_policy_block() -> str:
+    """Return attribution rules shared by LLM-backed analysis steps."""
+    return (
+        "Speaker attribution policy:\n"
+        "- Audio speaker labels identify the recording track owner, not "
+        "necessarily the in-story actor.\n"
+        "- The MJ/DM speaker may narrate any NPC, adjudicate any player "
+        "action, repeat a player's declaration, or joke out of character; do "
+        "not turn MJ first-person phrasing into an MJ character action.\n"
+        "- A player speaker may talk about another character, quote someone, "
+        "ask rules questions, or joke out of character. Treat the "
+        "speaker-to-character mapping as a weak clue only.\n"
+        "- ASR may mangle French fantasy names and second-person narration; "
+        "phonetic fragments or near-name variants are weak evidence by "
+        "themselves.\n"
+        "- Attribute an action to a named character only when the evidence "
+        "explicitly names that character or the declaration is unambiguous in "
+        "context. If attribution is uncertain, use neutral wording such as "
+        "'the group', 'a character', or omit the actor.\n"
+        "- If multiple supported facts describe the same event but disagree "
+        "about the actor, preserve the event and neutralize the actor instead "
+        "of choosing one named character.\n"
+        "- Never invent a character attribution merely to make the summary more "
+        "specific.\n\n"
+    )
+
+
+def _evidence_strictness_policy_block() -> str:
+    """Return rules that prevent extrapolation and unsupported invention."""
+    return (
+        "Evidence strictness policy:\n"
+        "- Do not extrapolate beyond the transcript, scene facts, Facts JSON, "
+        "and user-provided context.\n"
+        "- Do not invent events, motives, outcomes, items, locations, resources, "
+        "damage states, or relationships to make the summary smoother.\n"
+        "- Do not fill gaps from genre expectations, module knowledge, previous "
+        "sessions, or likely D&D mechanics unless current-session evidence "
+        "explicitly supports the claim.\n"
+        "- Treat weak ASR, jokes, table chatter, corrections, and interrupted "
+        "sentences as insufficient evidence for specific claims.\n"
+        "- If you are not sure that something happened, either omit it or state "
+        "the uncertainty explicitly; never present a guess as fact.\n"
+        "- Prefer fewer high-confidence claims over a richer but speculative "
+        "narrative.\n\n"
+    )
+
+
 def _prior_context_block(prior_context_text: str | None) -> str:
     """Return the summary-composer prompt block for previous sessions."""
     if not prior_context_text or not prior_context_text.strip():
@@ -575,7 +645,10 @@ def _scene_timeline_block(scene_timeline: object | None) -> str:
         return ""
     return (
         "Scene timeline, generated from the current transcript. Use it as the "
-        "primary narrative ordering and to avoid missing major consequences.\n"
+        "primary narrative ordering and to avoid missing major consequences. "
+        "For exact actor attribution, Facts JSON and forbidden claims are "
+        "authoritative; if the timeline and facts disagree about who acted or "
+        "was affected, keep the event and use neutral actor wording.\n"
         "--- scene timeline ---\n"
         f"{json.dumps(payload, ensure_ascii=True, indent=2)}\n"
         "--- end scene timeline ---\n\n"

@@ -138,5 +138,18 @@ def claim_type_from_string(raw: str) -> ClaimType | None:
         "quest_continuity": ClaimType.QUEST_CONTINUITY,
         "resource_state": ClaimType.RESOURCE_STATE,
         "final_state": ClaimType.FINAL_STATE,
+        # Common scene-description aliases from LLM outputs.
+        "location": ClaimType.CHRONOLOGY,
+        "terrain": ClaimType.CHRONOLOGY,
+        "action": ClaimType.CHRONOLOGY,
+        "entity": ClaimType.CHARACTER_STATE,
+        "state_change": ClaimType.CHARACTER_STATE,
+        "state": ClaimType.CHARACTER_STATE,
+        "combat": ClaimType.COMBAT_OUTCOME,
+        "outcome": ClaimType.COMBAT_OUTCOME,
+        "tactics": ClaimType.COMBAT_OUTCOME,
+        "mechanics": ClaimType.RESOURCE_STATE,
+        "resource": ClaimType.RESOURCE_STATE,
+        "quest": ClaimType.QUEST_CONTINUITY,
     }
     return aliases.get(normalized)

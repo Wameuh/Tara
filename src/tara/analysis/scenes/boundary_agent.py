@@ -214,7 +214,7 @@ def _split_transcription_blocks(
         if current and segment.start >= block_start + block_seconds:
             blocks.append(
                 MergedTranscription(
-                    text=" ".join(item.text for item in current),
+                    text=_render_block_text(current),
                     segments=list(current),
                     language=transcription.language,
                     duration=transcription.duration,
@@ -227,7 +227,7 @@ def _split_transcription_blocks(
     if current:
         blocks.append(
             MergedTranscription(
-                text=" ".join(item.text for item in current),
+                text=_render_block_text(current),
                 segments=list(current),
                 language=transcription.language,
                 duration=transcription.duration,
@@ -237,6 +237,18 @@ def _split_transcription_blocks(
     return blocks
 
 
+def _render_block_text(segments: list[TranscriptionSegment]) -> str:
+    """Render a block transcript with one speaker-labelled line per segment."""
+    lines: list[str] = []
+    for segment in segments:
+        text = segment.text.strip()
+        if not text:
+            continue
+        speaker = segment.author.speaker if segment.author else "unknown"
+        lines.append(f"[{speaker}] {' '.join(text.split())}")
+    return "\n".join(lines)
+
+
 def _duration(transcription: MergedTranscription) -> float:
     """Return transcription duration from metadata or segment bounds."""
     if transcription.duration is not None:
@@ -244,4 +256,3 @@ def _duration(transcription: MergedTranscription) -> float:
     if not transcription.segments:
         return 0.0
     return max(segment.end for segment in transcription.segments)
-

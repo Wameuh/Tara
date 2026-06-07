@@ -476,7 +476,7 @@ class CursorCLIBackend:
                 f"Cursor CLI failed with exit code {result.returncode}: {stderr}"
             )
 
-        content = (result.stdout or "").strip()
+        content = _repair_windows_utf8_mojibake(result.stdout or "").strip()
         if not content:
             raise LLMBackendError("Cursor CLI returned empty output.")
 
@@ -525,6 +525,25 @@ class CursorCLIBackend:
             for key, value in os.environ.items()
             if key.upper() in allowlist
         }
+
+
+def _repair_windows_utf8_mojibake(text: str) -> str:
+    """Repair UTF-8 text that a Windows wrapper decoded as CP-1252."""
+    if _mojibake_score(text) == 0:
+        return text
+    try:
+        repaired = text.encode("cp1252").decode("utf-8")
+    except UnicodeError:
+        return text
+    if _mojibake_score(repaired) < _mojibake_score(text):
+        return repaired
+    return text
+
+
+def _mojibake_score(text: str) -> int:
+    """Return a rough score for common French UTF-8/CP-1252 mojibake."""
+    markers = ("Ã", "Â", "â€™", "â€œ", "â€", "â€¦", "ðŸ")
+    return sum(text.count(marker) for marker in markers)
 
 
 class LLMRunner:
