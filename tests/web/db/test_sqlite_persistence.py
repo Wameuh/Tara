@@ -752,6 +752,7 @@ def test_posix_database_file_permissions_are_rejected(tmp_path: Path) -> None:
 def test_posix_database_root_0755_is_rejected(tmp_path: Path) -> None:
     root = tmp_path / "runtime"
     root.mkdir(mode=0o755)
+    root.chmod(0o755)
     with pytest.raises(DatabaseError, match="permissions"):
         ConnectionFactory(root / "tara.sqlite3", root).connect()
 

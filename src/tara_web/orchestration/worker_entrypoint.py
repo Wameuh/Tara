@@ -21,10 +21,23 @@ class _WorkerSink:
         self._request = request
         self._token = token
         self._writer = writer
-        self._progress: OrderedDict[str, bytes] = OrderedDict()
+        self._progress: OrderedDict[str, RunnerEvent] = OrderedDict()
 
     def emit(self, event: RunnerEvent) -> None:
-        frame = encode_frame(
+        if event.event_type == EventType.STAGE_PROGRESS:
+            assert event.stage_code is not None
+            self._progress[event.stage_code.value] = event
+            return
+        self.flush_progress()
+        self._writer.send_bytes(self._frame(event))
+
+    def flush_progress(self) -> None:
+        while self._progress:
+            _, event = self._progress.popitem(last=False)
+            self._writer.send_bytes(self._frame(event))
+
+    def _frame(self, event: RunnerEvent) -> bytes:
+        return encode_frame(
             "event",
             IpcMessage(
                 self._request.job_id,
@@ -33,17 +46,6 @@ class _WorkerSink:
                 event,
             ).payload(),
         )
-        if event.event_type == EventType.STAGE_PROGRESS:
-            assert event.stage_code is not None
-            self._progress[event.stage_code.value] = frame
-            return
-        self.flush_progress()
-        self._writer.send_bytes(frame)
-
-    def flush_progress(self) -> None:
-        while self._progress:
-            _, frame = self._progress.popitem(last=False)
-            self._writer.send_bytes(frame)
 
 
 def run_worker(

@@ -94,7 +94,8 @@ def test_spawn_flood_coalesces_progress_and_preserves_critical_events(
     pool.submit(request, "x" * 43, "flood", workspace)
     completed = []
     events: list[dict[str, object]] = []
-    for _ in range(1_000):
+    deadline = time.monotonic() + 25
+    while time.monotonic() < deadline:
         events.extend(pool.take_events())
         completed = pool.finished(timeout_seconds=20, cancellation_grace_seconds=1)
         if completed:

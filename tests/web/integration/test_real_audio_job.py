@@ -256,7 +256,10 @@ def test_real_mp3_ogg_job_runs_through_spawn_and_publishes_public_yaml(
                     (job_id,),
                 ).fetchone()
             assert metric is not None
-            assert tuple(metric[:3]) == ("audio", 2, 400)
+            assert tuple(metric[:2]) == ("audio", 2)
+            # Lossy containers may report encoder padding differently between
+            # FFmpeg builds, while still representing the same two 200 ms tracks.
+            assert 350 <= metric["audio_duration_ms"] <= 500
             assert metric["duration_ms"] >= 0
             assert str(tmp_path) not in result.text
             assert "host.docker.internal" not in result.text

@@ -31,7 +31,7 @@ from .api.problem_details import problem
 from .api.router import router as api_router
 from .catalogs import validate_catalogues
 from .config import RuntimeConfig, public_runtime_config
-from .db.connection import ConnectionFactory
+from .db.connection import ConnectionFactory, DatabaseError
 from .db.migrations import migrate
 from .db.repositories.artifacts import ArtifactRepository
 from .db.repositories.audio_uploads import AudioUploadRepository
@@ -68,7 +68,7 @@ from .storage.cleanup import (
     cleanup_orphans,
     expire_job_metadata,
 )
-from .storage.layout import StorageLayout
+from .storage.layout import StorageError, StorageLayout
 from .storage.reconciliation import reconcile_all
 
 LOGGER = logging.getLogger(__name__)
@@ -405,13 +405,16 @@ def create_app(config: RuntimeConfig, frontend_dist: Path | None = None) -> Fast
             if "scheduler" in locals():
                 await scheduler.close()
             if "layout" in locals() and "artifacts" in locals():
-                reconcile_all(
-                    layout,
-                    artifacts,
-                    limit=policy.cleanup_batch_size,
-                    max_bytes=policy.max_bytes,
-                    validator=validate_final_yaml_v1,
-                )
+                try:
+                    reconcile_all(
+                        layout,
+                        artifacts,
+                        limit=policy.cleanup_batch_size,
+                        max_bytes=policy.max_bytes,
+                        validator=validate_final_yaml_v1,
+                    )
+                except (DatabaseError, StorageError, OSError):
+                    LOGGER.exception("shutdown_storage_reconciliation_failed")
             connection.close()
             if (
                 config.web.backup.enabled

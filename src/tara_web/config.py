@@ -367,7 +367,7 @@ def _resolve_paths(raw: dict[str, Any], base: Path) -> dict[str, Any]:
         path = Path(result["tara_config_path"])
         result["tara_config_path"] = (
             path if path.is_absolute() else base / path
-        ).resolve(strict=False)
+        ).absolute()
     return result
 
 

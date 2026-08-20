@@ -38,7 +38,11 @@ def get_job(
     return job_snapshot(request, row) if row else problem(request, 404)
 
 
-@router.post("/{job_id}/cancel", response_model=CommandAccepted)
+@router.post(
+    "/{job_id}/cancel",
+    response_model=CommandAccepted,
+    response_model_exclude_none=True,
+)
 def cancel_job(
     request: Request,
     job_id: str,
