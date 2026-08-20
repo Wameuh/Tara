@@ -128,6 +128,12 @@ pip install librosa soundfile
 **Parakeet Backend:**
 - `PARAKEET_CHUNK_SIZE`: Override default chunk size in seconds (default: 400.0)
 - `PARAKEET_OVERLAP_PERCENTAGE`: Override default overlap percentage (default: 5.0)
+- `TARA_NEMO_EXTRACT_DIR`: Persistent NeMo extract cache (Modal: `/model-cache/nemo-extract`)
+- `HF_HOME`: Hugging Face download cache (Modal: `/model-cache/huggingface`)
+
+On Modal, run `deploy_modal.bat` or `deploy_modal.sh` from `TaraRepo` to deploy
+and pre-warm the Parakeet cache on the `tara-parakeet-cache` Volume. See
+`docs/modal_inference.md`.
 
 ## Audio Format Support
 

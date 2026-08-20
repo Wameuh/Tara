@@ -1,0 +1,33 @@
+import type { components } from "./generated";
+export type PublicConfig = components["schemas"]["PublicConfigResponse"];
+export type InputKind = components["schemas"]["SessionSnapshot"]["input_type"];
+export type SessionSnapshot = components["schemas"]["SessionSnapshot"];
+export type JobSnapshot = components["schemas"]["JobSnapshot"];
+export type ResultSnapshot = components["schemas"]["ResultSnapshot"];
+type Inputs = { language: string; context_text: string; previous_summaries_text: string };
+const key = () => crypto.randomUUID();
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> { const response = await fetch(path, { ...init, cache: "no-store", headers: { Accept: "application/json", ...init.headers } }); if (!response.ok) throw new Error(`request_failed_${response.status}`); return response.json() as Promise<T>; }
+const ownerHeaders = (secret: string, revision?: number, mutate = false, idempotencyKey?: string) => ({ "X-Tara-Job-Secret": secret, ...(revision === undefined ? {} : { "Expected-Revision": String(revision) }), ...(mutate ? { "Idempotency-Key": idempotencyKey ?? key() } : {}) });
+export async function fetchPublicConfig(): Promise<PublicConfig> { const value = await request<PublicConfig>("/api/v1/config/public", { signal: AbortSignal.timeout(5000) }); if (!isPublicConfig(value)) throw new Error("invalid_public_config"); return value; }
+export function isPublicConfig(value: unknown): value is PublicConfig { if (!value || typeof value !== "object") return false; const v = value as Record<string, unknown>; const langs = v.supported_languages; const language = (item: unknown): item is string => typeof item === "string" && /^[a-z]{2,3}(?:-[A-Z]{2})?$/.test(item); return language(v.language) && typeof v.locale === "string" && new RegExp(`^${v.language}-[A-Z]{2}$`).test(v.locale) && Array.isArray(langs) && langs.length > 0 && langs.every(language) && new Set(langs).size === langs.length && langs.includes(v.language) && ["max_upload_bytes", "recommended_chunk_bytes", "max_chunk_bytes", "parallel_uploads"].every(item => Number.isInteger(v[item]) && Number(v[item]) > 0); }
+export const api = {
+  createUploadSession: (input_type: InputKind) => request<{ session_id: string; secret: string; revision: number }>(`/api/v1/uploads/sessions?input_type=${encodeURIComponent(input_type)}`, { method: "POST", headers: { "Idempotency-Key": key() } }),
+  getSession: (id: string, secret: string) => request<SessionSnapshot>(`/api/v1/sessions/${id}`, { headers: ownerHeaders(secret) }),
+  updateSessionInputs: (id: string, secret: string, revision: number, body: Inputs) => request<SessionSnapshot>(`/api/v1/sessions/${id}/inputs`, { method: "PATCH", headers: { ...ownerHeaders(secret, revision, true), "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  declareFile: (id: string, secret: string, body: { filename: string; size: number; sha256: string; mime: string | null }, idempotencyKey?: string, signal?: AbortSignal) => request<{ file_id: string; revision: number }>(`/api/v1/uploads/sessions/${id}/files`, { method: "POST", headers: { ...ownerHeaders(secret, undefined, true, idempotencyKey), "Content-Type": "application/json" }, body: JSON.stringify(body), signal }),
+  replaceFile: (id: string, secret: string, replaces_file_id: string, body: { filename: string; size: number; sha256: string; mime: string | null }, idempotencyKey?: string, signal?: AbortSignal) => request<{ file_id: string; revision: number }>(`/api/v1/uploads/sessions/${id}/files/replace`, { method: "POST", headers: { ...ownerHeaders(secret, undefined, true, idempotencyKey), "Content-Type": "application/json" }, body: JSON.stringify({ ...body, replaces_file_id }), signal }),
+  fileOffset: (id: string, secret: string, fileId: string) => request<{ confirmed_offset: number; revision: number }>(`/api/v1/uploads/sessions/${id}/files/${fileId}/offset`, { headers: ownerHeaders(secret) }),
+  uploadChunk: (id: string, fileId: string, secret: string, offset: number, checksum: string, body: Blob, signal?: AbortSignal) => request<{ confirmed_offset: number; revision: number }>(`/api/v1/uploads/sessions/${id}/files/${fileId}/chunks`, { method: "PATCH", headers: { "X-Tara-Job-Secret": secret, "Upload-Offset": String(offset), "Upload-Checksum": checksum, "Content-Type": "application/octet-stream" }, body, signal }),
+  changePerson: (id: string, fileId: string, secret: string, revision: number, person: string) => request<{ revision: number }>(`/api/v1/uploads/sessions/${id}/files/${fileId}/person`, { method: "PATCH", headers: { ...ownerHeaders(secret, revision), "Content-Type": "application/json" }, body: JSON.stringify({ person }) }),
+  finalizeFile: (id: string, fileId: string, secret: string, revision: number) => request(`/api/v1/uploads/sessions/${id}/files/${fileId}/finalize`, { method: "POST", headers: ownerHeaders(secret, revision, true) }),
+  retryFile: (id: string, fileId: string, secret: string, revision: number) => request(`/api/v1/uploads/sessions/${id}/files/${fileId}/retry`, { method: "POST", headers: ownerHeaders(secret, revision, true) }),
+  deleteFile: (id: string, fileId: string, secret: string, revision: number) => request(`/api/v1/uploads/sessions/${id}/files/${fileId}`, { method: "DELETE", headers: ownerHeaders(secret, revision, true) }),
+  cancelSession: (id: string, secret: string, revision: number) => request(`/api/v1/uploads/sessions/${id}/cancel`, { method: "POST", headers: ownerHeaders(secret, revision, true) }),
+  launchJob: (id: string, secret: string, revision: number) => request<{ job_id: string }>(`/api/v1/sessions/${id}/jobs`, { method: "POST", headers: ownerHeaders(secret, revision, true) }),
+  getJob: (id: string, secret: string) => request<JobSnapshot>(`/api/v1/jobs/${id}`, { headers: ownerHeaders(secret) }),
+  getResult: (id: string, secret: string) => request<ResultSnapshot>(`/api/v1/jobs/${id}/result`, { headers: ownerHeaders(secret) }),
+  cancelJob: (id: string, secret: string, revision: number) => request(`/api/v1/jobs/${id}/cancel`, { method: "POST", headers: ownerHeaders(secret, revision, true) }),
+  regenerateSecret: (id: string, secret: string, revision: number) => request<{ secret: string; revision: number }>(`/api/v1/jobs/${id}/secret`, { method: "POST", headers: ownerHeaders(secret, revision, true) }),
+  relaunchIdentical: (id: string, secret: string, revision: number) => request(`/api/v1/jobs/${id}/relaunch-identical`, { method: "POST", headers: ownerHeaders(secret, revision, true) }),
+  editAndRelaunch: (id: string, secret: string, revision: number) => request<{ session_id: string }>(`/api/v1/jobs/${id}/edit-and-relaunch`, { method: "POST", headers: ownerHeaders(secret, revision, true) })
+};

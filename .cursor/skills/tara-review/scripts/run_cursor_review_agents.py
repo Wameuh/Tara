@@ -14,6 +14,8 @@ Example::
 from __future__ import annotations
 
 import argparse
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -28,6 +30,24 @@ def _tara_repo_root_from_script() -> Path:
 def _skill_relative_report_prefix() -> str:
     """Return repo-relative prefix for review markdown paths."""
     return ".cursor/skills/tara-review/review_process/reviews"
+
+
+def _resolve_agent_executable() -> str:
+    """Return a path to the Cursor ``agent`` CLI, or raise if not found."""
+    found = shutil.which("agent")
+    if found:
+        return found
+    if sys.platform == "win32":
+        local_app = os.environ.get("LOCALAPPDATA", "")
+        if local_app:
+            candidate = Path(local_app) / "cursor-agent" / "agent.cmd"
+            if candidate.is_file():
+                return str(candidate)
+    msg = (
+        "Cursor `agent` CLI not found. Install it or add it to PATH "
+        "(Windows default: %LOCALAPPDATA%\\cursor-agent\\agent.cmd)."
+    )
+    raise RuntimeError(msg)
 
 
 def _git_one_line(workspace: Path, *args: str) -> str:
@@ -54,24 +74,44 @@ def _build_agent_prompt(
     task_title: str,
     commit_sha: str,
     rel_report: str,
+    since_ref: str | None,
 ) -> str:
     """Build the headless ``agent`` instruction for one reviewer."""
     agents_doc = (
         ".cursor/skills/tara-review/review_process/review_agents.md"
     )
+    if since_ref:
+        range_line = (
+            f"**Revision range (exclusive..inclusive):** `{since_ref}..{commit_sha}`"
+        )
+        rng = f"{since_ref}..{commit_sha}"
+        inspect_step = (
+            "3. Inspect the cumulative change with "
+            f"`git diff --stat {rng}` and `git diff {rng}` "
+            "(not a single-commit show)."
+        )
+    else:
+        range_line = f"**Git commit to review:** {commit_sha}"
+        inspect_step = (
+            f"3. Inspect the change with `git show --stat {commit_sha}` "
+            f"and `git show {commit_sha}`."
+        )
     return f"""You are a Cursor Agent in non-interactive print mode for TaraRepo.
+
+**Critical:** Do not reply with meta offers (for example asking what to do next).
+Immediately execute the numbered steps using your tools until the report file exists.
 
 You are **{role_title}** (reviewer {agent_index} of 5) for a completed change.
 
 **Task title:** {task_title}
-**Git commit to review:** {commit_sha}
+{range_line}
 **Review report file (create or overwrite):** {rel_report}
 
 **Instructions:**
 1. Open and follow the role-specific prompt in `{agents_doc}`
    under the heading "## {role_title}" (use the fenced prompt as your checklist).
 2. Read `ARCHITECTURE.md` and `projet.md` for boundaries.
-3. Inspect the change with `git show --stat {commit_sha}` and `git show {commit_sha}`.
+{inspect_step}
 4. Use `.cursor/skills/tara-review/review_process/report_template.md` for layout.
 5. Write the **full** review report to `{rel_report}` using your file tools.
    Set `Reviewer model: auto (Cursor CLI agent -p)` in the header (not Composer 2),
@@ -85,6 +125,26 @@ When the file is saved, print exactly one line to stdout: `DONE {rel_report}`
 """
 
 
+def _prompt_to_agent_argv_parts(prompt: str) -> list[str]:
+    """Split the user prompt for the ``agent`` CLI.
+
+    The Cursor ``agent`` binary treats a *single* argv string containing
+    newlines as only the first line (the rest is dropped). Passing one argv
+    fragment per line preserves the full text (the CLI joins fragments with
+    spaces, which is acceptable for these instructions).
+
+    Args:
+        prompt: Full multiline instruction text.
+
+    Returns:
+        Non-empty list of argv fragments to append after fixed flags.
+    """
+    parts = prompt.split("\n")
+    while parts and parts[-1] == "":
+        parts.pop()
+    return [fragment if fragment else " " for fragment in parts]
+
+
 def _run_one_agent(
     *,
     workspace: Path,
@@ -93,19 +153,34 @@ def _run_one_agent(
     prompt: str,
 ) -> None:
     """Run ``agent -p`` once and stream stdout/stderr."""
-    cmd = [
-        "agent",
+    agent_exe = _resolve_agent_executable()
+    workspace_resolved = str(workspace.resolve())
+    print(f"\n--- Running agent ({model}) ---\n", flush=True)
+
+    argv_tail = _prompt_to_agent_argv_parts(prompt)
+    cmd: list[str] = [
+        agent_exe,
         "-p",
         "--trust",
+        "--force",
+        "--sandbox",
+        "disabled",
         "--workspace",
-        str(workspace),
+        workspace_resolved,
         "--model",
         model,
         "--output-format",
         "text",
-        prompt,
+        *argv_tail,
     ]
-    print(f"\n--- Running agent ({model}) ---\n", flush=True)
+    # CreateProcess command-line limit on Windows (conservative).
+    if sys.platform == "win32":
+        approx = sum(len(a) for a in cmd) + 3 * len(cmd)
+        if approx > 30_000:
+            raise RuntimeError(
+                "Review prompt is too long for the Windows agent command line; "
+                "shorten prompts or extend the runner with a file-based transport."
+            )
     result = subprocess.run(
         cmd,
         cwd=workspace,
@@ -149,7 +224,15 @@ def main() -> None:
     parser.add_argument(
         "--commit",
         default="HEAD",
-        help="Git revision to review (default: HEAD)",
+        help="Git revision at range end (default: HEAD); resolved for prompts",
+    )
+    parser.add_argument(
+        "--since",
+        default=None,
+        help=(
+            "Optional base revision: review `git diff <since>..<commit>` instead "
+            "of a single `git show <commit>`"
+        ),
     )
     parser.add_argument(
         "--model",
@@ -175,10 +258,12 @@ def main() -> None:
 
     prefix = _skill_relative_report_prefix()
     reviews_dir = workspace / prefix / args.task_folder
-    if not reviews_dir.is_dir():
-        parser.error(f"Review directory does not exist: {reviews_dir}")
+    reviews_dir.mkdir(parents=True, exist_ok=True)
 
     commit_sha = _git_one_line(workspace, "rev-parse", args.commit)
+    since_resolved: str | None = None
+    if args.since is not None:
+        since_resolved = _git_one_line(workspace, "rev-parse", args.since)
 
     agents: tuple[tuple[str, str], ...] = (
         ("agent_1_cyber_security.md", "Agent 1 - Cyber Security Reviewer"),
@@ -199,6 +284,7 @@ def main() -> None:
             task_title=args.task_title,
             commit_sha=commit_sha,
             rel_report=rel_report,
+            since_ref=since_resolved,
         )
         print(f"\n===== Agent {index}: {filename} =====", flush=True)
         _run_one_agent(

@@ -1,0 +1,9 @@
+const KEY = "tara.draft.v1";
+const MAX_CONTEXT = 200_000;
+const MAX_SUMMARIES = 2_000_000;
+export type Draft = { version: 1; language: string; contextText: string; summariesText: string; fileNames: string[] };
+const language = (value: unknown): value is string => typeof value === "string" && /^[a-z]{2,3}(?:-[A-Z]{2})?$/.test(value);
+const text = (value: unknown, max: number): string | null => typeof value === "string" && value.length <= max ? value : null;
+export function loadDraft(): Draft | null { try { if (typeof localStorage?.getItem !== "function") return null; const value: unknown = JSON.parse(localStorage.getItem(KEY) ?? "null"); if (!value || typeof value !== "object") return null; const raw = value as Record<string, unknown>; const contextText = text(raw.contextText, MAX_CONTEXT); const summariesText = text(raw.summariesText, MAX_SUMMARIES); if (raw.version !== 1 || !language(raw.language) || contextText === null || summariesText === null || !Array.isArray(raw.fileNames) || raw.fileNames.length > 100 || !raw.fileNames.every(name => typeof name === "string" && name.length > 0 && name.length <= 255)) return null; return { version: 1, language: raw.language, contextText, summariesText, fileNames: [...raw.fileNames] }; } catch { return null; } }
+export function saveDraft(draft: Draft): void { try { if (typeof localStorage?.setItem === "function") localStorage.setItem(KEY, JSON.stringify({ version: 1, language: draft.language, contextText: draft.contextText.slice(0, MAX_CONTEXT), summariesText: draft.summariesText.slice(0, MAX_SUMMARIES), fileNames: draft.fileNames.slice(0, 100).map(name => name.slice(0, 255)) })); } catch { /* private mode and quotas must not block the form */ } }
+export function clearDraft(): void { try { if (typeof localStorage?.removeItem === "function") localStorage.removeItem(KEY); } catch { /* no-op */ } }

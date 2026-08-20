@@ -7,6 +7,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+from tara.yaml_utils import load_yaml_or_json
+from tara.yaml_utils import write_yaml as write_yaml_file
+
 
 def file_sha256(path: Path) -> str:
     """Return the SHA-256 hash of a file."""
@@ -23,22 +26,27 @@ def stable_json_hash(payload: Any) -> str:
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-def read_json(path: Path) -> dict[str, Any] | None:
-    """Read a JSON object, returning None on missing/invalid content."""
+def read_yaml(path: Path) -> dict[str, Any] | None:
+    """Read a YAML or legacy JSON object, returning None on missing/invalid content."""
     if not path.exists():
         return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        data = load_yaml_or_json(path)
+    except (OSError, ValueError, json.JSONDecodeError):
         return None
     return data if isinstance(data, dict) else None
 
 
-def write_json(path: Path, payload: dict[str, Any]) -> None:
-    """Write a private JSON artifact."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(payload, ensure_ascii=True, indent=2),
-        encoding="utf-8",
-    )
+def write_yaml(path: Path, payload: dict[str, Any]) -> None:
+    """Write a private YAML artifact."""
+    write_yaml_file(path, payload)
 
+
+def read_json(path: Path) -> dict[str, Any] | None:
+    """Backward-compatible alias for :func:`read_yaml`."""
+    return read_yaml(path)
+
+
+def write_json(path: Path, payload: dict[str, Any]) -> None:
+    """Backward-compatible alias for :func:`write_yaml`."""
+    write_yaml(path, payload)

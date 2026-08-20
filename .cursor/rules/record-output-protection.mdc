@@ -1,0 +1,25 @@
+---
+description: Protect generated record outputs from manual edits.
+globs:
+  - "Record_session/**"
+  - "../Record_session/**"
+alwaysApply: true
+---
+
+# Record Output Protection
+
+Do not manually edit generated record outputs unless the user explicitly asks for a manual output edit.
+
+Generated record outputs include files under `Record_session/**`, especially:
+
+- `transcriptions/analysis/session_summary.md`
+- `transcriptions/analysis/session_summary.json`
+- `transcriptions/analysis/blackboard.json`
+- `transcriptions/analysis/analysis_plan.json`
+- `transcriptions/scene_analysis.json`
+- `transcriptions/scene_descriptions.json`
+- `transcriptions/scenes/*.json`
+
+When the user asks to improve a record summary or analysis behavior, change the pipeline, prompts, config, tests, or source code, then rerun the pipeline if the user requests a new generated output.
+
+Only modify a record output directly when the user clearly says to edit that output file by hand. If the intent is ambiguous, ask before editing.

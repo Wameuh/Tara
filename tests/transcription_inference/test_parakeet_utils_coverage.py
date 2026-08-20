@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import subprocess
-import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -116,7 +115,7 @@ def test_extract_timestamps_from_result_with_getattr(tmp_path: Path) -> None:
 
     result = Result()
     # Add timestamp using setattr so it's not a direct attribute
-    setattr(result, "timestamp", {"segment": [{"start": 0.0, "end": 1.0}]})
+    result.timestamp = {"segment": [{"start": 0.0, "end": 1.0}]}
 
     timestamps = _extract_timestamps_from_result(result)
     assert timestamps is not None

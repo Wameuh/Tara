@@ -1,0 +1,35 @@
+schema_name: tara.public_result
+schema_version: 26.0.1
+metadata:
+  language: fr
+  producer: fixture
+content:
+  title: Session de la tour
+  sections:
+    - section_id: overview-tour
+      section_type: overview
+      title: Vue d'ensemble
+      blocks:
+        - type: paragraph
+          text: Le groupe entre dans la tour.
+        - type: list
+          items: [Trouver la cle, Parler au gardien]
+        - type: orderedList
+          items: [Entrer, Explorer]
+        - type: keyValue
+          entries:
+            - key: Lieu
+              value: Tour
+        - type: table
+          headers: [Nom, Etat]
+          rows:
+            - [Ana, Presente]
+        - type: callout
+          title: Incertitude
+          text: Le nom du gardien reste a confirmer.
+    - section_id: quests-tour
+      section_type: quests
+      title: Quetes
+      blocks:
+        - type: paragraph
+          text: Retrouver la cle de la tour.

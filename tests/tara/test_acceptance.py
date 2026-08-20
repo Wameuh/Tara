@@ -17,11 +17,11 @@ from tara.analysis import (
     EvidenceSupport,
     FactStatus,
     FinalPatchAgent,
-    MergedTranscription,
     PipelineResult,
     SummaryComposerAgent,
     TranscriptionSegment,
 )
+from tara.schemas.merged_transcription import new_merged_transcription
 
 
 def test_acceptance_report_passes_for_supported_pipeline() -> None:
@@ -97,10 +97,12 @@ def test_acceptance_propagates_estimated_llm_tokens() -> None:
 
 def test_acceptance_report_detects_forbidden_leaks() -> None:
     """Forbidden claims appearing in final prose are counted."""
-    blackboard = BlackboardController().ingest([
-        _answer("supported", "Karknyr reste debout.", FactStatus.SUPPORTED),
-        _answer("rejected", "Karknyr est mort.", FactStatus.REJECTED),
-    ])
+    blackboard = BlackboardController().ingest(
+        [
+            _answer("supported", "Karknyr reste debout.", FactStatus.SUPPORTED),
+            _answer("rejected", "Karknyr est mort.", FactStatus.REJECTED),
+        ]
+    )
     decisions = ArbitrationPanel().arbitrate(blackboard)
     draft = SummaryComposerAgent().compose(blackboard, decisions)
     leaked_draft = draft.model_copy(
@@ -127,7 +129,7 @@ def test_acceptance_report_detects_forbidden_leaks() -> None:
 
 def _acceptance_index() -> EvidenceIndex:
     """Build a small index that satisfies standard deterministic queries."""
-    transcription = MergedTranscription(
+    transcription = new_merged_transcription(
         text=(
             "Le combat commence au temple. "
             "La lance touche l'ennemi. "

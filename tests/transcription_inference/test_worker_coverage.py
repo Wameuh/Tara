@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-import logging
 from multiprocessing.connection import Connection
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 
-from inference_server.backend import BackendError, TranscriptionBackend
-from inference_server.worker import _stream_transcription, _transcribe_once, run_transcription_worker
+from inference_server.backend import TranscriptionBackend
+from inference_server.worker import (
+    _stream_transcription,
+    _transcribe_once,
+    run_transcription_worker,
+)
 
 
 class MockBackend(TranscriptionBackend):

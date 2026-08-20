@@ -9,16 +9,23 @@ import os
 import shutil
 import time
 import uuid
+from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import AsyncIterator, Iterable
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, UploadFile, status
+from fastapi import (
+    BackgroundTasks,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    status,
+)
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from inference_server.backend import BackendError, TranscriptionBackend, create_backend
-from inference_server.models import TranscriptionResponse
 from inference_server.worker import run_transcription_worker
 
 
@@ -226,7 +233,7 @@ def _sse(payload: dict[str, object]) -> bytes:
 
     import json
 
-    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8")
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode()
 
 
 def _safe_release_backend(backend: TranscriptionBackend) -> None:

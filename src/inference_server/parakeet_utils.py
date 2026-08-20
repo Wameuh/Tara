@@ -6,6 +6,7 @@ import logging
 import os
 import subprocess
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -179,7 +180,7 @@ def _find_overlap_start(text1: str, text2: str, min_overlap_words: int = 3, tole
             return overlap_len
 
         # Fuzzy match: count how many words match (allowing for small differences)
-        matches = sum(1 for w1, w2 in zip(end_words1, start_words2) if w1.lower() == w2.lower())
+        matches = sum(1 for w1, w2 in zip(end_words1, start_words2, strict=False) if w1.lower() == w2.lower())
         similarity = matches / overlap_len
 
         if similarity >= tolerance and overlap_len > best_match_len:
@@ -249,6 +250,7 @@ def transcribe_with_nemo_partial_audio(
     overlap_percentage: float = 5.0,
     timestamps: bool = True,
     logger: logging.Logger | None = None,
+    chunk_progress_callback: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
     """Transcribe large audio files using chunked approach with manifest-based planning.
 
@@ -264,6 +266,8 @@ def transcribe_with_nemo_partial_audio(
         overlap_percentage: Overlap between chunks as percentage of chunk size (default: 5.0, i.e., 5%)
         timestamps: Whether to include timestamp information (default: True)
         logger: Optional logger instance
+        chunk_progress_callback: Optional callback invoked as
+            ``(chunk_index, total_chunks)`` after each chunk completes.
 
     Returns:
         Dictionary with keys:
@@ -275,7 +279,6 @@ def transcribe_with_nemo_partial_audio(
     Raises:
         BackendError: If audio conversion fails or transcription fails
     """
-    import json
 
     # Try to import librosa, but allow function to be mocked even if unavailable
     try:
@@ -441,6 +444,8 @@ def transcribe_with_nemo_partial_audio(
                         all_chunk_timestamps.append(adjusted_timestamps)
 
                 logger.debug("Chunk %d transcribed (%d chars)", chunk_idx + 1, len(text))
+                if chunk_progress_callback is not None:
+                    chunk_progress_callback(chunk_idx, len(manifest_entries))
             except Exception as e:
                 logger.error("Error transcribing chunk %d: %s", chunk_idx + 1, e)
                 # Continue with next chunk

@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import json
-
 from tara.analysis.models import MergedTranscription, TranscriptionSegment
 from tara.analysis.scenes.models import SceneBoundary, SceneTranscription
+from tara.yaml_utils import to_yaml
 
 BOUNDARY_SYSTEM_PROMPT = (
     "You identify narrative scenes in tabletop RPG session transcripts. "
-    "Return strict JSON only. Do not include markdown fences."
+    "Return strict YAML only. Do not include markdown fences."
 )
 
 BOUNDARY_USER_PROMPT = """Identify the narrative scenes in this tabletop RPG session.
@@ -22,18 +21,13 @@ Scene rules:
 - Small overlaps or gaps are acceptable, but keep scenes ordered.
 - Do not infer unseen scenes or objectives; split only from transcript evidence.
 
-Return JSON:
-{{
-  "scenes": [
-    {{
-      "scene_id": 1,
-      "title": "short factual title",
-      "start": 0.0,
-      "end": 120.0,
-      "summary": "1-2 sentence summary"
-    }}
-  ]
-}}
+Return YAML:
+scenes:
+  - scene_id: 1
+    title: short factual title
+    start: 0.0
+    end: 120.0
+    summary: 1-2 sentence summary
 
 Transcript:
 {transcript}
@@ -81,15 +75,21 @@ Rules:
 - Preserve chronological order.
 - Merge duplicate or near-duplicate scenes at block edges.
 - Keep timestamps in seconds and keep scene_id sequential from 1.
-- Return JSON with the same schema: {{"scenes":[...]}}.
+- Return YAML with the same schema:
+scenes:
+  - scene_id: 1
+    title: ...
+    start: 0.0
+    end: 120.0
+    summary: ...
 
-Block scene JSON:
+Block scene YAML:
 {block_scenes}
 """
 
 DESCRIPTION_SYSTEM_PROMPT = (
     "You extract a rich but disciplined scene description from tabletop RPG "
-    "transcript evidence. Return strict JSON only, no markdown fences."
+    "transcript evidence. Return strict YAML only, no markdown fences."
 )
 
 DESCRIPTION_USER_PROMPT = """Describe this scene and extract scene facts for a
@@ -107,28 +107,28 @@ Style and content rules:
 - Importance 3 is default. Use importance 4 for key actions, final states,
   deaths, major resource changes, discoveries, or next-session consequences.
 
-Return JSON:
-{{
-  "scene_id": 1,
-  "title": "short factual title",
-  "start": 0.0,
-  "end": 120.0,
-  "summary": "short summary",
-  "description": "long scene description",
-  "facts": [
-    {{
-      "claim": "short factual claim",
-      "claim_type": "chronology|combat_outcome|character_state|quest_continuity|resource_state|final_state",
-      "confidence": "high|medium|low",
-      "importance": 3,
-      "is_critical": false,
-      "supporting_segment_ids": [1, 2]
-    }}
-  ],
-  "key_actions": ["..."],
-  "state_changes": ["..."],
-  "continuity_impacts": ["..."]
-}}
+Return YAML:
+scene_id: 1
+title: short factual title
+start: 0.0
+end: 120.0
+summary: short summary
+description: long scene description
+facts:
+  - claim: short factual claim
+    claim_type: chronology|combat_outcome|character_state|quest_continuity|resource_state|final_state
+    confidence: high|medium|low
+    importance: 3
+    is_critical: false
+    supporting_segment_ids:
+      - 1
+      - 2
+key_actions:
+  - short action sentence
+state_changes:
+  - short state-change sentence
+continuity_impacts:
+  - short continuity sentence
 
 Scene metadata:
 {scene_metadata}
@@ -150,6 +150,29 @@ def format_transcription_segments(transcription: MergedTranscription) -> str:
     )
 
 
+def format_transcription_segments_compact(
+    transcription: MergedTranscription,
+    *,
+    min_text_chars: int = 3,
+) -> str:
+    """Render a compact transcript for scene boundary detection.
+
+    Args:
+        transcription: Canonical merged transcription input.
+        min_text_chars: Skip segments shorter than this threshold.
+
+    Returns:
+        Compact newline-delimited transcript rows.
+    """
+    rows: list[str] = []
+    for index, segment in enumerate(transcription.segments):
+        text = " ".join(segment.text.split())
+        if len(text.strip()) < min_text_chars:
+            continue
+        rows.append(_format_segment_compact(index, segment))
+    return "\n".join(rows)
+
+
 def format_scene_transcript(scene: SceneTranscription) -> str:
     """Render a scene transcription into timestamped prompt rows."""
     rows: list[str] = []
@@ -168,7 +191,7 @@ def format_scene_transcript(scene: SceneTranscription) -> str:
 def boundary_user_prompt(transcription: MergedTranscription) -> str:
     """Build the full-transcript boundary prompt."""
     return BOUNDARY_USER_PROMPT.format(
-        transcript=format_transcription_segments(transcription),
+        transcript=format_transcription_segments_compact(transcription),
     )
 
 
@@ -179,7 +202,7 @@ def boundary_merge_user_prompt(boundaries: list[list[SceneBoundary]]) -> str:
         for block_scenes in boundaries
     ]
     return BOUNDARY_MERGE_USER_PROMPT.format(
-        block_scenes=json.dumps(payload, ensure_ascii=True, indent=2),
+        block_scenes=to_yaml(payload),
     )
 
 
@@ -193,7 +216,7 @@ def description_user_prompt(scene: SceneTranscription) -> str:
         "summary": scene.summary,
     }
     return DESCRIPTION_USER_PROMPT.format(
-        scene_metadata=json.dumps(metadata, ensure_ascii=True, indent=2),
+        scene_metadata=to_yaml(metadata),
         context_block=_context_block(None),
         evidence_policy=EVIDENCE_STRICTNESS_POLICY,
         speaker_policy=SPEAKER_ATTRIBUTION_POLICY,
@@ -214,7 +237,7 @@ def description_user_prompt_with_context(
         "summary": scene.summary,
     }
     return DESCRIPTION_USER_PROMPT.format(
-        scene_metadata=json.dumps(metadata, ensure_ascii=True, indent=2),
+        scene_metadata=to_yaml(metadata),
         context_block=_context_block(context_text),
         evidence_policy=EVIDENCE_STRICTNESS_POLICY,
         speaker_policy=SPEAKER_ATTRIBUTION_POLICY,
@@ -229,6 +252,17 @@ def _format_segment(index: int, segment: TranscriptionSegment) -> str:
         f"[segment_id={index} {segment.start:.2f}-{segment.end:.2f}s {speaker}] "
         f"{segment.text.strip()}"
     )
+
+
+def _format_segment_compact(index: int, segment: TranscriptionSegment) -> str:
+    """Render one compact transcript row for boundary prompts."""
+    speaker = segment.author.speaker if segment.author else "unknown"
+    text = " ".join(segment.text.split())
+    start = f"{segment.start:.1f}"
+    end = f"{segment.end:.1f}"
+    if speaker == "unknown":
+        return f"{index:04d} {start}-{end}|{text}"
+    return f"{index:04d} {start}-{end} {speaker}|{text}"
 
 
 def _speaker_from_raw_segment(segment: dict) -> str:

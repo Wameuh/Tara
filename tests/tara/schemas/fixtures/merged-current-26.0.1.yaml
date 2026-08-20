@@ -1,0 +1,16 @@
+schema_name: tara.merged_transcription
+schema_version: 26.0.1
+metadata:
+  language: fr
+  producer: fixture
+content:
+  text: Le groupe entre dans la tour.
+  segments:
+    - start: 0.0
+      end: 2.5
+      text: Le groupe entre dans la tour.
+      author:
+        speaker: ana
+        source_file: 1-ana.yaml
+  duration: 2.5
+  model: fixture-model

@@ -3,14 +3,34 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Self
-
-from typing import Any
+from typing import Any, Self
 
 from pydantic import Field, field_validator, model_validator
 
 from tara.analysis.models import ClaimType, Confidence, JsonObject, TaraModel
 from tara.analysis.structured_output import claim_type_from_string
+
+
+def _coerce_string_list(value: Any, *text_keys: str) -> list[str]:
+    """Normalize LLM list fields that may be plain strings or small objects."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        return []
+    normalized: list[str] = []
+    for item in value:
+        if isinstance(item, str):
+            text = item.strip()
+            if text:
+                normalized.append(text)
+            continue
+        if isinstance(item, dict):
+            for key in text_keys:
+                raw = item.get(key)
+                if isinstance(raw, str) and raw.strip():
+                    normalized.append(raw.strip())
+                    break
+    return normalized
 
 
 class ScenePipelineWarning(TaraModel):
@@ -101,6 +121,24 @@ class SceneDescription(TaraModel):
     continuity_impacts: list[str] = Field(default_factory=list)
     source_hash: str = ""
     metadata: JsonObject = Field(default_factory=dict)
+
+    @field_validator("key_actions", mode="before")
+    @classmethod
+    def coerce_key_actions(cls, value: Any) -> list[str]:
+        """Accept plain strings or ``{action: ...}`` objects from the LLM."""
+        return _coerce_string_list(value, "action", "text", "description")
+
+    @field_validator("state_changes", mode="before")
+    @classmethod
+    def coerce_state_changes(cls, value: Any) -> list[str]:
+        """Accept plain strings or ``{change: ...}`` objects from the LLM."""
+        return _coerce_string_list(value, "change", "text", "description")
+
+    @field_validator("continuity_impacts", mode="before")
+    @classmethod
+    def coerce_continuity_impacts(cls, value: Any) -> list[str]:
+        """Accept plain strings or ``{impact: ...}`` objects from the LLM."""
+        return _coerce_string_list(value, "impact", "text", "description")
 
     @model_validator(mode="after")
     def validate_time_order(self) -> Self:

@@ -8,20 +8,32 @@ dependencies = [
   "numpy>=1.26",
   "pydantic>=2.12",
   "requests>=2.32",
+  "ruamel.yaml>=0.18",
+  "tiktoken>=0.7",
   "uvicorn>=0.32",
 ]
 
 [project.scripts]
 tara = "tara.__main__:main"
+tara-web = "tara_web.main:main"
 
 [project.optional-dependencies]
 dev = [
+  "httpx>=0.28.1",
+  "pillow>=11.0.0",
   "pytest>=8.0",
+  "pytest-cov>=6.0",
   "ruff>=0.8",
+  "tiktoken>=0.7",
+]
+deploy = [
+  "modal>=1.0",
 ]
 # Faster-Whisper / Parakeet paths for the bundled transcription inference server.
 inference = [
+  "python-multipart>=0.0.20",
   "faster-whisper>=1.0.0",
+  "setuptools>=83.0.0",
   "librosa>=0.10.0",
   "soundfile>=0.12.0",
 ]
@@ -37,3 +49,6 @@ target-version = "py313"
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "ANN"]
 ignore = ["ANN401"]
+
+[tool.setuptools.package-data]
+tara_web = ["locales/*.json", "i18n_manifest.json", "db/migrations/*.sql"]

@@ -1,0 +1,50 @@
+# Local Compose configuration: no secrets, data paths are overridden by Compose.
+webinterface:
+  storage:
+    root: /data/runtime
+    backups_root: /data/backups
+    sqlite_path: /data/runtime/tara-web.sqlite3
+  public_url: http://localhost:8080
+  security:
+    allowed_hosts: [localhost, 127.0.0.1]
+    allowed_origins: []
+    upload_hmac_env: TARA_WEB_UPLOAD_HMAC_KEY
+    trusted_proxy_networks: [172.29.0.0/29]
+  default_language: fr
+  locale: fr-FR
+  supported_languages: [fr, en]
+  runner_mode: tara
+  tara_config_path: /config/tara.yaml
+  limits:
+    max_sse_connections: 100
+    max_sse_connections_per_job: 4
+    sse_heartbeat_seconds: 15
+    max_artifact_bytes: 1073741824
+    min_free_storage_bytes: 268435456
+    max_artifacts_per_job: 64
+    storage_cleanup_batch_size: 100
+    storage_orphan_grace_seconds: 3600
+    storage_maintenance_interval_seconds: 3600
+    max_upload_bytes: 1073741824
+    max_merged_transcription_bytes: 33554432
+    max_merged_transcription_tokens: 500000
+    merged_validation_timeout_seconds: 15
+    merged_validation_memory_bytes: 536870912
+    merged_yaml_max_depth: 64
+    merged_yaml_max_nodes: 1000000
+    merged_yaml_max_scalar_chars: 33554432
+    merged_yaml_max_aliases: 0
+    max_chunk_bytes: 8388608
+    recommended_chunk_bytes: 1048576
+    max_upload_files: 1000
+    max_upload_sessions: 100
+    max_reserved_upload_bytes: 10737418240
+    upload_read_timeout_seconds: 30
+    upload_inactivity_seconds: 1800
+    validation_concurrency: 2
+    public_parallel_uploads: 3
+    ffprobe_timeout_seconds: 30
+    ffmpeg_timeout_seconds: 60
+    scanner_timeout_seconds: 60
+  documentation:
+    enabled: false

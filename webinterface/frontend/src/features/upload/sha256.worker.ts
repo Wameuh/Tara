@@ -1,0 +1,5 @@
+import { createSHA256 } from "hash-wasm";
+
+type Request = { type: "hash"; id: string; file: File; chunkSize: number } | { type: "abort"; id: string };
+const aborted = new Set<string>();
+self.onmessage = async ({ data }: MessageEvent<Request>) => { if (data.type === "abort") { aborted.add(data.id); return; } try { const hash = await createSHA256(); for (let offset = 0; offset < data.file.size; offset += data.chunkSize) { if (aborted.has(data.id)) throw new DOMException("Aborted", "AbortError"); const blob = data.file.slice(offset, Math.min(offset + data.chunkSize, data.file.size)); hash.update(new Uint8Array(await blob.arrayBuffer())); postMessage({ type: "progress", id: data.id, loaded: Math.min(offset + data.chunkSize, data.file.size), total: data.file.size }); } postMessage({ type: "complete", id: data.id, digest: hash.digest("hex") }); } catch (error) { postMessage({ type: "error", id: data.id, name: error instanceof DOMException ? error.name : "Error" }); } finally { aborted.delete(data.id); } };

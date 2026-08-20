@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from inference_server.parakeet_utils import (
     _extract_text_from_result,
     _extract_timestamps_from_result,

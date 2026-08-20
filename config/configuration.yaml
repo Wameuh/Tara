@@ -1,0 +1,31 @@
+# Tara default configuration (YAML).
+# Comments are preserved by ruamel.yaml round-trip mode.
+transcription:
+  # Conservative GPU-only estimate for the current L4/A10 Modal deployment.
+  # Review this operator snapshot whenever the provider pricing or GPU changes.
+  modal_usd_per_second: "0.000306"
+analysis:
+  enabled: true
+  pipeline: blackboard_v1
+  output_dir: analysis
+  max_audit_attempts: 3
+  target_window_seconds: 90
+  overlap_seconds: 20
+  parallel: true
+  llm:
+    backend: cursor_cli
+    model: Auto
+    default_pricing_model: composer-2.5
+    # Operator-maintained conversion snapshot used for reproducible EUR costs.
+    usd_to_eur_rate: "0.92"
+    pricing_per_million_tokens:
+      composer-2.5:
+        input_usd: 0.5
+        cached_input_usd: 0.2
+        output_usd: 2.5
+    cursor_command: cursor-agent
+    cursor_args:
+      - -p
+    timeout_seconds: 900
+    retries: 2
+    cursor_cli_probe: true

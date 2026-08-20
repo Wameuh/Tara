@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-import json
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any, Self
+
+from tara.yaml_utils import load_yaml_or_json
+
+if TYPE_CHECKING:
+    from tara.analysis.llm_runner import ModelPricing
 
 
 @dataclass(slots=True)
@@ -35,8 +39,18 @@ class TranscriptionConfig:
 
     model: str = "parakeet:nvidia/parakeet-tdt-0.6b-v3"
     inference_endpoint: str = "http://localhost:8000"
+    inference_auth_provider: str = "none"
+    modal_proxy_key_env: str = "TARA_MODAL_PROXY_AUTH_KEY"
+    modal_proxy_secret_env: str = "TARA_MODAL_PROXY_AUTH_SECRET"
     request_timeout_seconds: int = 1800
     streaming_enabled: bool = True
+    parallelism: int = 1
+    modal_progress_interval_seconds: float = 3.0
+    modal_max_audio_bytes: int = 1024 * 1024 * 1024
+    modal_usd_per_second: str | None = None
+    modal_max_containers: int = 3
+    modal_files_per_container: int = 2
+    modal_queue_grace_seconds: int = 1800
     output_dir: str = "transcriptions"
     recursive: bool = True
     audio_extensions: list[str] = field(
@@ -52,25 +66,91 @@ class TranscriptionConfig:
     )
 
     @classmethod
-    def from_mapping(cls, data: Mapping[str, Any]) -> Self:
+    def from_mapping(
+        cls, data: Mapping[str, Any], *, apply_environment: bool = True
+    ) -> Self:
         """Create transcription configuration from a raw mapping."""
         defaults = cls()
         extensions = data.get("audio_extensions", defaults.audio_extensions)
         if not isinstance(extensions, list):
             extensions = defaults.audio_extensions
-        endpoint = os.environ.get(
-            "TARA_INFERENCE_ENDPOINT",
-            data.get("inference_endpoint", defaults.inference_endpoint),
+
+        def configured(name: str, key: str, default: object) -> object:
+            value = data.get(key, default)
+            return os.environ.get(name, value) if apply_environment else value
+
+        endpoint = configured(
+            "TARA_INFERENCE_ENDPOINT", "inference_endpoint", defaults.inference_endpoint
         )
+        auth_provider = configured(
+            "TARA_INFERENCE_AUTH_PROVIDER",
+            "inference_auth_provider",
+            defaults.inference_auth_provider,
+        )
+        parallelism_value = configured(
+            "TARA_TRANSCRIPTION_PARALLELISM", "parallelism", defaults.parallelism
+        )
+        if str(parallelism_value).strip().lower() == "all":
+            parallelism = 0
+        else:
+            parallelism = max(1, int(parallelism_value))
+
+        progress_interval = configured(
+            "TARA_MODAL_PROGRESS_INTERVAL_SECONDS",
+            "modal_progress_interval_seconds",
+            defaults.modal_progress_interval_seconds,
+        )
+        max_audio_bytes = configured(
+            "TARA_MODAL_MAX_AUDIO_BYTES",
+            "modal_max_audio_bytes",
+            defaults.modal_max_audio_bytes,
+        )
+        modal_usd_per_second = configured(
+            "TARA_MODAL_USD_PER_SECOND",
+            "modal_usd_per_second",
+            defaults.modal_usd_per_second,
+        )
+        if modal_usd_per_second is not None:
+            modal_usd_per_second = str(modal_usd_per_second)
+        max_containers = configured(
+            "TARA_MODAL_MAX_CONTAINERS",
+            "modal_max_containers",
+            defaults.modal_max_containers,
+        )
+        files_per_container = configured(
+            "TARA_MODAL_FILES_PER_CONTAINER",
+            "modal_files_per_container",
+            defaults.modal_files_per_container,
+        )
+        queue_grace_seconds = configured(
+            "TARA_MODAL_QUEUE_GRACE_SECONDS",
+            "modal_queue_grace_seconds",
+            defaults.modal_queue_grace_seconds,
+        )
+
         return cls(
             model=str(data.get("model", defaults.model)),
             inference_endpoint=str(endpoint),
+            inference_auth_provider=str(auth_provider),
+            modal_proxy_key_env=str(
+                data.get("modal_proxy_key_env", defaults.modal_proxy_key_env),
+            ),
+            modal_proxy_secret_env=str(
+                data.get("modal_proxy_secret_env", defaults.modal_proxy_secret_env),
+            ),
             request_timeout_seconds=int(
                 data.get("request_timeout_seconds", defaults.request_timeout_seconds),
             ),
             streaming_enabled=bool(
                 data.get("streaming_enabled", defaults.streaming_enabled),
             ),
+            parallelism=parallelism,
+            modal_progress_interval_seconds=float(progress_interval),
+            modal_max_audio_bytes=int(max_audio_bytes),
+            modal_usd_per_second=modal_usd_per_second,
+            modal_max_containers=max(1, int(max_containers)),
+            modal_files_per_container=max(1, int(files_per_container)),
+            modal_queue_grace_seconds=max(60, int(queue_grace_seconds)),
             output_dir=str(data.get("output_dir", defaults.output_dir)),
             recursive=bool(data.get("recursive", defaults.recursive)),
             audio_extensions=[str(extension) for extension in extensions],
@@ -82,7 +162,7 @@ class ProcessingConfig:
     """Configuration for merged transcription processing."""
 
     enabled: bool = True
-    output_filename: str = "merged_transcription.json"
+    output_filename: str = "merged_transcription.yaml"
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> Self:
@@ -95,17 +175,47 @@ class ProcessingConfig:
 
 
 @dataclass(slots=True)
+class ModelPricingConfig:
+    """Per-million token pricing for one model."""
+
+    input_usd: float
+    output_usd: float
+    cached_input_usd: float = 0.0
+
+    @classmethod
+    def from_mapping(cls, data: Mapping[str, Any]) -> Self:
+        """Create model pricing from a raw mapping."""
+        return cls(
+            input_usd=float(data.get("input_usd", 0.0)),
+            output_usd=float(data.get("output_usd", 0.0)),
+            cached_input_usd=float(data.get("cached_input_usd", 0.0)),
+        )
+
+
+@dataclass(slots=True)
 class AnalysisLLMConfig:
     """Configuration for future LLM-assisted analysis calls."""
 
     backend: str = "deterministic"
     model: str = "Auto"
     default_api_model: str | None = None
+    default_pricing_model: str = "composer-2.5"
+    pricing_per_million_tokens: dict[str, ModelPricingConfig] = field(
+        default_factory=lambda: {
+            "composer-2.5": ModelPricingConfig(
+                input_usd=0.5,
+                cached_input_usd=0.2,
+                output_usd=2.5,
+            ),
+        },
+    )
     cursor_command: str = "agent"
     cursor_args: list[str] = field(default_factory=lambda: ["-p"])
     timeout_seconds: int = 900
     retries: int = 2
     cursor_cli_probe: bool = False
+    cursor_cli_specialist_tool: bool = False
+    usd_to_eur_rate: str | None = None
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> Self:
@@ -117,10 +227,30 @@ class AnalysisLLMConfig:
         default_api = data.get("default_api_model", defaults.default_api_model)
         if default_api is not None:
             default_api = str(default_api)
+        rate = data.get("usd_to_eur_rate", defaults.usd_to_eur_rate)
+        if rate is not None:
+            rate = str(rate)
+        pricing_raw = data.get(
+            "pricing_per_million_tokens",
+            defaults.pricing_per_million_tokens,
+        )
+        pricing: dict[str, ModelPricingConfig] = {}
+        if isinstance(pricing_raw, Mapping):
+            for model_name, model_pricing in pricing_raw.items():
+                if isinstance(model_pricing, Mapping):
+                    pricing[str(model_name)] = ModelPricingConfig.from_mapping(
+                        model_pricing,
+                    )
+        if not pricing:
+            pricing = dict(defaults.pricing_per_million_tokens)
         return cls(
             backend=str(data.get("backend", defaults.backend)),
             model=str(data.get("model", defaults.model)),
             default_api_model=default_api,
+            default_pricing_model=str(
+                data.get("default_pricing_model", defaults.default_pricing_model),
+            ),
+            pricing_per_million_tokens=pricing,
             cursor_command=str(data.get("cursor_command", defaults.cursor_command)),
             cursor_args=[str(arg) for arg in cursor_args],
             timeout_seconds=int(data.get("timeout_seconds", defaults.timeout_seconds)),
@@ -128,7 +258,42 @@ class AnalysisLLMConfig:
             cursor_cli_probe=bool(
                 data.get("cursor_cli_probe", defaults.cursor_cli_probe),
             ),
+            cursor_cli_specialist_tool=bool(
+                data.get(
+                    "cursor_cli_specialist_tool",
+                    defaults.cursor_cli_specialist_tool,
+                ),
+            ),
+            usd_to_eur_rate=rate,
         )
+
+
+def build_pricing_by_model(
+    llm_config: AnalysisLLMConfig,
+) -> dict[str, ModelPricing]:
+    """Build a runner pricing table from analysis LLM configuration.
+
+    Args:
+        llm_config: Analysis LLM configuration section.
+
+    Returns:
+        Mapping of model names to pricing objects for cost estimation.
+    """
+    from tara.analysis.llm_runner import ModelPricing
+
+    table: dict[str, ModelPricing] = {}
+    for model_name, entry in llm_config.pricing_per_million_tokens.items():
+        table[model_name] = ModelPricing(
+            input_usd_per_million=entry.input_usd,
+            cached_input_usd_per_million=entry.cached_input_usd,
+            output_usd_per_million=entry.output_usd,
+        )
+    default_key = llm_config.default_pricing_model
+    default_pricing = table.get(default_key)
+    if default_pricing is not None:
+        table.setdefault("Auto", default_pricing)
+        table.setdefault(default_key, default_pricing)
+    return table
 
 
 @dataclass(slots=True)
@@ -136,8 +301,8 @@ class AnalysisScenesConfig:
     """Configuration for scene-driven blackboard enrichment."""
 
     enabled: bool = True
-    boundaries_filename: str = "scene_analysis.json"
-    descriptions_filename: str = "scene_descriptions.json"
+    boundaries_filename: str = "scene_analysis.yaml"
+    descriptions_filename: str = "scene_descriptions.yaml"
     scenes_dir: str = "scenes"
     scene_file_prefix: str = "scene_"
     boundary_block_seconds: float = 1800.0
@@ -189,15 +354,18 @@ class AnalysisConfig:
     prior_context_path: str | None = None
     output_dir: str = "analysis"
     summary_markdown_filename: str = "session_summary.md"
-    summary_json_filename: str = "session_summary.json"
+    summary_json_filename: str = "session_summary.yaml"
     max_audit_attempts: int = 3
     target_window_seconds: float = 90.0
     overlap_seconds: float = 20.0
+    parallel: bool = True
     scenes: AnalysisScenesConfig = field(default_factory=AnalysisScenesConfig)
     llm: AnalysisLLMConfig = field(default_factory=AnalysisLLMConfig)
 
     @classmethod
-    def from_mapping(cls, data: Mapping[str, Any]) -> Self:
+    def from_mapping(
+        cls, data: Mapping[str, Any], *, apply_environment: bool = True
+    ) -> Self:
         """Create analysis configuration from a raw mapping."""
         defaults = cls()
         llm_data = data.get("llm", {})
@@ -206,6 +374,10 @@ class AnalysisConfig:
         scenes_data = data.get("scenes", {})
         if not isinstance(scenes_data, Mapping):
             scenes_data = {}
+        parallel_raw = data.get("parallel", defaults.parallel)
+        if apply_environment:
+            parallel_raw = os.environ.get("TARA_ANALYSIS_PARALLEL", parallel_raw)
+        parallel = str(parallel_raw).strip().lower() in {"1", "true", "yes", "on"}
         return cls(
             enabled=bool(data.get("enabled", defaults.enabled)),
             pipeline=str(data.get("pipeline", defaults.pipeline)),
@@ -230,6 +402,7 @@ class AnalysisConfig:
             overlap_seconds=float(
                 data.get("overlap_seconds", defaults.overlap_seconds),
             ),
+            parallel=parallel,
             scenes=AnalysisScenesConfig.from_mapping(scenes_data),
             llm=AnalysisLLMConfig.from_mapping(llm_data),
         )
@@ -246,16 +419,22 @@ class TaraConfig:
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
 
     @classmethod
-    def from_mapping(cls, data: Mapping[str, Any]) -> Self:
+    def from_mapping(
+        cls, data: Mapping[str, Any], *, apply_environment: bool = True
+    ) -> Self:
         """Create a root configuration object from a raw mapping."""
         return cls(
             language=str(data.get("language", "fr")),
             logging=LoggingConfig.from_mapping(_mapping(data.get("logging"))),
             transcription=TranscriptionConfig.from_mapping(
                 _mapping(data.get("transcription")),
+                apply_environment=apply_environment,
             ),
             processing=ProcessingConfig.from_mapping(_mapping(data.get("processing"))),
-            analysis=AnalysisConfig.from_mapping(_mapping(data.get("analysis"))),
+            analysis=AnalysisConfig.from_mapping(
+                _mapping(data.get("analysis")),
+                apply_environment=apply_environment,
+            ),
         )
 
 
@@ -280,12 +459,16 @@ def load_dotenv(path: Path | None = None) -> None:
 
 def find_default_config_path() -> Path | None:
     """Return the bundled default configuration path when it exists."""
-    config_path = _project_root() / "config" / "configuration.json"
-    return config_path if config_path.exists() else None
+    config_dir = _project_root() / "config"
+    yaml_path = config_dir / "configuration.yaml"
+    if yaml_path.exists():
+        return yaml_path
+    json_path = config_dir / "configuration.json"
+    return json_path if json_path.exists() else None
 
 
 def load_config(config_path: Path | None = None) -> TaraConfig:
-    """Load Tara configuration from JSON, falling back to defaults.
+    """Load Tara configuration from YAML or legacy JSON, falling back to defaults.
 
     Args:
         config_path: Optional explicit configuration path.
@@ -297,9 +480,9 @@ def load_config(config_path: Path | None = None) -> TaraConfig:
     path = config_path or find_default_config_path()
     if path is None:
         return TaraConfig()
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw = load_yaml_or_json(path)
     if not isinstance(raw, Mapping):
-        raise ValueError("Configuration root must be a JSON object.")
+        raise ValueError("Configuration root must be a mapping object.")
     return TaraConfig.from_mapping(raw)
 
 

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Protocol, cast
 
 from tara.analysis.agentic_llm import (
@@ -229,6 +231,10 @@ class SpecialistAgent:
                 default_claim_type=_question_claim_type(question, self.claim_type),
                 is_critical_default=question.risk_level == ConflictSeverity.CRITICAL,
                 context_text=_config_text(self.config, "context_text"),
+                transcription_path=_config_path(self.config, "transcription_path"),
+                cursor_cli_specialist_tool=bool(
+                    self.config.get("cursor_cli_specialist_tool"),
+                ),
             )
             self.last_llm_usage = usage
             if len(answers) == 1 and answers[0].status == FactStatus.UNCERTAIN:
@@ -927,6 +933,7 @@ class AnalysisOrchestrator:
             self._specialist_config.get("backend", "deterministic")
         )
         self._cursor_cli_probe = bool(self._specialist_config.get("cursor_cli_probe"))
+        self._parallel = bool(self._specialist_config.get("parallel"))
         self._planner = AnalysisPlannerAgent()
         self._specialists = _default_specialists(
             llm_runner=llm_runner,
@@ -964,6 +971,7 @@ class AnalysisOrchestrator:
                 plan,
                 retriever,
                 self._specialists,
+                parallel=self._parallel,
             )
             answers = [*seed_answers, *answers]
             blackboard = self._blackboard.ingest(answers)
@@ -1084,8 +1092,12 @@ def _run_specialists_with_usage(
     plan: AnalysisPlan,
     retriever: EvidenceRetriever,
     specialists: dict[str, SpecialistAgent],
+    *,
+    parallel: bool = False,
 ) -> tuple[list[EvidenceAnswer], LLMUsageDelta]:
     """Run all planned specialist questions and accumulate LLM usage."""
+    if parallel and len(plan.questions) > 1:
+        return _run_specialists_parallel(plan, retriever, specialists)
     answers: list[EvidenceAnswer] = []
     usage = LLMUsageDelta()
     for question in plan.questions:
@@ -1093,6 +1105,48 @@ def _run_specialists_with_usage(
         answers.extend(specialist.answer(question, retriever))
         usage = _merge_usage_delta(usage, specialist.last_llm_usage)
     return answers, usage
+
+
+def _run_specialists_parallel(
+    plan: AnalysisPlan,
+    retriever: EvidenceRetriever,
+    specialists: dict[str, SpecialistAgent],
+) -> tuple[list[EvidenceAnswer], LLMUsageDelta]:
+    """Run specialist questions concurrently while preserving question order."""
+    ordered: list[tuple[int, list[EvidenceAnswer], LLMUsageDelta]] = []
+    with ThreadPoolExecutor(max_workers=len(plan.questions)) as executor:
+        futures = {
+            executor.submit(
+                _answer_question,
+                question,
+                specialists[question.responsible_agent],
+                retriever,
+            ): index
+            for index, question in enumerate(plan.questions)
+        }
+        for future in as_completed(futures):
+            index = futures[future]
+            answers, usage = future.result()
+            ordered.append((index, answers, usage))
+    answers: list[EvidenceAnswer] = []
+    usage = LLMUsageDelta()
+    for _, question_answers, question_usage in sorted(
+        ordered,
+        key=lambda item: item[0],
+    ):
+        answers.extend(question_answers)
+        usage = _merge_usage_delta(usage, question_usage)
+    return answers, usage
+
+
+def _answer_question(
+    question: AnalysisQuestion,
+    specialist: SpecialistAgent,
+    retriever: EvidenceRetriever,
+) -> tuple[list[EvidenceAnswer], LLMUsageDelta]:
+    """Answer one planned question and return answers plus usage."""
+    answers = specialist.answer(question, retriever)
+    return answers, specialist.last_llm_usage
 
 
 def _question_claim_type(
@@ -1104,6 +1158,17 @@ def _question_claim_type(
     if isinstance(raw_claim_type, str):
         return ClaimType(raw_claim_type)
     return fallback
+
+
+def _config_path(config: JsonObject, key: str) -> Path | None:
+    """Return a filesystem path from agent configuration."""
+    value = config.get(key)
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    return Path(stripped)
 
 
 def _config_text(config: JsonObject, key: str) -> str | None:

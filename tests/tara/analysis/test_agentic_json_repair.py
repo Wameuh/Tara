@@ -1,4 +1,4 @@
-"""Tests for single-pass JSON repair after failed structured LLM parses."""
+"""Tests for single-pass YAML repair after failed structured LLM parses."""
 
 from __future__ import annotations
 
@@ -19,9 +19,10 @@ from tara.analysis.models import (
     Conflict,
     ConflictSeverity,
     EvidenceChunk,
-    MergedTranscription,
     RetrievalQuery,
 )
+from tara.schemas.merged_transcription import new_merged_transcription
+from tara.yaml_utils import to_yaml
 
 
 class _RepairThenParseBackend:
@@ -44,7 +45,7 @@ class _RepairThenParseBackend:
                 backend="api",
                 total_tokens=3,
             )
-        if request.purpose == "analysis.specialist_extraction.json_repair":
+        if request.purpose == "analysis.specialist_extraction.yaml_repair":
             return LLMResponse(
                 content=self._repair_payload,
                 model="gpt-test",
@@ -102,7 +103,7 @@ def test_specialist_extraction_uses_single_json_repair() -> None:
         is_critical_default=False,
     )
 
-    assert "analysis.specialist_extraction.json_repair" in backend.purposes
+    assert "analysis.specialist_extraction.yaml_repair" in backend.purposes
     assert usage.calls == 2
     assert any("temple" in a.claim for a in answers)
 
@@ -126,7 +127,7 @@ def test_arbitration_repair_returns_verdict() -> None:
                     backend="api",
                     total_tokens=2,
                 )
-            if request.purpose.endswith(".json_repair"):
+            if request.purpose.endswith(".yaml_repair"):
                 return LLMResponse(
                     content=verdict,
                     model="gpt-test",
@@ -171,7 +172,7 @@ def test_context_is_injected_into_primary_prompts_but_not_json_repair() -> None:
     original_run = backend.run
 
     def capture(request: LLMRequest) -> LLMResponse:
-        prompts[request.purpose] = request.user_prompt
+        prompts[request.purpose] = f"{request.system_prompt}\n{request.user_prompt}"
         return original_run(request)
 
     backend.run = capture  # type: ignore[method-assign]
@@ -208,12 +209,18 @@ def test_context_is_injected_into_primary_prompts_but_not_json_repair() -> None:
 
     assert "willygorn plays Karknyr" in prompts["analysis.specialist_extraction"]
     assert (
-        "[willygorn] Le combat commence."
-        in prompts["analysis.specialist_extraction"]
+        "[willygorn] Le combat commence." in prompts["analysis.specialist_extraction"]
+    )
+    assert (
+        "Do not extrapolate beyond the transcript"
+        in (prompts["analysis.specialist_extraction"])
+    )
+    assert (
+        "never present a guess as fact" in (prompts["analysis.specialist_extraction"])
     )
     assert (
         "willygorn plays Karknyr"
-        not in prompts["analysis.specialist_extraction.json_repair"]
+        not in prompts["analysis.specialist_extraction.yaml_repair"]
     )
 
 
@@ -225,9 +232,11 @@ def test_composer_receives_prior_then_general_context() -> None:
 
         def __init__(self) -> None:
             self.prompt = ""
+            self.system_prompt = ""
 
         def run(self, request: LLMRequest) -> LLMResponse:
             self.prompt = request.user_prompt
+            self.system_prompt = request.system_prompt
             payload = {
                 "markdown": "# Résumé de session\n\n## Résumé express\n- X",
                 "sections": [
@@ -240,7 +249,7 @@ def test_composer_receives_prior_then_general_context() -> None:
                 ],
             }
             return LLMResponse(
-                content=json.dumps(payload),
+                content=to_yaml(payload),
                 model="gpt-test",
                 backend="api",
             )
@@ -259,13 +268,16 @@ def test_composer_receives_prior_then_general_context() -> None:
         prior_context_text="Previous temple summary.",
     )
 
-    assert backend.prompt.index("Previous temple summary.") < backend.prompt.index(
-        "willygorn plays Karknyr."
+    assert backend.system_prompt.index("Previous temple summary.") < (
+        backend.system_prompt.index("willygorn plays Karknyr.")
     )
     assert "Use character names and MJ" in backend.prompt
     assert "remind players what happened before the next session" in backend.prompt
-    assert "Prefer synthesis over blow-by-blow combat narration" in backend.prompt
+    assert "Combat summarization policy (critical)" in backend.system_prompt
+    assert "finit par les vaincre" in backend.system_prompt
     assert "Do not include dice rolls, attack totals" in backend.prompt
+    assert "Do not extrapolate beyond the transcript" in backend.system_prompt
+    assert "never present a guess as fact" in backend.system_prompt
 
 
 def test_audit_and_arbitration_receive_general_context() -> None:
@@ -278,7 +290,9 @@ def test_audit_and_arbitration_receive_general_context() -> None:
             self.prompts: list[str] = []
 
         def run(self, request: LLMRequest) -> LLMResponse:
-            self.prompts.append(request.user_prompt)
+            self.prompts.append(
+                f"{request.system_prompt}\n{request.user_prompt}",
+            )
             if request.purpose == "analysis.adversarial_audit":
                 content = '{"approved":true,"issues":[]}'
             elif request.purpose == "analysis.arbitration":
@@ -324,6 +338,11 @@ def test_audit_and_arbitration_receive_general_context() -> None:
     assert "turret/ballista mechanics" in backend.prompts[0]
     assert "first substantive content" in backend.prompts[0]
     assert "answer IDs, chunk IDs, scene IDs" in backend.prompts[0]
+    assert all(
+        "Do not extrapolate beyond the transcript" in prompt
+        for prompt in backend.prompts
+    )
+    assert all("never present a guess as fact" in prompt for prompt in backend.prompts)
 
 
 def test_orchestrator_wires_context_to_real_agent_llm_calls() -> None:
@@ -351,9 +370,9 @@ def test_orchestrator_wires_context_to_real_agent_llm_calls() -> None:
                     model="gpt-test",
                     backend="api",
                 )
-            if request.purpose == "analysis.specialist_extraction.json_repair":
+            if request.purpose == "analysis.specialist_extraction.yaml_repair":
                 return LLMResponse(
-                    content=json.dumps(
+                    content=to_yaml(
                         {
                             "facts": [
                                 {
@@ -383,7 +402,7 @@ def test_orchestrator_wires_context_to_real_agent_llm_calls() -> None:
                 )
             if request.purpose == "analysis.summary_composer":
                 return LLMResponse(
-                    content=json.dumps(
+                    content=to_yaml(
                         {
                             "markdown": "# Résumé de session\n\n"
                             "## Résumé express\n- Karknyr avance.",
@@ -438,7 +457,7 @@ def test_orchestrator_wires_context_to_real_agent_llm_calls() -> None:
                         "uncertainty": None,
                     },
                 ]
-            return json.dumps(
+            return to_yaml(
                 {"facts": facts, "open_questions": [], "rejected_noise": []},
             )
 
@@ -447,24 +466,22 @@ def test_orchestrator_wires_context_to_real_agent_llm_calls() -> None:
         LLMRunnerConfig(backend="api", model="gpt-test", max_retries=0),
         api_backend=backend,
     )
-    transcription = MergedTranscription.model_validate(
-        {
-            "text": (
-                "Karknyr entre dans le temple. Molnir est mort. "
-                "Molnir survit. Une potion soigne le groupe."
-            ),
-            "segments": [
-                {
-                    "start": 0.0,
-                    "end": 30.0,
-                    "text": (
-                        "Karknyr entre dans le temple. Molnir est mort. "
-                        "Molnir survit. Une potion soigne le groupe."
-                    ),
-                },
-            ],
-            "duration": 30.0,
-        }
+    transcription = new_merged_transcription(
+        text=(
+            "Karknyr entre dans le temple. Molnir est mort. "
+            "Molnir survit. Une potion soigne le groupe."
+        ),
+        segments=[
+            {
+                "start": 0.0,
+                "end": 30.0,
+                "text": (
+                    "Karknyr entre dans le temple. Molnir est mort. "
+                    "Molnir survit. Une potion soigne le groupe."
+                ),
+            },
+        ],
+        duration=30.0,
     )
     index = EvidenceIndex.from_transcription(transcription, 60.0, 0.0)
     general_context = "willygorn plays Karknyr."
@@ -482,7 +499,8 @@ def test_orchestrator_wires_context_to_real_agent_llm_calls() -> None:
 
     prompts_by_purpose: dict[str, list[str]] = {}
     for request in backend.requests:
-        prompts_by_purpose.setdefault(request.purpose, []).append(request.user_prompt)
+        combined = f"{request.system_prompt}\n{request.user_prompt}"
+        prompts_by_purpose.setdefault(request.purpose, []).append(combined)
 
     for purpose in [
         "analysis.specialist_extraction",
@@ -500,5 +518,5 @@ def test_orchestrator_wires_context_to_real_agent_llm_calls() -> None:
             assert all(prior_context not in prompt for prompt in prompts)
     assert all(
         general_context not in prompt and prior_context not in prompt
-        for prompt in prompts_by_purpose["analysis.specialist_extraction.json_repair"]
+        for prompt in prompts_by_purpose["analysis.specialist_extraction.yaml_repair"]
     )

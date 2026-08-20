@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-
-from inference_server.backend import TranscriptionBackend, create_backend
+from inference_server.backend import create_backend
 from inference_server.faster_whisper_backend import FasterWhisperBackend
 from inference_server.parakeet_backend import ParakeetBackend
 

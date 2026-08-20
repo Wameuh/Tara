@@ -37,6 +37,7 @@ class SceneAnalysisPipeline:
         merged_transcription_path: Path,
         llm_runner: LLMRunner | None,
         context_text: str | None = None,
+        parallel: bool = False,
     ) -> ScenePipelineResult:
         """Run the scene pipeline or return an empty timeline on fallback."""
         if not getattr(self._config, "enabled", True):
@@ -103,6 +104,7 @@ class SceneAnalysisPipeline:
             llm_runner,
             output_path=scene_descriptions_path,
             resume_partial=self._config.resume_partial_descriptions,
+            parallel=parallel,
         ).describe_all(scene_transcriptions, context_text=context_text)
         warnings.extend(description_result.warnings)
         usage = description_result.usage

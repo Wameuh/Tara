@@ -1,0 +1,70 @@
+# Copy outside version control before production use. Secrets stay in the environment.
+webinterface:
+  storage:
+    root: ./runtime/web
+    backups_root: ./runtime/backups
+    sqlite_path: ./runtime/web/tara-web.sqlite3
+  public_url: http://127.0.0.1:8000
+  security:
+    allowed_hosts: [127.0.0.1, localhost]
+    allowed_origins: []
+    link_secret_env: TARA_WEB_LINK_SECRET
+    upload_hmac_env: TARA_WEB_UPLOAD_HMAC_KEY
+    require_link_secret: false
+    trusted_proxy_networks: []
+    hsts_include_subdomains: false
+  limits:
+    max_upload_bytes: 1073741824
+    max_merged_transcription_bytes: 33554432
+    max_merged_transcription_tokens: 500000
+    merged_validation_timeout_seconds: 15
+    merged_validation_memory_bytes: 536870912
+    merged_yaml_max_depth: 64
+    merged_yaml_max_nodes: 1000000
+    merged_yaml_max_scalar_chars: 33554432
+    merged_yaml_max_aliases: 0
+    zip_max_entries: 1000
+    zip_max_uncompressed_bytes: 5368709120
+    zip_max_compression_ratio: 100.0
+    zip_max_depth: 16
+    zip_validation_timeout_seconds: 30
+    max_active_jobs: 1
+    max_sse_connections: 100
+    max_artifact_bytes: 1073741824
+    min_free_storage_bytes: 268435456
+    max_artifacts_per_job: 64
+    storage_cleanup_batch_size: 100
+    storage_orphan_grace_seconds: 3600
+    storage_maintenance_interval_seconds: 3600
+    max_chunk_bytes: 8388608
+    recommended_chunk_bytes: 1048576
+    max_upload_files: 1000
+    max_upload_sessions: 100
+    max_reserved_upload_bytes: 10737418240
+    upload_read_timeout_seconds: 30
+    upload_inactivity_seconds: 1800
+    validation_concurrency: 2
+    public_parallel_uploads: 3
+    ffprobe_timeout_seconds: 30
+    ffmpeg_timeout_seconds: 60
+    scanner_timeout_seconds: 60
+    # Omit inference_budget_micro_eur to disable the global paid-inference cap.
+    # Values are integer micro-euros; 1000000 = 1 EUR.
+    # inference_budget_micro_eur: 100000000
+    inference_reservation_micro_eur: 1000000
+    estimation_minimum_observations: 8
+    circuit_failure_threshold: 3
+    circuit_open_seconds: 60
+  timeouts:
+    shutdown_grace_seconds: 30
+    request_seconds: 60
+  default_language: fr
+  supported_languages: [fr, en]
+  # Use fake only for local development. Public deployments require explicit opt-in.
+  runner_mode: fake
+  allow_fake_runner: false
+  # Required when runner_mode is tara.
+  # tara_config_path: ./tara-web.yaml
+  workers: 1
+  documentation:
+    enabled: true

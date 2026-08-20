@@ -1,0 +1,8 @@
+text: Bonjour
+language: fr
+duration: 1.0
+model: legacy-model
+segments:
+  - start: 0.0
+    end: 1.0
+    text: Bonjour

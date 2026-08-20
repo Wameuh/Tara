@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,6 +31,11 @@ from tara.analysis.scenes.prompts import (
 
 LOGGER = logging.getLogger(__name__)
 SCENE_DESCRIPTION_PROMPT_VERSION = "speaker_attribution_v4"
+SceneDescriptionResult = tuple[
+    SceneDescription | None,
+    LLMUsageDelta,
+    ScenePipelineWarning | None,
+]
 
 
 class _DescriptionsPayload(TaraModel):
@@ -57,11 +63,13 @@ class SceneDescriptorAgent:
         *,
         output_path: Path,
         resume_partial: bool = True,
+        parallel: bool = False,
     ) -> None:
         """Initialize the descriptor."""
         self._llm_runner = llm_runner
         self._output_path = output_path
         self._resume_partial = resume_partial
+        self._parallel = parallel
 
     def describe_all(
         self,
@@ -74,6 +82,7 @@ class SceneDescriptorAgent:
         descriptions: list[SceneDescription] = []
         warnings: list[ScenePipelineWarning] = []
         usage = LLMUsageDelta()
+        pending: list[SceneTranscription] = []
         for scene in scenes:
             cached_scene = cached.get(scene.scene_id)
             if (
@@ -91,69 +100,40 @@ class SceneDescriptorAgent:
                     )
                 )
                 continue
-            try:
-                response = self._llm_runner.run(
-                    LLMRequest(
-                        purpose="analysis.scenes.describe",
-                        system_prompt=DESCRIPTION_SYSTEM_PROMPT,
-                        user_prompt=description_user_prompt_with_context(
-                            scene,
-                            context_text,
-                        ),
-                        temperature=0.0,
-                        metadata={"scene_id": scene.scene_id},
-                    ),
+            pending.append(scene)
+
+        if self._parallel and len(pending) > 1:
+            results_by_id: dict[int, SceneDescriptionResult] = {}
+            with ThreadPoolExecutor(max_workers=len(pending)) as executor:
+                futures = {
+                    executor.submit(
+                        self._describe_scene,
+                        scene,
+                        context_text,
+                    ): scene.scene_id
+                    for scene in pending
+                }
+                for future in as_completed(futures):
+                    scene_id = futures[future]
+                    results_by_id[scene_id] = future.result()
+            for scene in pending:
+                described, scene_usage, warning = results_by_id[scene.scene_id]
+                usage = _merge_usage(usage, scene_usage)
+                if warning is not None:
+                    warnings.append(warning)
+                if described is not None:
+                    descriptions.append(described)
+        else:
+            for scene in pending:
+                described, scene_usage, warning = self._describe_scene(
+                    scene,
+                    context_text,
                 )
-            except LLMRunnerError as exc:
-                LOGGER.warning(
-                    "Scene description failed for scene %s: %s",
-                    scene.scene_id,
-                    exc,
-                )
-                warnings.append(
-                    ScenePipelineWarning(
-                        code="scene_description_llm_failed",
-                        message=str(exc),
-                        scene_id=scene.scene_id,
-                    )
-                )
-                continue
-            scene_usage = _response_usage(response)
-            parsed, scene_usage = parse_with_single_json_repair(
-                SceneDescription,
-                response.content,
-                self._llm_runner,
-                repair_purpose_prefix="analysis.scenes.describe",
-                schema_description=(
-                    '{"scene_id","title","start","end","summary","description",'
-                    '"facts","key_actions","state_changes","continuity_impacts"}'
-                ),
-                initial_usage=scene_usage,
-            )
-            usage = _merge_usage(usage, scene_usage)
-            if parsed is None:
-                warnings.append(
-                    ScenePipelineWarning(
-                        code="scene_description_invalid_json",
-                        message="Scene description JSON parse failed after repair.",
-                        scene_id=scene.scene_id,
-                    )
-                )
-                continue
-            descriptions.append(
-                parsed.model_copy(
-                    update={
-                        "scene_id": scene.scene_id,
-                        "start": scene.start,
-                        "end": scene.end,
-                        "source_hash": scene.source_hash,
-                        "metadata": {
-                            **parsed.metadata,
-                            "scene_file": scene.output_path or "",
-                        },
-                    }
-                )
-            )
+                usage = _merge_usage(usage, scene_usage)
+                if warning is not None:
+                    warnings.append(warning)
+                if described is not None:
+                    descriptions.append(described)
         descriptions.sort(key=lambda item: item.scene_id)
         timeline = SceneTimeline(
             scenes=descriptions,
@@ -162,6 +142,80 @@ class SceneDescriptorAgent:
         )
         self._write_output(timeline)
         return DescriptionResult(timeline=timeline, usage=usage, warnings=warnings)
+
+    def _describe_scene(
+        self,
+        scene: SceneTranscription,
+        context_text: str | None,
+    ) -> SceneDescriptionResult:
+        """Describe one scene and return parsed output or a warning."""
+        try:
+            response = self._llm_runner.run(
+                LLMRequest(
+                    purpose="analysis.scenes.describe",
+                    stage="scenes.description",
+                    system_prompt=DESCRIPTION_SYSTEM_PROMPT,
+                    user_prompt=description_user_prompt_with_context(
+                        scene,
+                        context_text,
+                    ),
+                    temperature=0.0,
+                    metadata={"scene_id": scene.scene_id},
+                ),
+            )
+        except LLMRunnerError as exc:
+            LOGGER.warning(
+                "Scene description failed for scene %s: %s",
+                scene.scene_id,
+                exc,
+            )
+            return (
+                None,
+                LLMUsageDelta(),
+                ScenePipelineWarning(
+                    code="scene_description_llm_failed",
+                    message=str(exc),
+                    scene_id=scene.scene_id,
+                ),
+            )
+        scene_usage = _response_usage(response)
+        parsed, scene_usage = parse_with_single_json_repair(
+            SceneDescription,
+            response.content,
+            self._llm_runner,
+            repair_purpose_prefix="analysis.scenes.describe",
+            schema_description=(
+                '{"scene_id","title","start","end","summary","description",'
+                '"facts","key_actions","state_changes","continuity_impacts"}'
+            ),
+            initial_usage=scene_usage,
+        )
+        if parsed is None:
+            return (
+                None,
+                scene_usage,
+                ScenePipelineWarning(
+                    code="scene_description_invalid_json",
+                    message="Scene description JSON parse failed after repair.",
+                    scene_id=scene.scene_id,
+                ),
+            )
+        return (
+            parsed.model_copy(
+                update={
+                    "scene_id": scene.scene_id,
+                    "start": scene.start,
+                    "end": scene.end,
+                    "source_hash": scene.source_hash,
+                    "metadata": {
+                        **parsed.metadata,
+                        "scene_file": scene.output_path or "",
+                    },
+                }
+            ),
+            scene_usage,
+            None,
+        )
 
     def _load_cached_descriptions(self) -> dict[int, SceneDescription]:
         """Load fresh-enough cached descriptions by scene id."""

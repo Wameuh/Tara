@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import sys
-import tempfile
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import MagicMock, patch
 
-import numpy as np
 import pytest
 
 from inference_server.backend import BackendError
-from inference_server.models import TranscriptionResponse, TranscriptionSegment
+from inference_server.models import TranscriptionSegment
 from inference_server.parakeet_backend import ParakeetBackend
 
 
@@ -106,6 +104,85 @@ def test_parakeet_backend_model_caching(monkeypatch: pytest.MonkeyPatch) -> None
     second = backend._load_model("test-model")
 
     assert first is second
+
+
+def test_parakeet_backend_uses_persistent_nemo_extract_dir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Cached .nemo archives are extracted outside NeMo's temporary directory."""
+    monkeypatch.setenv("TARA_NEMO_EXTRACT_DIR", str(tmp_path / "cache"))
+    model_path = tmp_path / "model.nemo"
+    model_path.write_bytes(b"fixture")
+    unpack_calls: list[tuple[str, str]] = []
+
+    class Connector:
+        def _unpack_nemo_file(self, *, path2file: str, out_folder: str) -> None:
+            unpack_calls.append((path2file, out_folder))
+            out = Path(out_folder)
+            (out / "model_weights.ckpt").write_bytes(b"weights")
+            (out / "model_config.yaml").write_text("model: {}\n", encoding="utf-8")
+
+    backend = ParakeetBackend()
+
+    first = backend._ensure_extracted_model_dir(
+        model_name="nvidia/parakeet-test",
+        model_path=model_path,
+        connector=Connector(),
+    )
+    second = backend._ensure_extracted_model_dir(
+        model_name="nvidia/parakeet-test",
+        model_path=model_path,
+        connector=Connector(),
+    )
+
+    assert first == second
+    assert (first / ".tara_extract_complete").exists()
+    assert (first / "model_weights.ckpt").exists()
+    assert len(unpack_calls) == 1
+
+
+def test_parakeet_backend_reextracts_incomplete_nemo_artifact_cache(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Cached .nemo directories must include every artifact referenced by config."""
+    cache_root = tmp_path / "cache"
+    monkeypatch.setenv("TARA_NEMO_EXTRACT_DIR", str(cache_root))
+    model_path = tmp_path / "model.nemo"
+    model_path.write_bytes(b"fixture")
+    extract_dir = cache_root / f"nvidia_parakeet-test_{model_path.stat().st_size}"
+    extract_dir.mkdir(parents=True)
+    (extract_dir / ".tara_extract_complete").write_text(str(model_path), encoding="utf-8")
+    (extract_dir / "model_weights.ckpt").write_bytes(b"stale weights")
+    (extract_dir / "model_config.yaml").write_text(
+        "tokenizer:\n  vocab_path: nemo:missing_vocab.txt\n",
+        encoding="utf-8",
+    )
+    unpack_calls: list[tuple[str, str]] = []
+
+    class Connector:
+        def _unpack_nemo_file(self, *, path2file: str, out_folder: str) -> None:
+            unpack_calls.append((path2file, out_folder))
+            out = Path(out_folder)
+            (out / "model_weights.ckpt").write_bytes(b"fresh weights")
+            (out / "model_config.yaml").write_text(
+                "tokenizer:\n  vocab_path: nemo:missing_vocab.txt\n",
+                encoding="utf-8",
+            )
+            (out / "missing_vocab.txt").write_text("token\n", encoding="utf-8")
+
+    backend = ParakeetBackend()
+
+    result = backend._ensure_extracted_model_dir(
+        model_name="nvidia/parakeet-test",
+        model_path=model_path,
+        connector=Connector(),
+    )
+
+    assert result == extract_dir
+    assert (extract_dir / "missing_vocab.txt").exists()
+    assert len(unpack_calls) == 1
 
 
 def test_parakeet_backend_release_all(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -329,7 +406,54 @@ def test_parakeet_backend_invalid_env_config(monkeypatch: pytest.MonkeyPatch) ->
     assert backend._overlap_percentage == 5.0
 
 
+def test_preload_model_calls_move_to_device(monkeypatch: pytest.MonkeyPatch) -> None:
+    """preload_model loads the model and requests device placement."""
+    dummy_model = _DummyNeMoModel()
+    _install_dummy_nemo(monkeypatch, dummy_model)
+    backend = ParakeetBackend()
+
+    with patch.object(backend, "_move_model_to_device") as move_mock:
+        backend.preload_model("parakeet:test-model", device="cuda")
+
+    assert "test-model" in backend._models
+    move_mock.assert_called_once_with("test-model", "cuda")
 
 
+def test_move_models_to_device_cpu(monkeypatch: pytest.MonkeyPatch) -> None:
+    """move_models_to_device relocates every cached model."""
+    dummy_model = _DummyNeMoModel()
+    _install_dummy_nemo(monkeypatch, dummy_model)
+    backend = ParakeetBackend()
+    backend._load_model("test-model")
+
+    with patch.object(backend, "_move_model_to_device") as move_mock:
+        backend.move_models_to_device("cpu")
+
+    move_mock.assert_called_once_with("test-model", "cpu")
 
 
+def test_warmup_transcription_runs_forward_pass(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """warmup_transcription invokes the chunked NeMo path on synthetic silence."""
+    dummy_model = _DummyNeMoModel()
+    _install_dummy_nemo(monkeypatch, dummy_model)
+    backend = ParakeetBackend()
+    backend._load_model("test-model")
+
+    with patch(
+        "inference_server.parakeet_backend.transcribe_with_nemo_partial_audio",
+    ) as mock_transcribe:
+        mock_transcribe.return_value = {"text": "", "duration": 1.0}
+        backend.warmup_transcription(duration_seconds=1.0, model_name="test-model")
+
+    mock_transcribe.assert_called_once()
+    assert mock_transcribe.call_args.kwargs["timestamps"] is False
+
+
+def test_warmup_transcription_requires_loaded_model() -> None:
+    """warmup_transcription fails when no model is cached."""
+    backend = ParakeetBackend()
+    with pytest.raises(BackendError, match="No model loaded"):
+        backend.warmup_transcription()

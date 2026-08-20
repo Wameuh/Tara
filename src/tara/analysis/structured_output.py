@@ -1,35 +1,36 @@
-"""Strict JSON parsing for agentic LLM responses."""
+"""Strict YAML parsing for agentic LLM responses."""
 
 from __future__ import annotations
 
-import json
 import re
 
 from pydantic import BaseModel, Field, ValidationError
+from ruamel.yaml.error import YAMLError
 
 from tara.analysis.models import ClaimType, TaraModel
+from tara.yaml_utils import parse_yaml_with_repair, repair_yaml_blob
 
-_JSON_FENCE = re.compile(r"```(?:json)?\s*([\s\S]*?)\s*```", re.IGNORECASE)
+_YAML_FENCE = re.compile(r"```(?:yaml|yml|json)?\s*([\s\S]*?)\s*```", re.IGNORECASE)
 
 
-def extract_json_text(raw: str) -> str:
-    """Strip markdown fences and return JSON text for parsing.
+def extract_yaml_text(raw: str) -> str:
+    """Strip markdown fences and return YAML text for parsing.
 
     Args:
         raw: Raw LLM completion text.
 
     Returns:
-        JSON payload as a string.
+        YAML payload as a string.
     """
     text = raw.strip()
-    match = _JSON_FENCE.search(text)
+    match = _YAML_FENCE.search(text)
     if match:
         return match.group(1).strip()
     return text
 
 
-def parse_typed_json[T: BaseModel](model: type[T], raw: str) -> T:
-    """Parse JSON text into a validated Pydantic model.
+def parse_typed_yaml[T: BaseModel](model: type[T], raw: str) -> T:
+    """Parse YAML text into a validated Pydantic model.
 
     Args:
         model: Target model class.
@@ -39,17 +40,19 @@ def parse_typed_json[T: BaseModel](model: type[T], raw: str) -> T:
         Validated model instance.
 
     Raises:
-        ValidationError: If JSON is invalid or does not match the schema.
+        ValidationError: If YAML is invalid or does not match the schema.
+        YAMLError: If YAML parsing fails.
     """
-    blob = extract_json_text(raw)
-    return model.model_validate_json(blob)
+    blob = extract_yaml_text(raw)
+    data = parse_yaml_with_repair(blob)
+    return model.model_validate(data)
 
 
-def parse_typed_json_lenient[T: BaseModel](
+def parse_typed_yaml_lenient[T: BaseModel](
     model: type[T],
     raw: str,
 ) -> tuple[T | None, str | None]:
-    """Parse JSON like :func:`parse_typed_json` but return errors instead of raising.
+    """Parse YAML like :func:`parse_typed_yaml` but return errors instead of raising.
 
     Args:
         model: Target model class.
@@ -59,9 +62,27 @@ def parse_typed_json_lenient[T: BaseModel](
         A tuple ``(instance, error)`` where ``error`` is set on failure.
     """
     try:
-        return parse_typed_json(model, raw), None
-    except (ValidationError, json.JSONDecodeError, ValueError) as exc:
+        return parse_typed_yaml(model, raw), None
+    except (ValidationError, YAMLError, ValueError, TypeError) as exc:
         return None, str(exc)
+
+
+def parse_typed_json[T: BaseModel](model: type[T], raw: str) -> T:
+    """Backward-compatible alias for :func:`parse_typed_yaml`."""
+    return parse_typed_yaml(model, raw)
+
+
+def parse_typed_json_lenient[T: BaseModel](
+    model: type[T],
+    raw: str,
+) -> tuple[T | None, str | None]:
+    """Backward-compatible alias for :func:`parse_typed_yaml_lenient`."""
+    return parse_typed_yaml_lenient(model, raw)
+
+
+def extract_json_text(raw: str) -> str:
+    """Backward-compatible alias that returns repaired YAML text."""
+    return repair_yaml_blob(extract_yaml_text(raw))
 
 
 class SpecialistExtractedFactModel(TaraModel):

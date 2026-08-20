@@ -1,0 +1,18 @@
+.tara-logo { display: block; height: auto; object-fit: contain; }
+.tara-logo--header { width: 132px; max-width: min(132px, 38vw); max-height: 44px; }
+.tara-logo--loading { width: min(300px, 72vw); aspect-ratio: 3 / 1; }
+.tara-logo--standalone { width: 264px; max-width: 100%; }
+.brand-link { display: block; width: fit-content; flex: 0 0 auto; }
+.tara-logo-animation { display: block; position: relative; height: auto; }
+.tara-logo-animation .tara-logo { width: 100%; }
+.tara-logo-animation__mask { position: absolute; z-index: 1; left: 10%; top: 7%; width: 19%; height: 70%; background: var(--page); }
+.tara-logo-animation__d20 { position: absolute; z-index: 2; inset: 0; clip-path: polygon(9% 27%, 18% 8%, 27% 27%, 27% 59%, 18% 76%, 9% 59%); transform-origin: 18% 42%; animation: tara-d20-settle 2.2s cubic-bezier(.2,.78,.25,1) 1 both; will-change: transform, opacity; }
+@keyframes tara-d20-settle {
+  0%, 8% { opacity: 0; transform: translateY(-16%) rotate(-130deg) scale(.72); }
+  12% { opacity: 1; }
+  38% { opacity: 1; transform: translateY(1.8%) rotate(10deg) scale(1.045); }
+  48% { opacity: 1; transform: translateY(-.7%) rotate(-4deg) scale(.985); }
+  57%, 100% { opacity: 1; transform: translateY(0) rotate(0) scale(1); }
+}
+@media (max-width: 480px) { .tara-logo--header { max-width: 112px; max-height: 38px; } }
+@media (prefers-reduced-motion: reduce) { .tara-logo-animation__d20 { opacity: 1; animation: none; transform: none; } }

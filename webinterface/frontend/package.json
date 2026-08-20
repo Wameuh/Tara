@@ -1,0 +1,50 @@
+{
+  "name": "tara-web-frontend",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "audit": "npm audit --audit-level=high",
+    "generate:i18n": "python ../../scripts/generate_i18n_manifest.py",
+    "verify:i18n": "python ../../scripts/generate_i18n_manifest.py --check",
+    "generate:openapi": "uv run --project ../.. python ../../scripts/generate_web_openapi.py",
+    "generate:types": "openapi-typescript src/api/openapi.json -o src/api/generated.ts",
+    "verify:types": "uv run --project ../.. python ../../scripts/generate_web_openapi.py --check && openapi-typescript src/api/openapi.json -o src/api/generated.ts --check",
+    "check:bundle": "node scripts/check-bundle.mjs",
+    "check": "npm run lint && npm run test && npm run build && npm run check:bundle && npm run verify:types && npm run verify:i18n"
+  },
+  "dependencies": {
+    "hash-wasm": "^4.12.0",
+    "i18next": "26.3.6",
+    "lucide-react": "^0.468.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-i18next": "17.0.9"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
+    "@playwright/test": "1.61.1",
+    "@types/react": "18.3.18",
+    "@types/react-dom": "18.3.5",
+    "@vitejs/plugin-react": "5.1.4",
+    "eslint": "9.39.5",
+    "eslint-plugin-react-hooks": "5.1.0",
+    "globals": "15.14.0",
+    "jsdom": "27.4.0",
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.7.2",
+    "typescript-eslint": "8.64.0",
+    "vite": "7.3.6",
+    "vitest": "4.1.10"
+  },
+  "overrides": {
+    "esbuild": "0.28.1"
+  }
+}

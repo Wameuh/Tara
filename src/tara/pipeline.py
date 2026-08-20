@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import shutil
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -23,8 +23,14 @@ from tara.analysis import (
 )
 from tara.analysis.scenes import SceneAnalysisPipeline, SceneBlackboardIngestor
 from tara.analysis.scenes.models import ScenePipelineResult, SceneTimeline
+from tara.analysis.usage_report import UsageReport
 from tara.cli import TaraArgs
-from tara.config import TaraConfig, find_default_config_path, load_config
+from tara.config import (
+    TaraConfig,
+    build_pricing_by_model,
+    find_default_config_path,
+    load_config,
+)
 from tara.context import (
     AnalysisContext,
     load_analysis_context,
@@ -32,7 +38,22 @@ from tara.context import (
     write_context_debug_file,
 )
 from tara.logging_config import apply_logging_config
-from tara.transcription import process_transcriptions, transcribe_audio_directory
+from tara.providers.events import UsageAttempt
+from tara.schemas.public_result import publish_internal_result
+from tara.transcription import (
+    process_transcriptions,
+    process_transcriptions_with_authors,
+    transcribe_audio_directory,
+)
+from tara.web_contracts import (
+    CancellationToken,
+    EventSink,
+    EventType,
+    RunnerEvent,
+    StageCode,
+    WarningCode,
+)
+from tara.yaml_utils import write_yaml
 
 LOGGER = logging.getLogger(__name__)
 
@@ -48,6 +69,10 @@ class _CursorCliProbeStats:
 
 class TaraPipelineError(RuntimeError):
     """Raised when a run cannot proceed with the provided pipeline inputs."""
+
+
+class TaraPipelineCancelled(TaraPipelineError):
+    """Cancellation is control flow and must never become a degraded fallback."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,16 +103,32 @@ class TaraRunResult:
 class TaraControlAgent:
     """Coordinate transcription, processing, indexing, and analysis."""
 
-    def __init__(self, args: TaraArgs, config: TaraConfig | None = None) -> None:
+    def __init__(
+        self,
+        args: TaraArgs,
+        config: TaraConfig | None = None,
+        *,
+        event_sink: EventSink | None = None,
+        cancellation_token: CancellationToken | None = None,
+        speaker_by_transcription_name: Mapping[str, str | tuple[str, str]]
+        | None = None,
+        context_char_limits: tuple[int | None, int | None] | None = None,
+    ) -> None:
         """Initialize the standalone control agent."""
         self._args = args
         self._config_base_dir = _config_base_dir(args.config)
         self._config = config or load_config(args.config)
         _apply_cli_overrides(self._config, args)
+        self._event_sink = event_sink
+        self._cancellation_token = cancellation_token
+        self._speaker_by_transcription_name = speaker_by_transcription_name
+        self._context_char_limits = context_char_limits
+        self._event_revision = 0
 
     def run(self) -> TaraRunResult:
         """Run the configured standalone Tara pipeline."""
         apply_logging_config(self._config.logging)
+        self._check_cancelled()
         merged_transcription_path = self._resolve_merged_transcription()
         if self._args.skip_analysis or not self._config.analysis.enabled:
             return TaraRunResult(
@@ -100,6 +141,7 @@ class TaraControlAgent:
             raise TaraPipelineError(
                 "No merged transcription is available for analysis.",
             )
+        self._check_cancelled()
         return self._run_analysis(merged_transcription_path)
 
     def _resolve_merged_transcription(self) -> Path | None:
@@ -120,19 +162,42 @@ class TaraControlAgent:
                 )
             return merged_path
         if self._args.start_from != "processing":
+            self._stage_started(StageCode.TRANSCRIPTION)
             LOGGER.info("Running transcription stage.")
-            transcribe_audio_directory(self._args.audio_dir, self._config)
+            transcription_callbacks: dict[str, Callable[..., None]] = {}
+            if self._event_sink is not None or self._cancellation_token is not None:
+                transcription_callbacks = {
+                    "cancellation_check": self._check_cancelled,
+                    "progress_callback": self._transcription_progress,
+                    "usage_attempt_callback": self._usage_attempt_recorded,
+                }
+            transcribe_audio_directory(
+                self._args.audio_dir, self._config, **transcription_callbacks
+            )
+            self._check_cancelled()
+            self._stage_completed(StageCode.TRANSCRIPTION)
+        self._stage_started(StageCode.SESSION_PREPARATION)
         LOGGER.info("Running processing stage.")
-        merged_path = process_transcriptions(output_dir, self._config)
+        if self._speaker_by_transcription_name is None:
+            merged_path = process_transcriptions(output_dir, self._config)
+        else:
+            merged_path = process_transcriptions_with_authors(
+                output_dir,
+                self._config,
+                speaker_by_transcription_name=self._speaker_by_transcription_name,
+            )
         if merged_path is None:
             raise TaraPipelineError(
                 "Processing did not produce a merged transcription artifact.",
             )
+        self._check_cancelled()
+        self._stage_completed(StageCode.SESSION_PREPARATION)
         return merged_path
 
     def _run_analysis(self, merged_transcription_path: Path) -> TaraRunResult:
         """Build the evidence index and run the blackboard analysis pipeline."""
-        transcription = MergedTranscription.from_json(merged_transcription_path)
+        self._stage_started(StageCode.NARRATIVE_ANALYSIS)
+        transcription = MergedTranscription.from_yaml(merged_transcription_path)
         analysis_output_dir = _analysis_output_dir(
             merged_transcription_path,
             self._config,
@@ -142,15 +207,34 @@ class TaraControlAgent:
             args=self._args,
             config=self._config,
             config_base_dir=self._config_base_dir,
+            char_limits=self._context_char_limits,
         )
         if self._args.write_context_debug:
             write_context_debug_file(analysis_output_dir / "context_debug.md", context)
 
         if self._config.analysis.llm.backend == "deterministic":
             llm_runner = None
+            usage_report = UsageReport()
             probe_stats = _CursorCliProbeStats(calls=0, tokens=0, cost_usd=0.0)
         else:
-            llm_runner = _build_llm_runner(self._config)
+            usage_report = UsageReport()
+            if self._event_sink is None and self._cancellation_token is None:
+                llm_runner = _build_llm_runner(
+                    self._config,
+                    usage_report=usage_report,
+                )
+            else:
+                llm_runner = _build_llm_runner(
+                    self._config,
+                    usage_report=usage_report,
+                    cancellation_check=self._check_cancelled,
+                    retry_callback=self._retry_scheduled,
+                    usage_attempt_callback=(
+                        self._usage_attempt_recorded
+                        if self._event_sink is not None
+                        else None
+                    ),
+                )
             probe_stats = _maybe_run_cursor_cli_pipeline_probe(
                 llm_runner,
                 self._config,
@@ -162,7 +246,10 @@ class TaraControlAgent:
             config=self._config,
             llm_runner=llm_runner,
             context_text=context.general.text or "",
+            parallel=self._config.analysis.parallel,
+            warning_callback=self._scene_fallback_warning,
         )
+        self._check_cancelled()
         scene_answers = (
             SceneBlackboardIngestor().to_evidence_answers(scene_result.timeline)
             if self._config.analysis.scenes.inject_into_blackboard
@@ -175,9 +262,8 @@ class TaraControlAgent:
             overlap_seconds=self._config.analysis.overlap_seconds,
             metadata={"pipeline": self._config.analysis.pipeline},
         )
-        index.write_chunks_jsonl(analysis_output_dir / "evidence_chunks.jsonl")
-        index.write_metadata_json(analysis_output_dir / "evidence_index_metadata.json")
-
+        index.write_chunks_yaml(analysis_output_dir / "evidence_chunks.yaml")
+        index.write_metadata_yaml(analysis_output_dir / "evidence_index_metadata.yaml")
         result = AnalysisOrchestrator(
             max_audit_attempts=self._config.analysis.max_audit_attempts,
             llm_runner=llm_runner,
@@ -187,14 +273,22 @@ class TaraControlAgent:
                     self._config.analysis.llm.cursor_cli_probe
                     or _cursor_cli_probe_env_enabled(),
                 ),
+                "cursor_cli_specialist_tool": bool(
+                    self._config.analysis.llm.cursor_cli_specialist_tool,
+                ),
                 "context_text": context.general.text or "",
                 "prior_context_text": context.prior.text or "",
+                "parallel": self._config.analysis.parallel,
+                "transcription_path": str(merged_transcription_path.resolve()),
             },
         ).run(
             index,
             scene_timeline=scene_result.timeline,
             initial_answers=scene_answers,
         )
+        self._check_cancelled()
+        self._stage_completed(StageCode.NARRATIVE_ANALYSIS)
+        self._stage_started(StageCode.SYNTHESIS)
         result = _merge_cursor_cli_probe_into_result(result, probe_stats)
         result = _merge_scene_usage_into_result(result, scene_result)
         _write_pipeline_debug_artifacts(
@@ -206,29 +300,116 @@ class TaraControlAgent:
         markdown_path = (
             analysis_output_dir / self._config.analysis.summary_markdown_filename
         )
-        json_path = analysis_output_dir / self._config.analysis.summary_json_filename
+        yaml_path = analysis_output_dir / self._config.analysis.summary_json_filename
         markdown_path.write_text(result.final_summary.markdown, encoding="utf-8")
-        json_path.write_text(
-            json.dumps(
-                _final_summary_payload(
-                    result,
-                    merged_transcription_path,
-                    self._config,
-                    context,
-                    scene_result,
-                ),
-                ensure_ascii=True,
-                indent=2,
-            ),
-            encoding="utf-8",
+        public_result = publish_internal_result(
+            "Tara analysis",
+            result.final_summary.sections,
+            language=transcription.language,
         )
+        write_yaml(
+            yaml_path,
+            _final_summary_payload(
+                result,
+                merged_transcription_path,
+                self._config,
+                context,
+                scene_result,
+            ),
+        )
+        self._check_cancelled()
+        self._stage_completed(StageCode.SYNTHESIS)
+        self._stage_started(StageCode.VERIFICATION)
+        write_yaml(
+            analysis_output_dir / "final.yaml",
+            public_result.model_dump(mode="json", exclude_none=True),
+        )
+        usage_report.write_yaml(analysis_output_dir / "usage_report.yaml")
+        usage_report.write_csv(analysis_output_dir / "usage_report.csv")
+        self._stage_completed(StageCode.VERIFICATION)
+        self._stage_started(StageCode.RESULT_READY)
+        self._stage_completed(StageCode.RESULT_READY)
         return TaraRunResult(
             merged_transcription_path=merged_transcription_path,
             analysis_output_dir=analysis_output_dir,
             session_summary_markdown_path=markdown_path,
-            session_summary_json_path=json_path,
+            session_summary_json_path=yaml_path,
             attempts=result.attempts,
             warning_count=len(result.final_summary.warnings) + context.warning_count,
+        )
+
+    def _check_cancelled(self) -> None:
+        if (
+            self._cancellation_token is not None
+            and self._cancellation_token.is_cancelled()
+        ):
+            raise TaraPipelineCancelled("run cancelled")
+
+    def _stage_started(self, stage: StageCode) -> None:
+        self._emit_stage(EventType.STAGE_STARTED, stage, 0.0)
+
+    def _stage_completed(self, stage: StageCode) -> None:
+        self._emit_stage(EventType.STAGE_COMPLETED, stage, 1.0)
+
+    def _transcription_progress(self, index: int, total: int, progress: float) -> None:
+        if total < 1 or not 1 <= index <= total:
+            return
+        completed = (index - 1 + min(1.0, max(0.0, progress))) / total
+        self._emit_stage(EventType.STAGE_PROGRESS, StageCode.TRANSCRIPTION, completed)
+
+    def _retry_scheduled(self, attempt: int) -> None:
+        if self._event_sink is None:
+            return
+        self._event_revision += 1
+        self._event_sink.emit(
+            RunnerEvent(
+                1,
+                EventType.RETRY_SCHEDULED,
+                self._event_revision,
+                stage_code=StageCode.NARRATIVE_ANALYSIS,
+                code=WarningCode.RETRY_IN_PROGRESS,
+                parameters={"attempt": attempt},
+            )
+        )
+
+    def _scene_fallback_warning(self) -> None:
+        if self._event_sink is None:
+            return
+        self._event_revision += 1
+        self._event_sink.emit(
+            RunnerEvent(
+                1,
+                EventType.WARNING_RAISED,
+                self._event_revision,
+                stage_code=StageCode.NARRATIVE_ANALYSIS,
+                code=WarningCode.SERVICE_DEGRADED,
+                parameters={"component": "scene_pipeline"},
+            )
+        )
+
+    def _usage_attempt_recorded(self, usage: UsageAttempt) -> None:
+        if self._event_sink is None:
+            return
+        self._event_revision += 1
+        self._event_sink.emit(usage.to_runner_event(self._event_revision))
+
+    def _emit_stage(
+        self, event_type: EventType, stage: StageCode, current: float
+    ) -> None:
+        if self._event_sink is None:
+            return
+        stages = tuple(item for item in StageCode if item != StageCode.QUEUED)
+        self._event_revision += 1
+        position = stages.index(stage)
+        self._event_sink.emit(
+            RunnerEvent(
+                1,
+                event_type,
+                self._event_revision,
+                stage_code=stage,
+                current_ratio=current,
+                overall_ratio=(position + current) / len(stages),
+            )
         )
 
 
@@ -284,6 +465,8 @@ def _run_scene_pipeline(
     config: TaraConfig,
     llm_runner: LLMRunner | None,
     context_text: str | None = None,
+    parallel: bool = False,
+    warning_callback: Callable[[], None] | None = None,
 ) -> ScenePipelineResult:
     """Run the optional scene pipeline with fallback semantics."""
     try:
@@ -292,7 +475,10 @@ def _run_scene_pipeline(
             merged_transcription_path=merged_transcription_path,
             llm_runner=llm_runner,
             context_text=context_text,
+            parallel=parallel,
         )
+    except TaraPipelineCancelled:
+        raise
     except Exception:
         if config.analysis.scenes.fail_on_scene_error:
             raise
@@ -300,6 +486,8 @@ def _run_scene_pipeline(
             "Scene pipeline failed; falling back to blackboard-only.",
             exc_info=True,
         )
+        if warning_callback is not None:
+            warning_callback()
         return ScenePipelineResult(timeline=SceneTimeline())
 
 
@@ -311,26 +499,22 @@ def _write_pipeline_debug_artifacts(
     analysis_plan_path: Path | None,
 ) -> None:
     """Write traceability artifacts for the pipeline run."""
-    plan_path = analysis_plan_path or output_dir / "analysis_plan.json"
-    blackboard_debug_path = blackboard_path or output_dir / "blackboard.json"
+    plan_path = analysis_plan_path or output_dir / "analysis_plan.yaml"
+    blackboard_debug_path = blackboard_path or output_dir / "blackboard.yaml"
     plan_path.parent.mkdir(parents=True, exist_ok=True)
     blackboard_debug_path.parent.mkdir(parents=True, exist_ok=True)
-    result.plan.to_json(plan_path)
-    blackboard_debug_path.write_text(
-        json.dumps(
-            {
-                "facts": [fact.to_dict() for fact in result.blackboard.facts],
-                "conflicts": [
-                    conflict.to_dict() for conflict in result.blackboard.conflicts
-                ],
-                "do_not_claim_list": result.blackboard.do_not_claim_list,
-                "decisions": [decision.to_dict() for decision in result.decisions],
-                "findings": [finding.to_dict() for finding in result.findings],
-            },
-            ensure_ascii=True,
-            indent=2,
-        ),
-        encoding="utf-8",
+    result.plan.to_yaml(plan_path)
+    write_yaml(
+        blackboard_debug_path,
+        {
+            "facts": [fact.to_dict() for fact in result.blackboard.facts],
+            "conflicts": [
+                conflict.to_dict() for conflict in result.blackboard.conflicts
+            ],
+            "do_not_claim_list": result.blackboard.do_not_claim_list,
+            "decisions": [decision.to_dict() for decision in result.decisions],
+            "findings": [finding.to_dict() for finding in result.findings],
+        },
     )
 
 
@@ -341,7 +525,7 @@ def _final_summary_payload(
     context: AnalysisContext,
     scene_result: ScenePipelineResult,
 ) -> dict[str, Any]:
-    """Build the traceable `session_summary.json` payload."""
+    """Build the traceable `session_summary.yaml` payload."""
     acceptance = evaluate_acceptance(
         result,
         analysis_backend=_acceptance_backend_for_quality(config),
@@ -386,7 +570,14 @@ def _final_summary_payload(
     }
 
 
-def _build_llm_runner(config: TaraConfig) -> LLMRunner:
+def _build_llm_runner(
+    config: TaraConfig,
+    *,
+    usage_report: UsageReport | None = None,
+    cancellation_check: Callable[[], None] | None = None,
+    retry_callback: Callable[[int], None] | None = None,
+    usage_attempt_callback: Callable[[UsageAttempt], None] | None = None,
+) -> LLMRunner:
     """Build a configured LLM runner for agentic analysis backends."""
     backend = config.analysis.llm.backend
     if backend not in {"api", "cursor_cli"}:
@@ -412,7 +603,13 @@ def _build_llm_runner(config: TaraConfig) -> LLMRunner:
             cursor_args=tuple(config.analysis.llm.cursor_args),
             timeout_seconds=config.analysis.llm.timeout_seconds,
             max_retries=config.analysis.llm.retries,
+            pricing_by_model=build_pricing_by_model(config.analysis.llm),
+            usd_to_eur_rate=config.analysis.llm.usd_to_eur_rate,
         ),
+        usage_report=usage_report,
+        cancellation_check=cancellation_check,
+        retry_callback=retry_callback,
+        usage_attempt_callback=usage_attempt_callback,
     )
 
 
@@ -446,6 +643,7 @@ def _run_cursor_cli_pipeline_probe(
     user_prompt = "Health check: respond with OK only."
     request = LLMRequest(
         purpose="pipeline.cursor_cli_probe",
+        stage="probe",
         system_prompt=(
             "You are a non-interactive health check for a local automation pipeline. "
             "Reply with exactly the two letters OK and nothing else."
@@ -576,6 +774,7 @@ def _load_context_for_run(
     args: TaraArgs,
     config: TaraConfig,
     config_base_dir: Path | None,
+    char_limits: tuple[int | None, int | None] | None = None,
 ) -> AnalysisContext:
     """Resolve and load optional run context files."""
     general_path = args.context_path or resolve_context_path(
@@ -586,4 +785,11 @@ def _load_context_for_run(
         config.analysis.prior_context_path,
         base_dir=config_base_dir,
     )
-    return load_analysis_context(general_path=general_path, prior_path=prior_path)
+    if char_limits is None:
+        return load_analysis_context(general_path=general_path, prior_path=prior_path)
+    return load_analysis_context(
+        general_path=general_path,
+        prior_path=prior_path,
+        general_char_limit=char_limits[0],
+        prior_char_limit=char_limits[1],
+    )

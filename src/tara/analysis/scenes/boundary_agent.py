@@ -17,6 +17,7 @@ from tara.analysis.scenes.prompts import (
     boundary_user_prompt,
 )
 from tara.analysis.structured_output import parse_typed_json_lenient
+from tara.schemas.merged_transcription import new_merged_transcription
 
 LOGGER = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ class SceneBoundaryAgent:
             response = self._llm_runner.run(
                 LLMRequest(
                     purpose="analysis.scenes.boundaries",
+                    stage="scenes.boundary",
                     system_prompt=BOUNDARY_SYSTEM_PROMPT,
                     user_prompt=boundary_user_prompt(transcription),
                     temperature=0.0,
@@ -101,6 +103,7 @@ class SceneBoundaryAgent:
                 response = self._llm_runner.run(
                     LLMRequest(
                         purpose="analysis.scenes.boundaries.block",
+                        stage="scenes.boundary",
                         system_prompt=BOUNDARY_SYSTEM_PROMPT,
                         user_prompt=boundary_user_prompt(block),
                         temperature=0.0,
@@ -136,6 +139,7 @@ class SceneBoundaryAgent:
             response = self._llm_runner.run(
                 LLMRequest(
                     purpose="analysis.scenes.boundaries.merge",
+                    stage="scenes.boundary",
                     system_prompt=BOUNDARY_SYSTEM_PROMPT,
                     user_prompt=boundary_merge_user_prompt(block_results),
                     temperature=0.0,
@@ -213,7 +217,7 @@ def _split_transcription_blocks(
     for segment in transcription.segments:
         if current and segment.start >= block_start + block_seconds:
             blocks.append(
-                MergedTranscription(
+                new_merged_transcription(
                     text=_render_block_text(current),
                     segments=list(current),
                     language=transcription.language,
@@ -226,7 +230,7 @@ def _split_transcription_blocks(
         current.append(segment)
     if current:
         blocks.append(
-            MergedTranscription(
+            new_merged_transcription(
                 text=_render_block_text(current),
                 segments=list(current),
                 language=transcription.language,

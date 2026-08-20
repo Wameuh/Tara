@@ -129,7 +129,6 @@ def test_transcribe_backend_error(tmp_path: Path, disable_worker_mode: None, mon
     test_client = TestClient(app)
 
     # Mock create_backend to return our fake backend that will fail
-    from inference_server.backend import create_backend as original_create_backend
     def mock_create_backend(model: str) -> TranscriptionBackend:
         return backend
 

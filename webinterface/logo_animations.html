@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Tara — Logos transparents et animés</title>
+  <style>
+    :root {
+      --background: #f4f7fb;
+      --surface: #ffffff;
+      --text: #151a28;
+      --muted: #6f7688;
+      --border: #dce2ee;
+      --blue: #2668d7;
+      --shadow: 0 18px 46px rgb(37 48 78 / 8%);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      min-width: 320px;
+      min-height: 100vh;
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 82% 5%, rgb(118 87 214 / 7%), transparent 30rem),
+        radial-gradient(circle at 8% 70%, rgb(53 199 163 / 7%), transparent 32rem),
+        var(--background);
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button { font: inherit; }
+
+    .page {
+      width: min(1400px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 54px 0 70px;
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 750;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(36px, 4.3vw, 62px);
+      font-weight: 650;
+      letter-spacing: -.05em;
+      line-height: 1.02;
+    }
+
+    .intro {
+      max-width: 760px;
+      margin: 18px 0 32px;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.65;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 22px;
+    }
+
+    .card {
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .preview {
+      display: grid;
+      min-height: 420px;
+      padding: 28px;
+      place-items: center;
+      overflow: hidden;
+    }
+
+    .preview.light { --preview-background: #ffffff; background: var(--preview-background); }
+    .preview.dark { --preview-background: #05070c; background: var(--preview-background); }
+
+    .logo {
+      display: block;
+      width: min(100%, 760px);
+      height: auto;
+      object-fit: contain;
+    }
+
+    .card-copy {
+      position: relative;
+      min-height: 108px;
+      padding: 20px 22px 22px;
+      border-top: 1px solid var(--border);
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      height: 29px;
+      margin-right: 9px;
+      padding: 0 10px;
+      color: var(--blue);
+      border-radius: 99px;
+      background: rgb(38 104 215 / 9%);
+      font-size: 11px;
+      font-weight: 750;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+      vertical-align: middle;
+    }
+
+    h2 { margin: 0; font-size: 20px; letter-spacing: -.02em; }
+
+    .description {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .animation-heading {
+      max-width: 780px;
+      margin: 76px 0 28px;
+    }
+
+    .animation-heading h2 {
+      font-size: clamp(30px, 3vw, 43px);
+      letter-spacing: -.04em;
+    }
+
+    .animation-heading .intro { margin-bottom: 0; }
+
+    .animated-logo {
+      position: relative;
+      width: min(100%, 760px);
+      aspect-ratio: 1586 / 992;
+    }
+
+    .animated-logo .logo {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+    }
+
+    .base-logo { z-index: 1; }
+
+    /* Les coordonnées diffèrent légèrement entre les deux exports PNG. */
+    .animated-logo.black-version {
+      --dice-clip: polygon(32.1% 37.8%, 38.35% 43.8%, 38.35% 55.25%, 32.1% 61.65%, 25.8% 55.25%, 25.8% 43.8%);
+      --origin-x: 32.1%;
+      --origin-y: 49.7%;
+      --mask-left: 25.65%;
+      --mask-top: 37.55%;
+      --mask-width: 12.9%;
+      --mask-height: 24.35%;
+    }
+
+    .animated-logo.white-version {
+      --dice-clip: polygon(35.4% 39.15%, 40.75% 44.15%, 40.75% 54.5%, 35.4% 59.55%, 30.05% 54.5%, 30.05% 44.15%);
+      --origin-x: 35.4%;
+      --origin-y: 49.35%;
+      --mask-left: 29.9%;
+      --mask-top: 38.9%;
+      --mask-width: 11%;
+      --mask-height: 20.9%;
+    }
+
+    .dice-mask {
+      position: absolute;
+      z-index: 2;
+      top: var(--mask-top);
+      left: var(--mask-left);
+      width: var(--mask-width);
+      height: var(--mask-height);
+      background: var(--preview-background);
+      clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+    }
+
+    .moving-d20 {
+      z-index: 3;
+      opacity: 0;
+      clip-path: var(--dice-clip);
+      transform-origin: var(--origin-x) var(--origin-y);
+      animation: dice-finds-place 4.8s cubic-bezier(.2, .78, .25, 1) infinite;
+      will-change: transform, opacity;
+    }
+
+    @keyframes dice-finds-place {
+      0%, 8% {
+        opacity: 0;
+        transform: translateY(-16%) rotate(-130deg) scale(.72);
+      }
+      12% { opacity: 1; }
+      38% {
+        opacity: 1;
+        transform: translateY(1.8%) rotate(10deg) scale(1.045);
+      }
+      48% {
+        opacity: 1;
+        transform: translateY(-.7%) rotate(-4deg) scale(.985);
+      }
+      57%, 86% {
+        opacity: 1;
+        transform: translateY(0) rotate(0) scale(1);
+      }
+      94%, 100% {
+        opacity: 0;
+        transform: translateY(0) rotate(0) scale(1);
+      }
+    }
+
+    .replay {
+      position: absolute;
+      top: 17px;
+      right: 18px;
+      padding: 8px 12px;
+      color: #315d9f;
+      border: 1px solid #cfd9eb;
+      border-radius: 999px;
+      background: #f8faff;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+      transition: border-color .18s ease, transform .18s ease, background .18s ease;
+    }
+
+    .replay:hover {
+      border-color: #9fb5d8;
+      background: #f1f5ff;
+      transform: translateY(-1px);
+    }
+
+    .replay:focus-visible { outline: 3px solid rgb(38 104 215 / 25%); outline-offset: 2px; }
+
+    .animated-logo.restarting .moving-d20 { animation: none; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .moving-d20 {
+        opacity: 1;
+        animation: none;
+        transform: none;
+      }
+    }
+
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 620px) {
+      .page { width: min(100% - 24px, 520px); padding-top: 30px; }
+      .preview { min-height: 280px; padding: 18px; }
+      .animation-heading { margin-top: 54px; }
+      .animated-card .card-copy { padding-right: 112px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <p class="eyebrow">Identité Tara</p>
+      <h1>Deux versions transparentes</h1>
+      <p class="intro">Les fonds blanc et noir servent uniquement à la prévisualisation. Les deux fichiers PNG possèdent un véritable canal alpha transparent.</p>
+    </header>
+
+    <section class="grid" aria-label="Versions transparentes du logo Tara">
+      <article class="card">
+        <div class="preview light">
+          <img class="logo" src="logo-final/tara-logo-black-transparent.png" alt="Logo Tara avec écriture noire sur fond blanc de prévisualisation">
+        </div>
+        <div class="card-copy">
+          <h2><span class="badge">PNG · RGBA</span>Écriture noire</h2>
+          <p class="description">Fond du fichier transparent, présenté ici sur un arrière-plan blanc.</p>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="preview dark">
+          <img class="logo" src="logo-final/tara-logo-white-transparent.png" alt="Logo Tara avec écriture blanche sur fond noir de prévisualisation">
+        </div>
+        <div class="card-copy">
+          <h2><span class="badge">PNG · RGBA</span>Écriture blanche</h2>
+          <p class="description">Fond du fichier transparent, présenté ici sur un arrière-plan noir.</p>
+        </div>
+      </article>
+    </section>
+
+    <header class="animation-heading">
+      <p class="eyebrow">Animation retenue</p>
+      <h2>Le D20 trouve sa place</h2>
+      <p class="intro">Le livre, ses lignes et le nom Tara restent fixes. Seul le D20 descend, pivote légèrement, puis se stabilise au centre du livre.</p>
+    </header>
+
+    <section class="grid" aria-label="Versions animées du logo Tara">
+      <article class="card animated-card">
+        <div class="preview light">
+          <div class="animated-logo black-version">
+            <img class="logo base-logo" src="logo-final/tara-logo-black-transparent.png" alt="">
+            <span class="dice-mask" aria-hidden="true"></span>
+            <img class="logo moving-d20" src="logo-final/tara-logo-black-transparent.png" alt="Logo Tara noir animé, avec le D20 qui trouve sa place">
+          </div>
+        </div>
+        <div class="card-copy">
+          <h2><span class="badge">Animé</span>Écriture noire</h2>
+          <p class="description">Version transparente présentée sur fond blanc.</p>
+          <button class="replay" type="button" aria-label="Relancer l’animation du logo noir">↻ Relancer</button>
+        </div>
+      </article>
+
+      <article class="card animated-card">
+        <div class="preview dark">
+          <div class="animated-logo white-version">
+            <img class="logo base-logo" src="logo-final/tara-logo-white-transparent.png" alt="">
+            <span class="dice-mask" aria-hidden="true"></span>
+            <img class="logo moving-d20" src="logo-final/tara-logo-white-transparent.png" alt="Logo Tara blanc animé, avec le D20 qui trouve sa place">
+          </div>
+        </div>
+        <div class="card-copy">
+          <h2><span class="badge">Animé</span>Écriture blanche</h2>
+          <p class="description">Version transparente présentée sur fond noir.</p>
+          <button class="replay" type="button" aria-label="Relancer l’animation du logo blanc">↻ Relancer</button>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <script>
+    document.querySelectorAll('.replay').forEach((button) => {
+      button.addEventListener('click', () => {
+        const logo = button.closest('.card').querySelector('.animated-logo');
+        logo.classList.add('restarting');
+        requestAnimationFrame(() => requestAnimationFrame(() => logo.classList.remove('restarting')));
+      });
+    });
+  </script>
+</body>
+</html>

@@ -2,38 +2,36 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 
 from tara.analysis.evidence_index import EvidenceIndex
 from tara.analysis.models import MergedTranscription, RetrievalQuery
+from tara.schemas.merged_transcription import new_merged_transcription
 
 
 def _transcription() -> MergedTranscription:
     """Create a synthetic merged transcription for retrieval tests."""
-    return MergedTranscription.model_validate(
-        {
-            "text": (
-                "Molnir tombe dans le sanctuaire. "
-                "La lance brille. "
-                "Une potion soigne Aelia. "
-                "Le groupe fuit le temple."
-            ),
-            "segments": [
-                {
-                    "start": 0.0,
-                    "end": 20.0,
-                    "text": "Molnir est mort dans le sanctuaire.",
-                },
-                {"start": 20.0, "end": 40.0, "text": "La lance brille."},
-                {"start": 40.0, "end": 60.0, "text": "Une potion soigne Aelia."},
-                {"start": 60.0, "end": 80.0, "text": "Le groupe fuit le temple."},
-            ],
-            "language": "fr",
-            "duration": 80.0,
-        }
+    return new_merged_transcription(
+        text=(
+            "Molnir tombe dans le sanctuaire. "
+            "La lance brille. "
+            "Une potion soigne Aelia. "
+            "Le groupe fuit le temple."
+        ),
+        segments=[
+            {
+                "start": 0.0,
+                "end": 20.0,
+                "text": "Molnir est mort dans le sanctuaire.",
+            },
+            {"start": 20.0, "end": 40.0, "text": "La lance brille."},
+            {"start": 40.0, "end": 60.0, "text": "Une potion soigne Aelia."},
+            {"start": 60.0, "end": 80.0, "text": "Le groupe fuit le temple."},
+        ],
+        language="fr",
+        duration=80.0,
     )
 
 
@@ -56,27 +54,25 @@ def test_index_builds_overlapping_chunks_with_segment_ids() -> None:
 
 def test_index_renders_speaker_labels_in_chunk_text() -> None:
     """LLM-facing chunks should expose the source speaker for each segment."""
-    transcription = MergedTranscription.model_validate(
-        {
-            "text": "Ah oui. Après c'est Molnir.",
-            "segments": [
-                {
-                    "start": 0.0,
-                    "end": 5.0,
-                    "text": "Ah oui.",
-                    "author": {
-                        "speaker": "willygorn",
-                        "source_file": "1-willygorn.json",
-                    },
+    transcription = new_merged_transcription(
+        text="Ah oui. Après c'est Molnir.",
+        segments=[
+            {
+                "start": 0.0,
+                "end": 5.0,
+                "text": "Ah oui.",
+                "author": {
+                    "speaker": "willygorn",
+                    "source_file": "1-willygorn.yaml",
                 },
-                {
-                    "start": 5.0,
-                    "end": 10.0,
-                    "text": "Après c'est Molnir.",
-                },
-            ],
-            "duration": 10.0,
-        }
+            },
+            {
+                "start": 5.0,
+                "end": 10.0,
+                "text": "Après c'est Molnir.",
+            },
+        ],
+        duration=10.0,
     )
 
     index = EvidenceIndex.from_transcription(transcription, 20.0, 0.0)
@@ -191,21 +187,20 @@ def test_keyword_tags_and_entities_are_added() -> None:
     assert first_chunk.metadata["temporal_position"] == 0
 
 
-def test_json_exports_write_chunks_and_metadata(tmp_path: Path) -> None:
-    """Chunk and metadata exports should produce JSON artifacts."""
+def test_yaml_exports_write_chunks_and_metadata(tmp_path: Path) -> None:
+    """Chunk and metadata exports should produce YAML artifacts."""
     index = EvidenceIndex.from_transcription(_transcription(), 40.0, 10.0)
-    chunks_path = tmp_path / "evidence_chunks.jsonl"
-    metadata_path = tmp_path / "evidence_index_metadata.json"
+    chunks_path = tmp_path / "evidence_chunks.yaml"
+    metadata_path = tmp_path / "evidence_index_metadata.yaml"
 
-    index.write_chunks_jsonl(chunks_path)
-    index.write_metadata_json(metadata_path)
+    index.write_chunks_yaml(chunks_path)
+    index.write_metadata_yaml(metadata_path)
     loaded = EvidenceIndex.from_artifacts(chunks_path, metadata_path)
 
-    rows = [
-        json.loads(line)
-        for line in chunks_path.read_text(encoding="utf-8").splitlines()
-    ]
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    from tara.yaml_utils import iter_yaml_docs, load_yaml_or_json
+
+    rows = list(iter_yaml_docs(chunks_path))
+    metadata = load_yaml_or_json(metadata_path)
     assert rows[0]["chunk_id"] == "chunk_0000"
     assert rows[0]["segment_ids"] == [0, 1]
     assert rows[0]["start"] == 0.0
@@ -218,15 +213,13 @@ def test_json_exports_write_chunks_and_metadata(tmp_path: Path) -> None:
 
 def test_coverage_reports_empty_text_segments() -> None:
     """Coverage report should flag segments with no indexable text."""
-    transcription = MergedTranscription.model_validate(
-        {
-            "text": "Molnir parle.",
-            "segments": [
-                {"start": 0.0, "end": 10.0, "text": ""},
-                {"start": 10.0, "end": 20.0, "text": "Molnir parle."},
-            ],
-            "duration": 20.0,
-        }
+    transcription = new_merged_transcription(
+        text="Molnir parle.",
+        segments=[
+            {"start": 0.0, "end": 10.0, "text": ""},
+            {"start": 10.0, "end": 20.0, "text": "Molnir parle."},
+        ],
+        duration=20.0,
     )
 
     index = EvidenceIndex.from_transcription(transcription, 20.0, 0.0)
@@ -237,15 +230,13 @@ def test_coverage_reports_empty_text_segments() -> None:
 
 def test_coverage_reports_uncovered_ranges() -> None:
     """Coverage report should expose gaps between indexed chunks."""
-    transcription = MergedTranscription.model_validate(
-        {
-            "text": "Début. Fin.",
-            "segments": [
-                {"start": 0.0, "end": 10.0, "text": "Début."},
-                {"start": 100.0, "end": 110.0, "text": "Fin."},
-            ],
-            "duration": 110.0,
-        }
+    transcription = new_merged_transcription(
+        text="Début. Fin.",
+        segments=[
+            {"start": 0.0, "end": 10.0, "text": "Début."},
+            {"start": 100.0, "end": 110.0, "text": "Fin."},
+        ],
+        duration=110.0,
     )
 
     index = EvidenceIndex.from_transcription(transcription, 20.0, 0.0)
@@ -256,7 +247,7 @@ def test_coverage_reports_uncovered_ranges() -> None:
 
 def test_index_rejects_missing_segments_for_nonempty_text() -> None:
     """Chunking should not silently ignore non-empty transcript text."""
-    transcription = MergedTranscription(text="Only text.", segments=[])
+    transcription = new_merged_transcription(text="Only text.", segments=[])
 
     with pytest.raises(ValueError, match="requires source segments"):
         EvidenceIndex.from_transcription(transcription)

@@ -1,0 +1,25 @@
+CREATE TABLE provider_usage_attempts (
+    id INTEGER PRIMARY KEY,
+    attempt_id TEXT NOT NULL UNIQUE,
+    job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    job_attempt_number INTEGER NOT NULL,
+    operation_family TEXT NOT NULL CHECK(length(operation_family) BETWEEN 1 AND 64),
+    provider TEXT NOT NULL CHECK(length(provider) BETWEEN 1 AND 64),
+    model TEXT CHECK(model IS NULL OR length(model) <= 128),
+    status TEXT NOT NULL CHECK(status IN ('success','failed','cancelled','timed_out')),
+    started_at TEXT NOT NULL,
+    finished_at TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL CHECK(input_tokens >= 0),
+    output_tokens INTEGER NOT NULL CHECK(output_tokens >= 0),
+    cache_tokens INTEGER NOT NULL CHECK(cache_tokens >= 0),
+    duration_ms INTEGER NOT NULL CHECK(duration_ms >= 0),
+    cost_micro_eur INTEGER CHECK(cost_micro_eur >= 0),
+    cost_source TEXT NOT NULL CHECK(length(cost_source) BETWEEN 1 AND 64),
+    native_cost_micros INTEGER CHECK(native_cost_micros >= 0),
+    native_currency TEXT CHECK(native_currency IS NULL OR length(native_currency) = 3),
+    conversion_rate TEXT CHECK(conversion_rate IS NULL OR length(conversion_rate) BETWEEN 1 AND 32),
+    created_at TEXT NOT NULL,
+    CHECK((cost_micro_eur IS NULL AND native_cost_micros IS NULL AND native_currency IS NULL AND conversion_rate IS NULL) OR (cost_micro_eur IS NOT NULL AND native_cost_micros IS NOT NULL AND native_currency IS NOT NULL AND conversion_rate IS NOT NULL)),
+    FOREIGN KEY(job_id, job_attempt_number) REFERENCES job_attempts(job_id, attempt_number) ON DELETE CASCADE
+);
+ALTER TABLE job_attempts ADD COLUMN has_known_cost INTEGER NOT NULL DEFAULT 0 CHECK(has_known_cost IN (0,1));

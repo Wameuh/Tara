@@ -7,11 +7,12 @@ import os
 import platform
 import subprocess
 import threading
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
-from inference_server.base_backend import AbstractTranscriptionBackend
 from inference_server.backend import BackendError
+from inference_server.base_backend import AbstractTranscriptionBackend
 from inference_server.models import TranscriptionResponse, TranscriptionSegment
 
 LOGGER = logging.getLogger(__name__)

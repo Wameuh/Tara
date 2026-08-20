@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 import time
 import unicodedata
@@ -18,6 +17,12 @@ from tara.analysis.models import (
     RetrievalQuery,
     RetrievedEvidence,
     TranscriptionSegment,
+)
+from tara.yaml_utils import (
+    iter_yaml_docs,
+    load_yaml_or_json,
+    write_yaml,
+    write_yaml_docs,
 )
 
 TOKEN_PATTERN = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ0-9']+")
@@ -235,33 +240,29 @@ class EvidenceIndex:
         merged.sort(key=lambda result: result.score, reverse=True)
         return merged[:max_results]
 
-    def write_chunks_jsonl(self, path: Path) -> None:
-        """Write evidence chunks as newline-delimited JSON.
+    def write_chunks_yaml(self, path: Path) -> None:
+        """Write evidence chunks as a multi-document YAML stream.
 
         Args:
-            path: Destination JSONL path.
+            path: Destination YAML path.
         """
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("w", encoding="utf-8") as file:
-            for chunk in self.chunks:
-                file.write(json.dumps(chunk.to_dict(), ensure_ascii=True))
-                file.write("\n")
+        write_yaml_docs(path, [chunk.to_dict() for chunk in self.chunks])
+
+    def write_metadata_yaml(self, path: Path) -> None:
+        """Write index metadata as YAML.
+
+        Args:
+            path: Destination YAML path.
+        """
+        write_yaml(path, self.metadata.model_dump(mode="json"))
+
+    def write_chunks_jsonl(self, path: Path) -> None:
+        """Backward-compatible alias for :meth:`write_chunks_yaml`."""
+        self.write_chunks_yaml(path.with_suffix(".yaml"))
 
     def write_metadata_json(self, path: Path) -> None:
-        """Write index metadata as JSON.
-
-        Args:
-            path: Destination JSON path.
-        """
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(
-                self.metadata.model_dump(mode="json"),
-                ensure_ascii=True,
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
+        """Backward-compatible alias for :meth:`write_metadata_yaml`."""
+        self.write_metadata_yaml(path.with_suffix(".yaml"))
 
     @classmethod
     def from_artifacts(
@@ -269,23 +270,22 @@ class EvidenceIndex:
         chunks_path: Path,
         metadata_path: Path,
     ) -> EvidenceIndex:
-        """Load a local equivalent index from JSONL and metadata artifacts.
+        """Load a local equivalent index from YAML artifacts.
 
         Args:
-            chunks_path: Path to `evidence_chunks.jsonl`.
-            metadata_path: Path to `evidence_index_metadata.json`.
+            chunks_path: Path to ``evidence_chunks.yaml``.
+            metadata_path: Path to ``evidence_index_metadata.yaml``.
 
         Returns:
             In-memory evidence index reconstructed from local artifacts.
         """
         chunks = [
-            EvidenceChunk.from_dict(json.loads(line))
-            for line in chunks_path.read_text(encoding="utf-8").splitlines()
-            if line.strip()
+            EvidenceChunk.from_dict(document)
+            for document in iter_yaml_docs(chunks_path)
+            if isinstance(document, dict)
         ]
-        metadata = EvidenceIndexMetadata.model_validate_json(
-            metadata_path.read_text(encoding="utf-8")
-        )
+        metadata_raw = load_yaml_or_json(metadata_path)
+        metadata = EvidenceIndexMetadata.model_validate(metadata_raw)
         return cls(chunks=chunks, coverage=metadata.coverage, metadata=metadata)
 
     def _score_chunk(self, query_tokens: Counter[str], chunk: EvidenceChunk) -> float:

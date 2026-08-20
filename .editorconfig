@@ -1,0 +1,7 @@
+root = true
+
+[*]
+insert_final_newline = true
+
+[*.{py,md,json,jsonl,toml,yaml,yml,txt,bat,ps1,cfg,ini,csv,tsv,html,css,js,ts,tsx,jsx}]
+charset = utf-8

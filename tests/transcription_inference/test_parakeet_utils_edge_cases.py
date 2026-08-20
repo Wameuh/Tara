@@ -3,10 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import numpy as np
-import pytest
 
 from inference_server.parakeet_utils import _merge_overlapping_transcriptions
 

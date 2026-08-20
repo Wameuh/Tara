@@ -10,16 +10,38 @@ control the final summary. The old `Tara` project remains the source of
 reference contracts for transcription, processing, configuration patterns,
 logging, telemetry, usage reporting, and local runner behavior.
 
+## YAML migration (2026)
+
+TaraRepo now uses **YAML** internally for configuration, LLM prompt payloads,
+LLM structured outputs, and on-disk analysis artifacts to reduce token usage.
+Shared helpers live in `src/tara/yaml_utils.py` (`ruamel.yaml`).
+
+**Boundary contracts that stay JSON** (parsed at the edge, never re-emitted by Tara):
+
+- Inference server HTTP/SSE responses (`response.json()` in `transcription.py`)
+- Cursor CLI stdin envelope and `--output-format json` stdout
+- Modal CLI `--json` subprocess output
+- FastAPI REST responses
+
+**Backward compatibility:** `load_yaml_or_json()` reads legacy `.json` artifacts;
+new runs write `.yaml`. CLI stdout (`python -m tara`) emits YAML.
+
+Measure prompt savings with:
+
+```powershell
+python scripts/measure_prompt_tokens.py
+```
+
 ## Migration Guardrails
 
 - Do not modify the existing `../Tara`
   transcription or processing code as part of this refactor. The transcription
   **inference server** is copied into TaraRepo as `src/inference_server/`; keep
   parity fixes in TaraRepo unless you intentionally upstream them to legacy Tara.
-- Treat `merged_transcription.json` as the canonical input to the new analysis
-  pipeline.
+- Treat `merged_transcription.yaml` as the canonical input to the new analysis
+  pipeline (legacy `.json` inputs remain readable).
 - Support a full local run from audio by calling the configured transcription
-  inference server, then processing into `merged_transcription.json`, then
+  inference server, then processing into `merged_transcription.yaml`, then
   running the new analysis.
 - Keep API and Cursor CLI LLM execution hidden behind `LLMRunner`; implement and
   validate the API backend first.
@@ -93,12 +115,12 @@ default. It only performs LLM work when the analysis backend is `api` or
 `cursor_cli`; deterministic runs fall back to the blackboard-only path and log a
 non-fatal warning.
 
-The scene flow writes private runtime artifacts beside `merged_transcription.json`:
+The scene flow writes private runtime artifacts beside `merged_transcription.yaml`:
 
-- `scene_analysis.json`: ordered scene boundaries and short summaries.
-- `scenes/scene_001.json`: one transcript slice per scene, including speaker
+- `scene_analysis.yaml`: ordered scene boundaries and short summaries.
+- `scenes/scene_001.yaml`: one transcript slice per scene, including speaker
   metadata and original segment ids.
-- `scene_descriptions.json`: long scene descriptions, key actions, state
+- `scene_descriptions.yaml`: long scene descriptions, key actions, state
   changes, continuity impacts, and scene facts.
 
 Scene facts are converted into `EvidenceAnswer` rows before the regular
@@ -111,7 +133,7 @@ the scenes as the narrative backbone without copying raw transcript prose.
 For a high-quality Cursor CLI run:
 
 ```powershell
-python -m tara --merged-transcription "C:\path\to\merged_transcription.json" --analysis-backend cursor_cli --cursor-cli-probe --context "C:\path\to\campaign_context.md" --prior-context "C:\path\to\previous_sessions.md"
+python -m tara --merged-transcription "C:\path\to\merged_transcription.yaml" --analysis-backend cursor_cli --cursor-cli-probe --context "C:\path\to\campaign_context.md" --prior-context "C:\path\to\previous_sessions.md"
 ```
 
 ## Running
@@ -121,13 +143,13 @@ Analyze an existing merged transcription:
 ```powershell
 conda activate DM
 $env:PYTHONPATH = "src"
-python -m tara --merged-transcription "C:\path\to\merged_transcription.json"
+python -m tara --merged-transcription "C:\path\to\merged_transcription.yaml"
 ```
 
 Add optional user context for LLM-assisted runs:
 
 ```powershell
-python -m tara --merged-transcription "C:\path\to\merged_transcription.json" --context "C:\path\to\campaign_context.md" --prior-context "C:\path\to\previous_sessions.md"
+python -m tara --merged-transcription "C:\path\to\merged_transcription.yaml" --context "C:\path\to\campaign_context.md" --prior-context "C:\path\to\previous_sessions.md"
 ```
 
 The context files are freeform private text. Tara uses the current transcript as
@@ -136,7 +158,7 @@ players, characters, and continuity. Context content is not copied to normal
 summary artifacts; `--write-context-debug` writes a redacted debug copy under the
 analysis output directory when explicitly requested.
 
-Successful CLI runs print a JSON `TaraRunResult` to stdout with the generated
+Successful CLI runs print a YAML `TaraRunResult` to stdout with the generated
 artifact paths.
 
 Run from an audio directory with the Windows helper, which starts the local
@@ -155,13 +177,13 @@ For transcription and merge only, skip the analysis stage:
 run_tara.bat --audio-dir "C:\path\to\audio" --transcription-only
 ```
 
-Processing merges per-speaker transcription files into `merged_transcription.json`.
-When source files are named like `1-willygorn.json`, each output segment records
+Processing merges per-speaker transcription files into `merged_transcription.yaml`.
+When source files are named like `1-willygorn.yaml`, each output segment records
 speaker metadata such as `author.speaker = "willygorn"` and keeps the source file
 name for traceability. Existing merged files without author metadata remain valid.
 
 Install optional ASR dependencies when you need real transcription (not required
-for analysis-only runs on `merged_transcription.json`):
+for analysis-only runs on `merged_transcription.yaml`):
 
 ```powershell
 pip install -e ".[inference]"
@@ -183,3 +205,24 @@ non-local requests are rejected when no token is configured.
 `.env` is loaded from the TaraRepo project root, not from arbitrary process
 working directories. Generated summaries and analysis artifacts contain
 transcript-derived private content and should stay out of version control.
+
+## Cursor CLI performance controls
+
+Quality-first optimizations for the analysis pipeline:
+
+- `processing`: deduplicates duplicate per-speaker `.json`/`.yaml` copies when
+  building `merged_transcription.yaml`.
+- `analysis.scenes.boundary`: compact transcript rows for the full boundary pass.
+- Stable policy blocks moved into LLM `system_prompt` to improve Cursor CLI
+  prompt caching.
+- `analysis.parallel` (`TARA_ANALYSIS_PARALLEL`): parallel fan-out for scene
+  descriptions and specialist questions. Defaults to `true`.
+- `analysis.llm.cursor_cli_specialist_tool`: optional on-demand excerpt tool for
+  specialists via `.cursor/skills/tara-evidence/`. Defaults to `false`.
+- Per-run token/latency report: `analysis/usage_report.yaml` and
+  `analysis/usage_report.csv`.
+- Compare two runs with `python scripts/compare_usage.py baseline.yaml candidate.yaml`.
+
+All optimization flags default to safe behavior except `analysis.parallel`,
+which is enabled by default after validation. The specialist excerpt tool
+remains off until explicitly enabled.

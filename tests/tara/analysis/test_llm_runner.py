@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -22,6 +24,7 @@ from tara.analysis.llm_runner import (
     LLMRunnerConfig,
     ModelPricing,
     OpenAIAPIBackend,
+    _parse_cursor_cli_stdout,
 )
 
 
@@ -71,6 +74,18 @@ class FlakyBackend:
         return LLMResponse(content="ok", model="gpt-test", backend="api")
 
 
+@pytest.fixture(autouse=True)
+def _cursor_cli_sandbox_dir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keep Cursor CLI tests away from the real project workspace."""
+    monkeypatch.setenv(
+        "TARA_CURSOR_CLI_SANDBOX_DIR",
+        str(tmp_path / "tara_cursor_cli_sandbox"),
+    )
+
+
 class AlwaysFailingBackend:
     """Backend that always raises a backend error."""
 
@@ -115,6 +130,64 @@ def _request() -> LLMRequest:
     )
 
 
+def _cursor_json_stdout(
+    result: str,
+    *,
+    usage: Mapping[str, int] | None = None,
+) -> str:
+    """Build a Cursor CLI JSON stdout payload for backend tests."""
+    payload: dict[str, object] = {
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+        "result": result,
+    }
+    if usage is not None:
+        payload["usage"] = {
+            "inputTokens": usage.get("input_tokens", 0),
+            "outputTokens": usage.get("output_tokens", 0),
+            "cacheReadTokens": usage.get("cache_read_tokens", 0),
+            "cacheWriteTokens": usage.get("cache_write_tokens", 0),
+        }
+    return json.dumps(payload, ensure_ascii=False) + "\n"
+
+
+def test_model_pricing_estimate_cursor_cost() -> None:
+    """Cursor pricing should bill input and cache-read counters additively."""
+    pricing = ModelPricing(
+        input_usd_per_million=0.5,
+        cached_input_usd_per_million=0.2,
+        output_usd_per_million=2.5,
+    )
+    cost = pricing.estimate_cursor_cost(
+        input_tokens=6028,
+        output_tokens=31,
+        cache_read_tokens=8064,
+    )
+    assert cost == pytest.approx(0.0047043)
+
+
+def test_parse_cursor_cli_stdout_extracts_usage_and_result() -> None:
+    """Parser should read the terminal Cursor CLI JSON result event."""
+    stdout = _cursor_json_stdout(
+        "OK",
+        usage={
+            "input_tokens": 6028,
+            "output_tokens": 31,
+            "cache_read_tokens": 8064,
+            "cache_write_tokens": 0,
+        },
+    )
+    content, usage = _parse_cursor_cli_stdout(stdout)
+    assert content == "OK"
+    assert usage == {
+        "input_tokens": 6028,
+        "output_tokens": 31,
+        "cache_read_tokens": 8064,
+        "cache_write_tokens": 0,
+    }
+
+
 def test_api_backend_posts_responses_payload_and_extracts_usage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -127,7 +200,7 @@ def test_api_backend_posts_responses_payload_and_extracts_usage(
         return FakeHTTPResponse(
             {
                 "model": "gpt-test",
-                "output_text": "{\"ok\": true}",
+                "output_text": '{"ok": true}',
                 "usage": {
                     "input_tokens": 1000,
                     "output_tokens": 250,
@@ -159,7 +232,7 @@ def test_api_backend_posts_responses_payload_and_extracts_usage(
 
     response = backend.run(_request())
 
-    assert response.content == "{\"ok\": true}"
+    assert response.content == '{"ok": true}'
     assert response.model == "gpt-test"
     assert response.backend == "api"
     assert response.input_tokens == 1000
@@ -272,6 +345,7 @@ def test_cursor_cli_backend_runs_agent_prompt() -> None:
     commands: list[list[str]] = []
     inputs: list[str | None] = []
     environments: list[Mapping[str, str]] = []
+    working_directories: list[str] = []
 
     def fake_run(
         command: list[str],
@@ -281,15 +355,22 @@ def test_cursor_cli_backend_runs_agent_prompt() -> None:
         check: bool,
         input: str | None,
         env: Mapping[str, str],
+        cwd: str,
     ) -> subprocess.CompletedProcess[str]:
         commands.append(command)
         inputs.append(input)
         environments.append(env)
+        working_directories.append(cwd)
         assert capture_output is True
         assert text is True
         assert timeout == 900
         assert check is False
-        return subprocess.CompletedProcess(command, 0, stdout="done\n", stderr="")
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=_cursor_json_stdout("done"),
+            stderr="",
+        )
 
     backend = CursorCLIBackend(
         LLMRunnerConfig(backend="cursor_cli", model=None),
@@ -300,12 +381,41 @@ def test_cursor_cli_backend_runs_agent_prompt() -> None:
 
     assert response.content == "done"
     assert response.model == "Auto"
-    exe0, arg0 = commands[0][0:2]
-    assert arg0 == "-p"
+    exe0, arg0, arg1 = commands[0][0:3]
+    assert arg0 == "--trust"
+    assert arg1 == "-p"
     assert exe0 == "agent" or Path(exe0).name.lower() == "agent.cmd"
-    assert len(commands[0]) == 2
-    assert inputs and "\"purpose\": \"unit-test\"" in str(inputs[0])
+    assert "--output-format" in commands[0]
+    assert "json" in commands[0]
+    assert inputs and '"purpose": "unit-test"' in str(inputs[0])
     assert "OPENAI_API_KEY" not in environments[0]
+    assert working_directories[0].endswith("tara_cursor_cli_sandbox")
+
+
+def test_cursor_cli_backend_repairs_windows_utf8_mojibake() -> None:
+    """Cursor CLI output mojibaked by a Windows wrapper should be repaired."""
+    correct = "Résumé d\u2019aventure"
+    mojibake = correct.encode("utf-8").decode("cp1252")
+
+    def fake_run(
+        command: list[str],
+        **kwargs: Any,
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=_cursor_json_stdout(mojibake),
+            stderr="",
+        )
+
+    backend = CursorCLIBackend(
+        LLMRunnerConfig(backend="cursor_cli", model=None),
+        subprocess_run=fake_run,
+    )
+
+    response = backend.run(_request())
+
+    assert response.content == correct
 
 
 def test_cursor_cli_backend_can_use_argv_transport() -> None:
@@ -320,10 +430,16 @@ def test_cursor_cli_backend_can_use_argv_transport() -> None:
         check: bool,
         input: str | None,
         env: Mapping[str, str],
+        cwd: str,
     ) -> subprocess.CompletedProcess[str]:
         commands.append(command)
         assert input is None
-        return subprocess.CompletedProcess(command, 0, stdout="done", stderr="")
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=_cursor_json_stdout("done"),
+            stderr="",
+        )
 
     backend = CursorCLIBackend(
         LLMRunnerConfig(
@@ -334,7 +450,11 @@ def test_cursor_cli_backend_can_use_argv_transport() -> None:
     )
 
     assert backend.run(_request()).content == "done"
-    assert "\"purpose\": \"unit-test\"" in commands[0][2]
+    assert commands[0][1] == "--trust"
+    assert commands[0][2] == "-p"
+    assert commands[0][3] == "--output-format"
+    assert commands[0][4] == "json"
+    assert '"purpose": "unit-test"' in commands[0][5]
 
 
 def test_cursor_cli_backend_reports_command_errors() -> None:
@@ -348,6 +468,7 @@ def test_cursor_cli_backend_reports_command_errors() -> None:
         check: bool,
         input: str | None,
         env: Mapping[str, str],
+        cwd: str,
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(command, 2, stdout="", stderr="bad")
 
@@ -371,6 +492,7 @@ def test_cursor_cli_backend_reports_empty_output() -> None:
         check: bool,
         input: str | None,
         env: Mapping[str, str],
+        cwd: str,
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
@@ -394,6 +516,7 @@ def test_cursor_cli_backend_reports_missing_command() -> None:
         check: bool,
         input: str | None,
         env: Mapping[str, str],
+        cwd: str,
     ) -> subprocess.CompletedProcess[str]:
         raise FileNotFoundError(command[0])
 
@@ -417,6 +540,7 @@ def test_cursor_cli_backend_reports_timeout() -> None:
         check: bool,
         input: str | None,
         env: Mapping[str, str],
+        cwd: str,
     ) -> subprocess.CompletedProcess[str]:
         raise subprocess.TimeoutExpired(command, timeout)
 
@@ -471,9 +595,10 @@ def test_runner_retries_backend_and_records_telemetry() -> None:
     assert telemetry.events == [
         (
             "llm_runner.usage.recorded",
-            {
-                "purpose": "unit-test",
-                "backend": "api",
+                {
+                    "purpose": "unit-test",
+                    "stage": None,
+                    "backend": "api",
                 "model": "gpt-test",
                 "input_tokens": 0,
                 "output_tokens": 0,
@@ -562,8 +687,14 @@ def test_environment_is_not_required_for_cursor_cli(
         check: bool,
         input: str | None,
         env: Mapping[str, str],
+        cwd: str,
     ) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=_cursor_json_stdout("ok"),
+            stderr="",
+        )
 
     backend = CursorCLIBackend(
         LLMRunnerConfig(backend="cursor_cli"),
@@ -571,3 +702,124 @@ def test_environment_is_not_required_for_cursor_cli(
     )
 
     assert backend.run(_request()).content == "ok"
+
+
+def test_cursor_cli_backend_populates_tokens_and_cost() -> None:
+    """Cursor CLI JSON usage should drive token counters and estimated cost."""
+
+    def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=_cursor_json_stdout(
+                "OK",
+                usage={
+                    "input_tokens": 6028,
+                    "output_tokens": 31,
+                    "cache_read_tokens": 8064,
+                    "cache_write_tokens": 0,
+                },
+            ),
+            stderr="",
+        )
+
+    backend = CursorCLIBackend(
+        LLMRunnerConfig(
+            backend="cursor_cli",
+            pricing_by_model={
+                "composer-2.5": ModelPricing(
+                    input_usd_per_million=0.5,
+                    cached_input_usd_per_million=0.2,
+                    output_usd_per_million=2.5,
+                ),
+                "Auto": ModelPricing(
+                    input_usd_per_million=0.5,
+                    cached_input_usd_per_million=0.2,
+                    output_usd_per_million=2.5,
+                ),
+            },
+        ),
+        subprocess_run=fake_run,
+    )
+
+    response = backend.run(_request())
+
+    assert response.input_tokens == 6028
+    assert response.output_tokens == 31
+    assert response.total_tokens == 14123
+    assert response.estimated_cost_usd == pytest.approx(0.0047043)
+    assert response.metadata["token_source"] == "cursor_cli_json"
+
+
+def test_cursor_cli_backend_fails_on_non_json_stdout() -> None:
+    """Plain-text Cursor CLI stdout should fail fast instead of returning zero cost."""
+
+    def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 0, stdout="plain text only", stderr="")
+
+    backend = CursorCLIBackend(
+        LLMRunnerConfig(backend="cursor_cli"),
+        subprocess_run=fake_run,
+    )
+
+    with pytest.raises(LLMBackendError, match="non-JSON output"):
+        backend.run(_request())
+
+
+def test_cursor_cli_backend_strips_secret_environment_and_uses_sandbox(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cursor CLI should not inherit Modal or generic secret environment names."""
+    monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+    monkeypatch.setenv("TARA_MODAL_PROXY_AUTH_SECRET", "super-secret-test")
+    monkeypatch.setenv("TARA_MODAL_PROXY_AUTH_KEY", "wk-test")
+    monkeypatch.setenv("TARA_INFERENCE_ENDPOINT", "https://example.modal.run")
+    monkeypatch.setenv("TARA_INFERENCE_AUTH_PROVIDER", "modal_proxy")
+    monkeypatch.setenv("CUSTOM_TOKEN", "token-value")
+    monkeypatch.setenv("CUSTOM_PASSWORD", "password-value")
+    captured: dict[str, Any] = {}
+
+    def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        captured["command"] = command
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=_cursor_json_stdout("ok"),
+            stderr="",
+        )
+
+    backend = CursorCLIBackend(
+        LLMRunnerConfig(
+            backend="cursor_cli",
+            cursor_env_allowlist=(
+                "PATH",
+                "PATHEXT",
+                "TARA_MODAL_PROXY_AUTH_SECRET",
+                "TARA_MODAL_PROXY_AUTH_KEY",
+                "TARA_INFERENCE_ENDPOINT",
+                "TARA_INFERENCE_AUTH_PROVIDER",
+                "CUSTOM_TOKEN",
+                "CUSTOM_PASSWORD",
+            ),
+        ),
+        subprocess_run=fake_run,
+    )
+
+    assert backend.run(_request()).content == "ok"
+
+    env = captured["env"]
+    assert "PATHEXT" in {key.upper() for key in env}
+    assert "TARA_MODAL_PROXY_AUTH_SECRET" not in env
+    assert "TARA_MODAL_PROXY_AUTH_KEY" not in env
+    assert "TARA_INFERENCE_ENDPOINT" not in env
+    assert "TARA_INFERENCE_AUTH_PROVIDER" not in env
+    assert "CUSTOM_TOKEN" not in env
+    assert "CUSTOM_PASSWORD" not in env
+    assert "super-secret-test" not in " ".join(env.values())
+    assert captured["cwd"].endswith("tara_cursor_cli_sandbox")
+    assert '"purpose": "unit-test"' in captured["input"]
+    assert captured["command"][1] == "--trust"
+    assert "--output-format" in captured["command"]
+    assert "json" in captured["command"]

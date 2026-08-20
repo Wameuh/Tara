@@ -514,3 +514,16 @@ Sans toucher a la transcription:
 5. Ajouter l'audit adversarial cible.
 
 Ce design est le meilleur choix si l'objectif prioritaire est la qualite d'analyse et la robustesse sur des sessions longues, avec une reduction de cout qui vient du retrieval et de l'escalation selective.
+
+## Cursor CLI performance (2026)
+
+Quality-first controls added to the analysis stage:
+
+- Merge deduplication removes duplicate per-speaker JSON/YAML copies before analysis.
+- Scene boundary prompts use compact transcript rows while keeping the full pass.
+- Shared policy blocks live in stable LLM `system_prompt` values for cache reuse.
+- Optional parallel fan-out: `analysis.parallel` / `TARA_ANALYSIS_PARALLEL` (default: true).
+- Optional specialist excerpt tool: `analysis.llm.cursor_cli_specialist_tool`.
+- Per-run usage artifacts: `analysis/usage_report.yaml` and `.csv`.
+
+All optimization flags default to off except `analysis.parallel`, which defaults to on.

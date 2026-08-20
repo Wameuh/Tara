@@ -1,0 +1,2 @@
+import { useTranslation } from "react-i18next";
+export function DualProgress({ overall, current }: { overall?: number | null; current?: number | null }) { const { t } = useTranslation(); return <section className="total-progress"><div><label>{t("job.total")}</label><progress value={overall ?? 0} max="1" aria-label={t("job.total")} /></div><strong>{Math.round((overall ?? 0) * 100)} %</strong>{current !== null && current !== undefined && <div><label>{t("job.current")}</label><progress value={current} max="1" aria-label={t("job.current")} /></div>}</section>; }

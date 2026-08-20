@@ -5,12 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from tara.analysis.models import MergedTranscription, TranscriptionSegment
-from tara.analysis.scenes.cache import stable_json_hash, write_json
+from tara.analysis.scenes.cache import stable_json_hash, write_yaml
 from tara.analysis.scenes.models import SceneBoundary, SceneTranscription
 
 
 class SceneSplitter:
-    """Split merged transcription segments into per-scene JSON artifacts."""
+    """Split merged transcription segments into per-scene YAML artifacts."""
 
     def __init__(
         self,
@@ -27,7 +27,7 @@ class SceneSplitter:
         transcription: MergedTranscription,
         boundaries: list[SceneBoundary],
     ) -> list[SceneTranscription]:
-        """Write scene JSON files and return their in-memory representation."""
+        """Write scene YAML files and return their in-memory representation."""
         self._scenes_dir.mkdir(parents=True, exist_ok=True)
         serialized_segments = [
             _segment_to_dict(index, segment)
@@ -51,7 +51,7 @@ class SceneSplitter:
                     "segments": scene_segments,
                 }
             )
-            filename = f"{self._output_prefix}{boundary.scene_id:03d}.json"
+            filename = f"{self._output_prefix}{boundary.scene_id:03d}.yaml"
             output_path = self._scenes_dir / filename
             scene = SceneTranscription(
                 scene_id=boundary.scene_id,
@@ -65,7 +65,7 @@ class SceneSplitter:
                 output_path=str(output_path),
                 metadata={"segment_count": len(scene_segments)},
             )
-            write_json(output_path, scene.to_dict())
+            write_yaml(output_path, scene.to_dict())
             scenes.append(scene)
         return scenes
 

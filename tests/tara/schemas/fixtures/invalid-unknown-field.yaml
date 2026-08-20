@@ -1,0 +1,7 @@
+schema_name: tara.merged_transcription
+schema_version: 26.0.1
+metadata: {}
+content:
+  text: Bonjour
+  segments: []
+  private_path: C:/private

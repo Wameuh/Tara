@@ -14,6 +14,33 @@ Supported backends:
 - `cursor_cli`: Cursor CLI backend using `agent -p`, implemented behind the same
   interface and tested with mocked subprocess execution.
 
+The Cursor CLI backend injects `--output-format json` so stdout includes a
+terminal `result` event with a `usage` block (`inputTokens`, `outputTokens`,
+`cacheReadTokens`). Tara parses those counters and estimates USD cost using
+`analysis.llm.pricing_per_million_tokens`. The default pricing table targets
+Cursor Composer 2.5 (`input_usd` 0.5, `cached_input_usd` 0.2, `output_usd`
+2.5 per million tokens). Cursor bills cache-read tokens separately from input
+tokens, so cost estimation uses `ModelPricing.estimate_cursor_cost()` rather
+than the OpenAI-style cached-subset formula used by the `api` backend.
+
+`estimated_cost_usd` in `session_summary.yaml` is an estimate based on those
+published per-token rates, not Cursor subscription billing.
+
+Configure pricing under `analysis.llm`:
+
+```json
+"default_pricing_model": "composer-2.5",
+"pricing_per_million_tokens": {
+  "composer-2.5": {
+    "input_usd": 0.5,
+    "cached_input_usd": 0.2,
+    "output_usd": 2.5
+  }
+}
+```
+
+When `model` is `Auto`, pricing resolves through `default_pricing_model`.
+
 The `api` backend resolves `model: Auto` from `analysis.llm.default_api_model` in
 configuration (required when using Auto). The `cursor_cli` backend passes
 `Auto` through as an absent model so Cursor can auto-route.
@@ -28,9 +55,9 @@ line (purpose, backend, model, combined prompt character count, attempt index,
 wall duration in milliseconds, and total tokens) for local observability without
 telemetry wiring.
 
-Structured agentic steps (`agentic_llm.py`) perform a single JSON repair LLM call
+Structured agentic steps (`agentic_llm.py`) perform a single YAML repair LLM call
 when the primary completion fails Pydantic validation, using purpose suffix
-`.json_repair` before falling back (composer) or returning empty or error
+`.yaml_repair` before falling back (composer) or returning empty or error
 results (specialist, audit, arbitration).
 
 Cursor CLI prompts are sent through stdin by default to avoid exposing transcript
@@ -45,7 +72,7 @@ audit can call the shared runner when enabled. With `cursor_cli`, LLM-backed
 analysis steps run only when `cursor_cli_probe` is true (or `TARA_CURSOR_CLI_PROBE`
 is set) so a probe-only configuration still avoids transcript analysis via CLI.
 
-Usage counters on `FinalSummary` and `session_summary.json` split
+Usage counters on `FinalSummary` and `session_summary.yaml` split
 `probe_llm_call_count`, `analysis_llm_call_count`, `composition_llm_call_count`,
 and `audit_llm_call_count`; the legacy `llm_call_count` is the total across those
 roles plus any merged probe totals.
@@ -90,8 +117,8 @@ objects, preserves segment IDs and timestamps, detects lightweight keyword tags
 and capitalized entities, and retrieves chunks with lexical token-overlap
 scoring.
 
-The index can export `evidence_chunks.jsonl` and
-`evidence_index_metadata.json` for debugging or traceability, then reconstruct
+The index can export `evidence_chunks.yaml` (multi-document stream) and
+`evidence_index_metadata.yaml` for debugging or traceability, then reconstruct
 the in-memory index from those artifacts. These files may contain transcript
 text and remain private runtime artifacts by default.
 
@@ -128,8 +155,8 @@ configured runner into that boundary so future LLM-assisted behavior does not
 need to change specialist construction.
 
 The standalone application layer in `tara.pipeline` builds this package from
-`merged_transcription.json`, writes private evidence/debug artifacts, and emits
-the user-facing `session_summary.md` plus traceable `session_summary.json`.
-The JSON output also includes acceptance metrics from `tara.acceptance`, such as
+`merged_transcription.yaml`, writes private evidence/debug artifacts, and emits
+the user-facing `session_summary.md` plus traceable `session_summary.yaml`.
+The YAML output also includes acceptance metrics from `tara.acceptance`, such as
 support rate, forbidden-claim leaks, critical conflict leakage, and deterministic
 LLM usage/cost counters.

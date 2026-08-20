@@ -10,15 +10,21 @@ from __future__ import annotations
 import json
 import logging
 import os
+import secrets
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any, Literal, Protocol
 
 import requests
+
+from tara.providers.costing import CostSnapshot, convert_native_cost
+from tara.providers.events import UsageAttempt
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,6 +48,22 @@ DEFAULT_CURSOR_ENV_ALLOWLIST = (
     "USERNAME",
     "USERDOMAIN",
 )
+CURSOR_ENV_DENYLIST_EXACT = {
+    "TARA_MODAL_PROXY_AUTH_KEY",
+    "TARA_MODAL_PROXY_AUTH_SECRET",
+    "TARA_INFERENCE_ENDPOINT",
+    "TARA_INFERENCE_AUTH_PROVIDER",
+}
+CURSOR_ENV_DENYLIST_SUBSTRINGS = (
+    "TOKEN",
+    "SECRET",
+    "PASSWORD",
+    "KEY",
+)
+CURSOR_ENV_DENYLIST_EXCEPTIONS = {
+    # Required Windows system variables despite containing "KEY".
+    "PATHEXT",
+}
 
 
 class LLMRunnerError(RuntimeError):
@@ -94,6 +116,41 @@ class ModelPricing:
             + max(output_tokens, 0) / 1_000_000.0 * self.output_usd_per_million
         )
 
+    def estimate_cursor_cost(
+        self,
+        input_tokens: int,
+        output_tokens: int,
+        cache_read_tokens: int = 0,
+    ) -> float:
+        """Estimate a Cursor CLI request cost in USD.
+
+        Cursor reports input and cache-read counters separately rather than as
+        a cached subset of input tokens.
+
+        Args:
+            input_tokens: Non-cached input tokens billed at the input rate.
+            output_tokens: Output tokens billed at the output rate.
+            cache_read_tokens: Cache-read tokens billed at the cache-read rate.
+
+        Returns:
+            Estimated cost in USD.
+        """
+        return (
+            max(input_tokens, 0) / 1_000_000.0 * self.input_usd_per_million
+            + max(cache_read_tokens, 0)
+            / 1_000_000.0
+            * self.cached_input_usd_per_million
+            + max(output_tokens, 0) / 1_000_000.0 * self.output_usd_per_million
+        )
+
+
+DEFAULT_CURSOR_PRICING_MODEL = "composer-2.5"
+DEFAULT_COMPOSER_25_PRICING = ModelPricing(
+    input_usd_per_million=0.5,
+    cached_input_usd_per_million=0.2,
+    output_usd_per_million=2.5,
+)
+
 
 @dataclass(slots=True)
 class LLMRequest:
@@ -116,6 +173,7 @@ class LLMRequest:
     user_prompt: str
     response_format: Mapping[str, Any] | None = None
     model: str | None = None
+    stage: str | None = None
     temperature: float = 0.0
     max_output_tokens: int | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
@@ -188,6 +246,7 @@ class LLMRunnerConfig:
     include_cursor_stderr: bool = False
     telemetry_metadata_keys: Sequence[str] = field(default_factory=tuple)
     pricing_by_model: Mapping[str, ModelPricing] = field(default_factory=dict)
+    usd_to_eur_rate: str | None = None
 
 
 class TelemetryRecorder(Protocol):
@@ -431,7 +490,10 @@ class CursorCLIBackend:
         """
         prompt = self._build_prompt(request)
         executable = _resolve_cursor_cli_executable(self._config.cursor_command)
-        command = [executable, *[str(arg) for arg in self._config.cursor_args]]
+        command = [
+            executable,
+            *_cursor_args_with_json_output(self._config.cursor_args),
+        ]
         input_text = prompt
         if self._config.cursor_prompt_transport == "argv":
             command.append(prompt)
@@ -443,6 +505,7 @@ class CursorCLIBackend:
             "check": False,
             "input": input_text,
             "env": self._cursor_environment(),
+            "cwd": str(self._cursor_working_directory()),
         }
         try:
             # Force UTF-8 decoding for Cursor CLI output to avoid Windows locale
@@ -476,19 +539,62 @@ class CursorCLIBackend:
                 f"Cursor CLI failed with exit code {result.returncode}: {stderr}"
             )
 
-        content = _repair_windows_utf8_mojibake(result.stdout or "").strip()
-        if not content:
+        stdout_text = _repair_windows_utf8_mojibake(result.stdout or "").strip()
+        if not stdout_text:
             raise LLMBackendError("Cursor CLI returned empty output.")
 
-        metadata = (
-            {"stderr": (result.stderr or "").strip()}
-            if self._config.include_cursor_stderr
-            else {}
+        try:
+            content, usage = _parse_cursor_cli_stdout(stdout_text)
+        except ValueError as exc:
+            stderr = (result.stderr or "").strip()
+            excerpt = stderr[:200] if stderr else "none"
+            raise LLMBackendError(
+                f"Cursor CLI returned non-JSON output: {exc}. stderr: {excerpt}"
+            ) from exc
+
+        content = _repair_windows_utf8_mojibake(content)
+
+        if not content:
+            raise LLMBackendError(
+                "Cursor CLI returned empty completion in JSON result."
+            )
+
+        model_name = request.model or self._config.model or "Auto"
+        pricing = _resolve_cursor_pricing(self._config.pricing_by_model, model_name)
+        input_tokens = 0
+        output_tokens = 0
+        cache_read_tokens = 0
+        raw_usage: dict[str, Any] = {}
+        if usage is not None:
+            input_tokens = usage["input_tokens"]
+            output_tokens = usage["output_tokens"]
+            cache_read_tokens = usage["cache_read_tokens"]
+            raw_usage = dict(usage)
+
+        total_tokens = input_tokens + output_tokens + cache_read_tokens
+        estimated_cost = (
+            pricing.estimate_cursor_cost(
+                input_tokens,
+                output_tokens,
+                cache_read_tokens,
+            )
+            if pricing is not None
+            else None
         )
+
+        metadata: dict[str, Any] = {"token_source": "cursor_cli_json"}
+        if self._config.include_cursor_stderr:
+            metadata["stderr"] = (result.stderr or "").strip()
+
         return LLMResponse(
             content=content,
-            model=request.model or self._config.model or "Auto",
+            model=model_name,
             backend=self.backend_name,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+            raw_usage=raw_usage,
+            estimated_cost_usd=estimated_cost,
             metadata=metadata,
         )
 
@@ -523,8 +629,163 @@ class CursorCLIBackend:
         return {
             key: value
             for key, value in os.environ.items()
-            if key.upper() in allowlist
+            if key.upper() in allowlist and not _is_denied_cursor_env_key(key)
         }
+
+    @staticmethod
+    def _cursor_working_directory() -> str:
+        """Return a secret-free working directory for Cursor CLI subprocesses."""
+        sandbox_override = os.environ.get("TARA_CURSOR_CLI_SANDBOX_DIR")
+        candidates: list[str] = []
+        if sandbox_override:
+            candidates.append(sandbox_override)
+        candidates.append(
+            r"C:\tmp\tara_cursor_cli_sandbox"
+            if os.name == "nt"
+            else "/tmp/tara_cursor_cli_sandbox"
+        )
+        candidates.append(
+            os.path.join(tempfile.gettempdir(), "tara_cursor_cli_sandbox")
+        )
+
+        last_error: OSError | None = None
+        for sandbox in dict.fromkeys(candidates):
+            try:
+                os.makedirs(sandbox, exist_ok=True)
+            except OSError as exc:
+                last_error = exc
+                continue
+            return sandbox
+
+        raise LLMBackendError(
+            "Unable to create a Cursor CLI sandbox directory. Set "
+            "TARA_CURSOR_CLI_SANDBOX_DIR to a writable directory outside TaraRepo."
+        ) from last_error
+
+
+def _is_denied_cursor_env_key(key: str) -> bool:
+    """Return whether an environment variable must be hidden from Cursor CLI."""
+    normalized = key.upper()
+    if normalized in CURSOR_ENV_DENYLIST_EXCEPTIONS:
+        return False
+    if normalized in CURSOR_ENV_DENYLIST_EXACT:
+        return True
+    return any(marker in normalized for marker in CURSOR_ENV_DENYLIST_SUBSTRINGS)
+
+
+def _cursor_args_with_sandbox_trust(args: Sequence[str]) -> list[str]:
+    """Return Cursor args that trust only the sandbox working directory."""
+    result = [str(arg) for arg in args]
+    normalized = {arg.strip().lower() for arg in result}
+    if normalized.isdisjoint({"--trust", "--yolo", "-f"}):
+        result.insert(0, "--trust")
+    return result
+
+
+def _cursor_args_with_json_output(args: Sequence[str]) -> list[str]:
+    """Return Cursor args with ``--output-format json`` for usage reporting."""
+    result = _cursor_args_with_sandbox_trust(args)
+    normalized_lower = [arg.strip().lower() for arg in result]
+    if "--output-format" in normalized_lower:
+        return result
+    insert_at = len(result)
+    for index, arg in enumerate(result):
+        if arg.strip().lower() == "-p":
+            insert_at = index + 1
+            break
+    result[insert_at:insert_at] = ["--output-format", "json"]
+    return result
+
+
+def _parse_cursor_cli_stdout(stdout: str) -> tuple[str, dict[str, int] | None]:
+    """Parse a Cursor CLI JSON result payload from stdout.
+
+    Args:
+        stdout: Raw stdout emitted by ``cursor-agent --output-format json``.
+
+    Returns:
+        Tuple of completion text and normalized usage counters when present.
+
+    Raises:
+        ValueError: If stdout does not contain a successful result event.
+    """
+    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+    candidates = list(reversed(lines)) if lines else [stdout.strip()]
+    last_error: ValueError | None = None
+    for candidate in candidates:
+        try:
+            data = json.loads(candidate)
+        except json.JSONDecodeError as exc:
+            last_error = ValueError(f"invalid JSON: {exc}")
+            continue
+        if not isinstance(data, dict):
+            last_error = ValueError("expected JSON object")
+            continue
+        if data.get("type") != "result":
+            last_error = ValueError("missing result event")
+            continue
+        if data.get("subtype") != "success":
+            last_error = ValueError(f"non-success result: {data.get('subtype')!r}")
+            continue
+        result_text = data.get("result", "")
+        if not isinstance(result_text, str):
+            last_error = ValueError("result field is not a string")
+            continue
+        usage_raw = data.get("usage")
+        usage: dict[str, int] | None = None
+        if isinstance(usage_raw, Mapping):
+            usage = {
+                "input_tokens": _to_int(
+                    usage_raw.get("inputTokens", usage_raw.get("input_tokens", 0)),
+                ),
+                "output_tokens": _to_int(
+                    usage_raw.get("outputTokens", usage_raw.get("output_tokens", 0)),
+                ),
+                "cache_read_tokens": _to_int(
+                    usage_raw.get(
+                        "cacheReadTokens",
+                        usage_raw.get("cache_read_tokens", 0),
+                    ),
+                ),
+                "cache_write_tokens": _to_int(
+                    usage_raw.get(
+                        "cacheWriteTokens",
+                        usage_raw.get("cache_write_tokens", 0),
+                    ),
+                ),
+            }
+        return result_text.strip(), usage
+    raise last_error or ValueError("empty stdout")
+
+
+def _resolve_cursor_pricing(
+    pricing_by_model: Mapping[str, ModelPricing],
+    model_name: str,
+) -> ModelPricing | None:
+    """Resolve pricing for a Cursor CLI model name.
+
+    Args:
+        pricing_by_model: Configured pricing table.
+        model_name: Requested or configured model name.
+
+    Returns:
+        Matching pricing entry, or the built-in Composer 2.5 default.
+    """
+    if model_name in pricing_by_model:
+        return pricing_by_model[model_name]
+    if "Auto" in pricing_by_model:
+        return pricing_by_model["Auto"]
+    if DEFAULT_CURSOR_PRICING_MODEL in pricing_by_model:
+        return pricing_by_model[DEFAULT_CURSOR_PRICING_MODEL]
+    return DEFAULT_COMPOSER_25_PRICING
+
+
+def _to_int(value: Any) -> int:
+    """Convert backend token values to non-negative integers."""
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _repair_windows_utf8_mojibake(text: str) -> str:
@@ -556,6 +817,10 @@ class LLMRunner:
         api_backend: LLMBackend | None = None,
         cursor_backend: LLMBackend | None = None,
         sleep: Callable[[float], None] | None = None,
+        usage_report: Any | None = None,
+        cancellation_check: Callable[[], None] | None = None,
+        retry_callback: Callable[[int], None] | None = None,
+        usage_attempt_callback: Callable[[UsageAttempt], None] | None = None,
     ) -> None:
         """Initialize the runner.
 
@@ -565,10 +830,15 @@ class LLMRunner:
             api_backend: Optional API backend override for tests.
             cursor_backend: Optional Cursor CLI backend override for tests.
             sleep: Optional sleep callable for retry tests.
+            usage_report: Optional :class:`UsageReport` accumulator.
         """
         self._config = config
         self._telemetry = telemetry
         self._sleep = sleep or time.sleep
+        self._usage_report = usage_report
+        self._cancellation_check = cancellation_check
+        self._retry_callback = retry_callback
+        self._usage_attempt_callback = usage_attempt_callback
         self._backends: dict[LLMBackendName, LLMBackend] = {}
         if api_backend is not None:
             self._backends["api"] = api_backend
@@ -593,9 +863,21 @@ class LLMRunner:
         attempts = 1 + max(0, self._config.max_retries)
         last_error: LLMBackendError | None = None
         for attempt in range(1, attempts + 1):
+            if self._cancellation_check is not None:
+                self._cancellation_check()
+            started_at = datetime.now(UTC)
             start = time.perf_counter()
+            response: LLMResponse | None = None
+            status = "failed"
             try:
                 response = backend.run(prompt)
+                if self._cancellation_check is not None:
+                    try:
+                        self._cancellation_check()
+                    except BaseException:
+                        status = "cancelled"
+                        raise
+                status = "success"
                 elapsed_ms = int((time.perf_counter() - start) * 1000)
                 prompt_chars = len(prompt.system_prompt) + len(prompt.user_prompt)
                 _LOGGER.info(
@@ -609,13 +891,56 @@ class LLMRunner:
                     elapsed_ms,
                     response.total_tokens,
                 )
-                self._record_telemetry(prompt, response, attempt)
+                self._record_telemetry(prompt, response, attempt, elapsed_ms)
                 return response
+            except TimeoutError:
+                status = "timed_out"
+                raise
             except LLMBackendError as exc:
                 last_error = exc
                 if attempt >= attempts:
                     break
+                if self._retry_callback is not None:
+                    self._retry_callback(attempt + 1)
+                if self._cancellation_check is not None:
+                    self._cancellation_check()
                 self._sleep(self._config.retry_backoff_seconds * (2 ** (attempt - 1)))
+                if self._cancellation_check is not None:
+                    self._cancellation_check()
+            except Exception:
+                if status != "cancelled":
+                    status = "failed"
+                raise
+            finally:
+                if self._usage_attempt_callback is not None:
+                    finished_at = datetime.now(UTC)
+                    cost = _llm_cost_snapshot(response, self._config.usd_to_eur_rate)
+                    usage_attempt = UsageAttempt(
+                        attempt_id="pa_" + secrets.token_urlsafe(18),
+                        operation_family="llm",
+                        provider=self._config.backend,
+                        model=(response.model if response else self._config.model),
+                        status=status,
+                        started_at=started_at.isoformat().replace("+00:00", "Z"),
+                        finished_at=finished_at.isoformat().replace("+00:00", "Z"),
+                        input_tokens=response.input_tokens if response else 0,
+                        output_tokens=response.output_tokens if response else 0,
+                        cache_tokens=_cache_tokens(response),
+                        duration_ms=max(0, int((time.perf_counter() - start) * 1000)),
+                        cost_micro_eur=cost.cost_micro_eur if cost else None,
+                        cost_source=cost.source if cost else "unavailable",
+                        native_cost_micros=(cost.native_cost_micros if cost else None),
+                        native_currency=cost.native_currency if cost else None,
+                        conversion_rate=cost.conversion_rate if cost else None,
+                    )
+                    try:
+                        self._usage_attempt_callback(usage_attempt)
+                    except Exception:
+                        if status == "success":
+                            raise
+                        _LOGGER.exception(
+                            "provider usage callback failed for a non-success attempt"
+                        )
 
         raise LLMBackendError(
             f"LLM backend {self._config.backend!r} failed after {attempts} attempts."
@@ -640,24 +965,43 @@ class LLMRunner:
         request: LLMRequest,
         response: LLMResponse,
         attempt: int,
+        elapsed_ms: int,
     ) -> None:
         """Record usage telemetry when a recorder is configured."""
-        if self._telemetry is None:
-            return
-        self._telemetry.record(
-            "llm_runner.usage.recorded",
-            {
-                "purpose": request.purpose,
-                "backend": response.backend,
-                "model": response.model,
-                "input_tokens": response.input_tokens,
-                "output_tokens": response.output_tokens,
-                "total_tokens": response.total_tokens,
-                "estimated_cost_usd": response.estimated_cost_usd,
-                "attempt": attempt,
-                "metadata": self._safe_metadata(request.metadata),
-            },
-        )
+        if self._telemetry is not None:
+            self._telemetry.record(
+                "llm_runner.usage.recorded",
+                {
+                    "purpose": request.purpose,
+                    "stage": request.stage,
+                    "backend": response.backend,
+                    "model": response.model,
+                    "input_tokens": response.input_tokens,
+                    "output_tokens": response.output_tokens,
+                    "total_tokens": response.total_tokens,
+                    "estimated_cost_usd": response.estimated_cost_usd,
+                    "attempt": attempt,
+                    "metadata": self._safe_metadata(request.metadata),
+                },
+            )
+        if self._usage_report is not None:
+            cache_read_tokens = 0
+            if isinstance(response.raw_usage, Mapping):
+                cache_read_tokens = int(
+                    response.raw_usage.get("cache_read_tokens", 0) or 0,
+                )
+            self._usage_report.record_call(
+                stage=request.stage,
+                purpose=request.purpose,
+                model=response.model,
+                input_tokens=response.input_tokens,
+                output_tokens=response.output_tokens,
+                cache_read_tokens=cache_read_tokens,
+                total_tokens=response.total_tokens,
+                cost_usd=response.estimated_cost_usd,
+                latency_ms=elapsed_ms,
+                attempt=attempt,
+            )
 
     def _safe_metadata(self, metadata: Mapping[str, Any]) -> dict[str, Any]:
         """Return telemetry metadata restricted to configured safe keys.
@@ -677,3 +1021,29 @@ class LLMRunner:
             if isinstance(value, str | int | float | bool) or value is None:
                 safe[key] = value
         return safe
+
+
+def _cache_tokens(response: LLMResponse | None) -> int:
+    if response is None or not isinstance(response.raw_usage, Mapping):
+        return 0
+    value = response.raw_usage.get("cache_read_tokens", 0)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        return 0
+    return value
+
+
+def _llm_cost_snapshot(
+    response: LLMResponse | None, usd_to_eur_rate: str | None
+) -> CostSnapshot | None:
+    if (
+        response is None
+        or response.estimated_cost_usd is None
+        or usd_to_eur_rate is None
+    ):
+        return None
+    return convert_native_cost(
+        response.estimated_cost_usd,
+        native_currency="USD",
+        eur_per_native=usd_to_eur_rate,
+        source="configured_estimate",
+    )

@@ -8,6 +8,7 @@ from tara.analysis.agents import (
     AnalysisPlannerAgent,
     ArbitrationPanel,
     BlackboardController,
+    CharacterAttributionVerifierAgent,
     ChronologyAgent,
     FinalPatchAgent,
     QuestContinuityAgent,
@@ -24,40 +25,39 @@ from tara.analysis.models import (
     EvidenceAnswer,
     EvidenceSupport,
     FactStatus,
-    MergedTranscription,
+    FinalSummary,
     SummaryDraft,
     SummarySection,
 )
+from tara.schemas.merged_transcription import new_merged_transcription
 
 
 def _index() -> EvidenceIndex:
     """Create a synthetic evidence index for agent tests."""
-    transcription = MergedTranscription.model_validate(
-        {
-            "text": (
-                "Molnir est mort dans le sanctuaire. "
-                "Aelia utilise une potion. "
-                "La lance ouvre le mécanisme du temple."
-            ),
-            "segments": [
-                {
-                    "start": 0.0,
-                    "end": 30.0,
-                    "text": "Molnir est mort dans le sanctuaire.",
-                },
-                {
-                    "start": 30.0,
-                    "end": 60.0,
-                    "text": "Aelia utilise une potion.",
-                },
-                {
-                    "start": 60.0,
-                    "end": 90.0,
-                    "text": "La lance ouvre le mécanisme du temple.",
-                },
-            ],
-            "duration": 90.0,
-        }
+    transcription = new_merged_transcription(
+        text=(
+            "Molnir est mort dans le sanctuaire. "
+            "Aelia utilise une potion. "
+            "La lance ouvre le mécanisme du temple."
+        ),
+        segments=[
+            {
+                "start": 0.0,
+                "end": 30.0,
+                "text": "Molnir est mort dans le sanctuaire.",
+            },
+            {
+                "start": 30.0,
+                "end": 60.0,
+                "text": "Aelia utilise une potion.",
+            },
+            {
+                "start": 60.0,
+                "end": 90.0,
+                "text": "La lance ouvre le mécanisme du temple.",
+            },
+        ],
+        duration=90.0,
     )
     return EvidenceIndex.from_transcription(
         transcription,
@@ -102,7 +102,7 @@ def test_specialist_fallback_is_uncertain_without_evidence() -> None:
     """Empty retrieval should produce uncertainty instead of hallucination."""
     question = AnalysisPlannerAgent().plan().questions[0]
     empty_index = EvidenceIndex.from_transcription(
-        MergedTranscription(text="", segments=[]),
+        new_merged_transcription(text="", segments=[]),
     )
 
     answers = ChronologyAgent().answer(question, empty_index)
@@ -159,6 +159,100 @@ def test_blackboard_detects_critical_conflicts() -> None:
 
     assert state.conflicts
     assert state.conflicts[0].answer_ids == ["a001", "a002"]
+
+
+def test_blackboard_prefers_neutral_actor_for_projectile_attribution() -> None:
+    """Noisy actor variants should yield a neutral supported event."""
+    answers = [
+        EvidenceAnswer(
+            answer_id="neutral",
+            question_id="combat",
+            claim=(
+                "A character crossing the river was hit by a poisoned crossbow bolt."
+            ),
+            status=FactStatus.SUPPORTED,
+            importance=4,
+            confidence=Confidence.HIGH,
+            claim_type=ClaimType.COMBAT_OUTCOME,
+            support=[_support()],
+        ),
+        EvidenceAnswer(
+            answer_id="kaknyr",
+            question_id="combat",
+            claim="Kaknyr was hit by a poisoned crossbow bolt.",
+            status=FactStatus.SUPPORTED,
+            importance=4,
+            confidence=Confidence.HIGH,
+            claim_type=ClaimType.COMBAT_OUTCOME,
+            support=[_support()],
+        ),
+        EvidenceAnswer(
+            answer_id="iluvatar",
+            question_id="combat",
+            claim="Ilùvatar was hit by a poisoned crossbow bolt.",
+            status=FactStatus.SUPPORTED,
+            importance=4,
+            confidence=Confidence.HIGH,
+            claim_type=ClaimType.COMBAT_OUTCOME,
+            support=[_support()],
+        ),
+        EvidenceAnswer(
+            answer_id="neutral_condition",
+            question_id="state",
+            claim="At least one party member later loses the poisoned condition.",
+            status=FactStatus.SUPPORTED,
+            importance=4,
+            confidence=Confidence.HIGH,
+            claim_type=ClaimType.CHARACTER_STATE,
+            support=[_support()],
+        ),
+        EvidenceAnswer(
+            answer_id="neutral_hit",
+            question_id="combat",
+            claim="A party member was hit by a crossbow bolt from the far bank.",
+            status=FactStatus.SUPPORTED,
+            importance=4,
+            confidence=Confidence.HIGH,
+            claim_type=ClaimType.COMBAT_OUTCOME,
+            support=[_support()],
+        ),
+        EvidenceAnswer(
+            answer_id="iluvatar_hit",
+            question_id="combat",
+            claim="Ilùvatar was hit by a crossbow bolt from the far bank.",
+            status=FactStatus.SUPPORTED,
+            importance=4,
+            confidence=Confidence.HIGH,
+            claim_type=ClaimType.COMBAT_OUTCOME,
+            support=[_support()],
+        ),
+        EvidenceAnswer(
+            answer_id="garath_condition",
+            question_id="state",
+            claim="Garath was no longer poisoned after the encounter.",
+            status=FactStatus.SUPPORTED,
+            importance=4,
+            confidence=Confidence.MEDIUM,
+            claim_type=ClaimType.CHARACTER_STATE,
+            support=[_support()],
+        ),
+    ]
+
+    state = BlackboardController().ingest(answers)
+    facts_by_id = {fact.answer_id: fact for fact in state.facts}
+
+    assert facts_by_id["neutral"].do_not_claim is False
+    assert facts_by_id["kaknyr"].do_not_claim is True
+    assert facts_by_id["iluvatar"].do_not_claim is True
+    assert facts_by_id["neutral_condition"].do_not_claim is False
+    assert facts_by_id["neutral_hit"].do_not_claim is False
+    assert facts_by_id["iluvatar_hit"].do_not_claim is True
+    assert facts_by_id["garath_condition"].do_not_claim is True
+    assert "Kaknyr was hit by a poisoned crossbow bolt." in state.do_not_claim_list
+    assert "Ilùvatar was hit by a poisoned crossbow bolt." in state.do_not_claim_list
+    assert "Garath was no longer poisoned after the encounter." in (
+        state.do_not_claim_list
+    )
 
 
 def test_arbitration_marks_critical_conflicts_forbidden() -> None:
@@ -245,17 +339,15 @@ def test_resource_question_uses_resource_claim_type() -> None:
 
 def test_uncertainty_agent_marks_forbidden_text_rejected() -> None:
     """UncertaintyAgent should reject explicitly forbidden evidence."""
-    transcription = MergedTranscription.model_validate(
-        {
-            "text": "Il est interdit d'affirmer que Molnir survit.",
-            "segments": [
-                {
-                    "start": 0.0,
-                    "end": 10.0,
-                    "text": "Il est interdit d'affirmer que Molnir survit.",
-                }
-            ],
-        }
+    transcription = new_merged_transcription(
+        text="Il est interdit d'affirmer que Molnir survit.",
+        segments=[
+            {
+                "start": 0.0,
+                "end": 10.0,
+                "text": "Il est interdit d'affirmer que Molnir survit.",
+            }
+        ],
     )
     index = EvidenceIndex.from_transcription(transcription, 20.0, 0.0)
     question = next(
@@ -355,6 +447,62 @@ def test_final_patch_does_not_append_rewrite_findings_as_claims() -> None:
     assert final.warnings == ["Too much mechanical detail."]
 
 
+def test_character_verifier_neutralizes_forbidden_actor_attributions() -> None:
+    """The final verifier should fix named actors for ambiguous hit events."""
+    state = BlackboardController().ingest(
+        [
+            EvidenceAnswer(
+                answer_id="neutral",
+                question_id="combat",
+                claim="A party member was hit by a crossbow bolt from the far bank.",
+                status=FactStatus.SUPPORTED,
+                importance=4,
+                confidence=Confidence.HIGH,
+                claim_type=ClaimType.COMBAT_OUTCOME,
+                support=[_support()],
+            ),
+            EvidenceAnswer(
+                answer_id="named",
+                question_id="combat",
+                claim="Ilùvatar was hit by a crossbow bolt from the far bank.",
+                status=FactStatus.SUPPORTED,
+                importance=4,
+                confidence=Confidence.HIGH,
+                claim_type=ClaimType.COMBAT_OUTCOME,
+                support=[_support()],
+            ),
+        ],
+    )
+    final = FinalSummary(
+        markdown=(
+            "# Résumé de session\n\n"
+            "Ilùvatar se téléporte au milieu du gué et est touché par une "
+            "arbalète depuis la rive opposée.\n\n"
+            "Garath agit en premier dans le sanctuaire."
+        ),
+        sections=[
+            SummarySection(
+                section_id="summary",
+                title="Résumé de session",
+                content=(
+                    "Ilùvatar se téléporte au milieu du gué et est touché "
+                    "par une arbalète."
+                ),
+                supporting_answer_ids=["neutral"],
+            )
+        ],
+    )
+
+    verified = CharacterAttributionVerifierAgent().verify(final, state)
+
+    assert "Ilùvatar se téléporte" not in verified.markdown
+    assert "un compagnon se téléporte" in verified.markdown
+    assert "Garath agit en premier" in verified.markdown
+    assert "un compagnon se téléporte" in verified.sections[0].content
+    assert verified.metadata["character_attribution_verified"] is True
+    assert verified.metadata["character_attribution_correction_count"] == 2
+
+
 def test_orchestrator_runs_bounded_pipeline() -> None:
     """The orchestrator should run the full deterministic pipeline."""
     result = AnalysisOrchestrator(max_audit_attempts=3).run(_index())
@@ -370,7 +518,7 @@ def test_orchestrator_runs_bounded_pipeline() -> None:
 def test_orchestrator_caps_empty_replan_loop() -> None:
     """The orchestrator should stop after the configured replan limit."""
     empty_index = EvidenceIndex.from_transcription(
-        MergedTranscription(text="", segments=[])
+        new_merged_transcription(text="", segments=[])
     )
 
     result = AnalysisOrchestrator(max_audit_attempts=2).run(empty_index)

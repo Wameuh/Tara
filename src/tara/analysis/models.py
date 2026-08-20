@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
-import json
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
+from tara.schemas.merged_transcription import (
+    MergedTranscription,
+    SegmentAuthor,
+    TranscriptionSegment,
+)
+from tara.yaml_utils import load_yaml_or_json, write_yaml
+
 JsonObject = dict[str, JsonValue]
+
+__all__ = ["MergedTranscription", "SegmentAuthor", "TranscriptionSegment"]
 
 
 class FactStatus(StrEnum):
@@ -49,7 +57,7 @@ class ClaimType(StrEnum):
 
 
 class TaraModel(BaseModel):
-    """Base model with stable JSON serialization helpers."""
+    """Base model with stable YAML serialization helpers."""
 
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
@@ -61,17 +69,13 @@ class TaraModel(BaseModel):
         """
         return self.model_dump(mode="json")
 
-    def to_json(self, path: Path) -> None:
-        """Write the model to a JSON file.
+    def to_yaml(self, path: Path) -> None:
+        """Write the model to a YAML file.
 
         Args:
             path: Destination file path.
         """
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(self.to_dict(), ensure_ascii=True, indent=2),
-            encoding="utf-8",
-        )
+        write_yaml(path, self.to_dict())
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
@@ -86,57 +90,20 @@ class TaraModel(BaseModel):
         return cls.model_validate(data)
 
     @classmethod
-    def from_json(cls, path: Path) -> Self:
-        """Load a model instance from a JSON file.
+    def from_yaml(cls, path: Path) -> Self:
+        """Load a model instance from a YAML or legacy JSON file.
 
         Args:
-            path: Source JSON file.
+            path: Source YAML or JSON file.
 
         Returns:
             Validated model instance.
         """
-        return cls.model_validate_json(path.read_text(encoding="utf-8"))
-
-
-class SegmentAuthor(TaraModel):
-    """Deterministic speaker metadata for a transcription segment."""
-
-    speaker: str
-    source_file: str
-
-
-class TranscriptionSegment(TaraModel):
-    """Segment from `merged_transcription.json`.
-
-    Attributes:
-        start: Segment start time in seconds.
-        end: Segment end time in seconds.
-        text: Segment text.
-    """
-
-    start: float = Field(ge=0.0)
-    end: float = Field(ge=0.0)
-    text: str
-    author: SegmentAuthor | None = None
-
-    @model_validator(mode="after")
-    def validate_time_order(self) -> Self:
-        """Validate that the segment does not end before it starts."""
-        if self.end < self.start:
-            raise ValueError("Segment end must be greater than or equal to start.")
-        return self
-
-
-class MergedTranscription(TaraModel):
-    """Canonical analysis input produced by processing."""
-
-    model_config = ConfigDict(extra="allow", validate_assignment=True)
-
-    text: str
-    segments: list[TranscriptionSegment]
-    language: str | None = None
-    duration: float | None = Field(default=None, ge=0.0)
-    model: str | None = None
+        data = load_yaml_or_json(path)
+        if not isinstance(data, dict):
+            msg = f"Expected mapping at root of {path}"
+            raise ValueError(msg)
+        return cls.from_dict(data)
 
 
 class EvidenceSupport(TaraModel):

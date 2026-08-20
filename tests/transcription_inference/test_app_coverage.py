@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,8 +14,8 @@ import inference_server.app as app_module
 from inference_server.app import (
     _cleanup_temp_file,
     _safe_release_backend,
-    _sse,
     _spawn_worker,
+    _sse,
     _start_heartbeat,
     _stop_heartbeat,
     _stream_transcription_worker,
@@ -530,7 +530,6 @@ def test_spawn_worker(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 def test_transcribe_via_worker_final_payload(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Test _transcribe_via_worker returns final payload (lines 307-308)."""
-    import multiprocessing as mp
 
     audio_path = tmp_path / "test.mp3"
     audio_path.write_bytes(b"\x00\x00")
@@ -564,7 +563,6 @@ def test_transcribe_via_worker_final_payload(monkeypatch: pytest.MonkeyPatch, tm
 
 def test_transcribe_via_worker_payload_none(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Test _transcribe_via_worker raises error when payload is None (lines 323-328)."""
-    import multiprocessing as mp
     from fastapi import HTTPException
 
     audio_path = tmp_path / "test.mp3"
@@ -612,7 +610,6 @@ def test_start_heartbeat() -> None:
 def test_stream_transcription_worker_segment_final(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Test _stream_transcription_worker handles segment then final (lines 347-378)."""
     import asyncio
-    import multiprocessing as mp
 
     audio_path = tmp_path / "test.mp3"
     audio_path.write_bytes(b"\x00\x00")
@@ -674,7 +671,6 @@ def test_stream_transcription_worker_segment_final(monkeypatch: pytest.MonkeyPat
 def test_stream_transcription_worker_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Test _stream_transcription_worker handles error message (lines 357-365)."""
     import asyncio
-    import multiprocessing as mp
 
     audio_path = tmp_path / "test.mp3"
     audio_path.write_bytes(b"\x00\x00")
@@ -733,7 +729,6 @@ def test_stream_transcription_worker_error(monkeypatch: pytest.MonkeyPatch, tmp_
 def test_stream_transcription_worker_proc_exited(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Test _stream_transcription_worker handles proc exited unexpectedly (lines 366-373)."""
     import asyncio
-    import multiprocessing as mp
 
     audio_path = tmp_path / "test.mp3"
     audio_path.write_bytes(b"\x00\x00")

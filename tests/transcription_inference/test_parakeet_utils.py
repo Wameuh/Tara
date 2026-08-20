@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import sys
-import tempfile
 from pathlib import Path
-from types import ModuleType
 from unittest.mock import MagicMock, patch
 
 import numpy as np

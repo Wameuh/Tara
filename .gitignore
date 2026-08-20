@@ -5,13 +5,22 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.pytest-*/
 .ruff_cache/
 .coverage
 htmlcov/
 .venv/
 venv/
+.npm-cache/
+.review-tmp/
+tmp/
 dist/
 build/
+webinterface/frontend/node_modules/
+webinterface/frontend/dist/
+webinterface/frontend/playwright-report/
+webinterface/frontend/test-results/
+webinterface/frontend/e2e/screenshots/
 *.egg-info/
 
 *.log
@@ -32,10 +41,14 @@ debug/
 tmp/runtime/
 
 # Track only the Tara review Cursor skill (other .cursor paths may be ignored globally)
+.cursor/
+!.cursor/
 .cursor/*
 !.cursor/skills/
 !.cursor/skills/tara-review/
 !.cursor/skills/tara-review/**
+!.cursor/rules/
+!.cursor/rules/**
 
 *.mp3
 *.wav

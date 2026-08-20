@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 import inference_server.app as app_module
 from inference_server.app import app
-from inference_server.backend import create_backend
-from inference_server.backend import TranscriptionBackend
+from inference_server.backend import TranscriptionBackend, create_backend
 from inference_server.faster_whisper_backend import FasterWhisperBackend
 from inference_server.parakeet_backend import ParakeetBackend
 

@@ -49,6 +49,26 @@ Use the report skeleton in [report_template.md](report_template.md). Set
 6. Do not mark the roadmap task complete in `projet.md` until every required
    report shows `Status: Approved`.
 
+## Optional: Cursor CLI batch runner (`agent -p`)
+
+For scripted or CI-style refresh of all five markdown reports without Composer 2
+subagents, use the batch helper documented in
+[`scripts/README.md`](../scripts/README.md):
+
+- Path (from TaraRepo root):
+  `.cursor/skills/tara-review/scripts/run_cursor_review_agents.py`
+- It runs the Cursor Agent CLI as `agent -p --trust` (non-interactive), not the
+  Composer 2 chat workflow above.
+- Default `--model` is `auto`. When project policy requires parity with the
+  **Composer 2** gate described in this file and in `projet.md`, pass `--model`
+  explicitly to the same model you use for manual reviews (see `agent models`).
+- For a **single commit**, omit `--since` (reviewers use `git show <rev>`). For
+  **cumulative** changes, pass `--since=<base>` so instructions use
+  `git diff <since>..<commit>` (end revision defaults to `HEAD` or `--commit`).
+- Reports still use [report_template.md](report_template.md); set the header line
+  `Reviewer model:` to the value required for that run (for example
+  `auto (Cursor CLI agent -p)` when spawned by the script).
+
 ## Invocation checklist (paste into the subagent task)
 
 - Model: **Composer 2**

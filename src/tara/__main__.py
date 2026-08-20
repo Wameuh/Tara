@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-import json
+import os
 import sys
 from collections.abc import Sequence
 
 from tara.cli import ArgumentParserError, parse_args
 from tara.pipeline import run_from_args
+from tara.run_reporting import emit_llm_usage_summary
+from tara.yaml_utils import to_yaml
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -28,7 +30,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except Exception as exc:
         print(f"Tara run failed: {exc}", file=sys.stderr)
         return 1
-    print(json.dumps(result.to_dict(), ensure_ascii=True, indent=2))
+    print(to_yaml(result.to_dict()))
+    if os.environ.get("TARA_RUN_REPORTING") != "bat":
+        emit_llm_usage_summary(result.session_summary_json_path)
     return 0
 
 

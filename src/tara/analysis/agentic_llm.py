@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, cast
 
 from pydantic import BaseModel
@@ -28,9 +28,10 @@ from tara.analysis.structured_output import (
     ComposerLLMPayload,
     SpecialistExtractionPayload,
     claim_type_from_string,
-    extract_json_text,
-    parse_typed_json_lenient,
+    extract_yaml_text,
+    parse_typed_yaml_lenient,
 )
+from tara.yaml_utils import to_yaml
 
 LOGGER = logging.getLogger(__name__)
 
@@ -68,7 +69,7 @@ def _merge_usage(a: LLMUsageDelta, b: LLMUsageDelta) -> LLMUsageDelta:
     )
 
 
-def parse_with_single_json_repair[T: BaseModel](
+def parse_with_single_yaml_repair[T: BaseModel](
     model: type[T],
     raw: str,
     llm_runner: LLMRunner,
@@ -77,13 +78,13 @@ def parse_with_single_json_repair[T: BaseModel](
     schema_description: str,
     initial_usage: LLMUsageDelta,
 ) -> tuple[T | None, LLMUsageDelta]:
-    """Parse JSON; on failure run exactly one repair completion and re-parse.
+    """Parse YAML; on failure run exactly one repair completion and re-parse.
 
     Args:
         model: Pydantic model for the expected payload.
         raw: Raw completion text from the primary LLM call.
         llm_runner: Runner used for the optional repair pass.
-        repair_purpose_prefix: Base ``purpose`` for telemetry; ``.json_repair``
+        repair_purpose_prefix: Base ``purpose`` for telemetry; ``.yaml_repair``
             is appended for the repair request.
         schema_description: Short human-readable schema hint for the repair
             prompt.
@@ -93,26 +94,26 @@ def parse_with_single_json_repair[T: BaseModel](
         Parsed instance (or ``None``) and merged usage including any repair
         call.
     """
-    parsed, err = parse_typed_json_lenient(model, raw)
+    parsed, err = parse_typed_yaml_lenient(model, raw)
     if parsed is not None:
         return parsed, initial_usage
 
-    snippet = extract_json_text(raw)
+    snippet = extract_yaml_text(raw)
     max_chars = 12_000
     if len(snippet) > max_chars:
         snippet = snippet[:max_chars] + "\n... (truncated)"
 
     repair_request = LLMRequest(
-        purpose=f"{repair_purpose_prefix}.json_repair",
+        purpose=f"{repair_purpose_prefix}.yaml_repair",
         system_prompt=(
-            "You output a single valid JSON object only. "
+            "You output a single valid YAML mapping only. "
             "No markdown code fences, no commentary before or after."
         ),
         user_prompt=(
-            "The following text was meant to be JSON for this target schema:\n"
+            "The following text was meant to be YAML for this target schema:\n"
             f"{schema_description}\n\n"
             f"Parse/validation error:\n{err}\n\n"
-            "Rewrite it into one valid JSON object that satisfies the schema.\n"
+            "Rewrite it into one valid YAML mapping that satisfies the schema.\n"
             "Invalid or partial output:\n"
             f"{snippet}"
         ),
@@ -122,21 +123,24 @@ def parse_with_single_json_repair[T: BaseModel](
         repair_response = llm_runner.run(repair_request)
     except Exception as exc:
         LOGGER.warning(
-            "JSON repair LLM call failed for %s: %s",
+            "YAML repair LLM call failed for %s: %s",
             repair_purpose_prefix,
             exc,
         )
         return None, initial_usage
 
     merged = _merge_usage(initial_usage, _response_usage(repair_response))
-    parsed2, err2 = parse_typed_json_lenient(model, repair_response.content)
+    parsed2, err2 = parse_typed_yaml_lenient(model, repair_response.content)
     if parsed2 is None:
         LOGGER.warning(
-            "JSON repair did not yield a valid parse for %s: %s",
+            "YAML repair did not yield a valid parse for %s: %s",
             repair_purpose_prefix,
             err2,
         )
     return parsed2, merged
+
+
+parse_with_single_json_repair = parse_with_single_yaml_repair
 
 
 def run_specialist_extraction(
@@ -147,6 +151,8 @@ def run_specialist_extraction(
     default_claim_type: ClaimType,
     is_critical_default: bool,
     context_text: str | None = None,
+    transcription_path: Path | None = None,
+    cursor_cli_specialist_tool: bool = False,
 ) -> tuple[list[EvidenceAnswer], LLMUsageDelta]:
     """Call the LLM once to extract structured facts from evidence chunks.
 
@@ -172,15 +178,21 @@ def run_specialist_extraction(
         }
         for chunk in chunks
     ]
-    q_meta = json.dumps(question.model_dump(mode="json"), ensure_ascii=True)
-    chunks_json = json.dumps(chunk_payload, ensure_ascii=True, indent=2)
+    q_meta = to_yaml(question.model_dump(mode="json"))
+    chunks_yaml = to_yaml(chunk_payload)
     user_prompt = (
         "You extract tabletop RPG session facts from evidence chunks only.\n"
-        "Return strict JSON matching this schema:\n"
-        '{"facts":[{"claim":"string","type":"chronology|combat_outcome|character_state|'
-        'quest_continuity|resource_state|final_state","confidence":"high|medium|low",'
-        '"supporting_chunk_ids":["chunk_id",...],"uncertainty":null|string}],'
-        '"open_questions":[],"rejected_noise":[]}\n'
+        "Return strict YAML matching this schema:\n"
+        "facts:\n"
+        "  - claim: string\n"
+        "    type: chronology|combat_outcome|character_state|quest_continuity|"
+        "resource_state|final_state\n"
+        "    confidence: high|medium|low\n"
+        "    supporting_chunk_ids:\n"
+        "      - chunk_id\n"
+        "    uncertainty: null or string\n"
+        "open_questions: []\n"
+        "rejected_noise: []\n"
         "Rules:\n"
         "- Every factual claim must cite at least one supporting_chunk_id "
         "from the input.\n"
@@ -188,38 +200,40 @@ def run_specialist_extraction(
         "- Do not copy long raw transcript quotes as claims; "
         "synthesize short factual claims.\n"
         "- If evidence is weak, return fewer facts or mark uncertainty.\n\n"
-        f"{_general_context_block(context_text)}"
-        f"{_evidence_strictness_policy_block()}"
-        f"{_speaker_attribution_policy_block()}"
-        f"Question metadata: {q_meta}\n\n"
-        f"Evidence chunks JSON:\n{chunks_json}"
+        f"{_specialist_tool_block(
+            chunks,
+            transcription_path,
+            cursor_cli_specialist_tool,
+        )}"
+        f"Question metadata:\n{q_meta}\n\n"
+        f"Evidence chunks YAML:\n{chunks_yaml}"
     )
     request = LLMRequest(
         purpose="analysis.specialist_extraction",
-        system_prompt=(
-            "You are a structured information extraction assistant. "
-            "Reply with JSON only, no markdown fences."
-        ),
+        stage="specialist",
+        system_prompt=build_specialist_system_prompt(context_text),
         user_prompt=user_prompt,
         temperature=0.0,
         metadata={"question_id": question.question_id},
     )
     response = llm_runner.run(request)
     usage = _response_usage(response)
-    parsed, usage = parse_with_single_json_repair(
+    parsed, usage = parse_with_single_yaml_repair(
         SpecialistExtractionPayload,
         response.content,
         llm_runner,
         repair_purpose_prefix="analysis.specialist_extraction",
         schema_description=(
-            '{"facts":[{"claim","type","confidence","supporting_chunk_ids",'
-            '"uncertainty"}...],"open_questions":[],"rejected_noise":[]}'
+            "facts:\n"
+            "  - claim, type, confidence, supporting_chunk_ids, uncertainty\n"
+            "open_questions: []\n"
+            "rejected_noise: []"
         ),
         initial_usage=usage,
     )
     if parsed is None:
         LOGGER.warning(
-            "Specialist JSON parse failed for %s after repair",
+            "Specialist YAML parse failed for %s after repair",
             question.question_id,
         )
         return [], usage
@@ -289,8 +303,8 @@ def run_composer_llm(
     Returns:
         A validated draft and usage delta.
     """
-    forbidden_json = json.dumps(do_not_claim, ensure_ascii=True)
-    facts_json = json.dumps(facts_payload, ensure_ascii=True, indent=2)
+    forbidden_yaml = to_yaml(do_not_claim)
+    facts_yaml = to_yaml(facts_payload)
     user_prompt = (
         "Compose a French campaign session summary from supported facts only.\n"
         "The goal is to remind players what happened before the next session: "
@@ -306,8 +320,10 @@ def run_composer_llm(
         "sentence one names the major event/outcome, sentence two names the "
         "lasting consequence or transition. Do not produce a blow-by-blow "
         "complete recap in that section.\n"
-        "Prefer synthesis over blow-by-blow combat narration. Group tactical "
-        "exchanges into meaningful phases and outcomes.\n"
+        "For combat phases, state who was fought and the outcome only. Do not "
+        "narrate individual attacks, spells, kills, or positioning unless they "
+        "create a lasting consequence players must remember (especially a player "
+        "character KO or unconsciousness).\n"
         "Do not include dice rolls, attack totals, save DCs, initiative order, "
         "or opportunity attacks unless that mechanical detail directly changes "
         "the story state, a character's final condition, or a resource players "
@@ -341,8 +357,8 @@ def run_composer_llm(
         "Do not print answer IDs, chunk IDs, scene IDs, or evidence citations in "
         "the markdown text. Those references belong only in the JSON "
         "supporting_answer_ids fields.\n"
-        "Return strict JSON with keys markdown (full document) and sections "
-        "(list of {section_id,title,content,supporting_answer_ids}).\n"
+        "Return strict YAML with keys markdown (full document) and sections "
+        "(list of section_id, title, content, supporting_answer_ids).\n"
         "Do not include internal agent labels such as 'ChronologyAgent:'.\n\n"
         "Use character names and MJ in the final summary when the general "
         "context makes those names clear. Avoid player pseudonyms in the final "
@@ -350,39 +366,37 @@ def run_composer_llm(
         "than guessing. If Facts JSON contains neutral wording for a hit, fall, "
         "condition, spell, or other action, do not replace it with a named "
         "character from the scene timeline.\n\n"
-        f"{_prior_context_block(prior_context_text)}"
-        f"{_general_context_block(context_text)}"
-        f"{_evidence_strictness_policy_block()}"
-        f"{_speaker_attribution_policy_block()}"
         f"{_scene_timeline_block(scene_timeline)}"
-        f"Forbidden claims (do not restate): {forbidden_json}\n\n"
-        f"Facts JSON:\n{facts_json}"
+        f"Forbidden claims (do not restate):\n{forbidden_yaml}\n\n"
+        f"Facts YAML:\n{facts_yaml}"
     )
     request = LLMRequest(
         purpose="analysis.summary_composer",
-        system_prompt=(
-            "You are a careful editor for tabletop RPG session notes. "
-            "Reply with JSON only, no markdown fences."
+        stage="composer",
+        system_prompt=build_composer_system_prompt(
+            context_text=context_text,
+            prior_context_text=prior_context_text,
         ),
         user_prompt=user_prompt,
         temperature=0.2,
     )
     response = llm_runner.run(request)
     usage = _response_usage(response)
-    parsed, usage = parse_with_single_json_repair(
+    parsed, usage = parse_with_single_yaml_repair(
         ComposerLLMPayload,
         response.content,
         llm_runner,
         repair_purpose_prefix="analysis.summary_composer",
         schema_description=(
-            '{"markdown":"French session summary markdown",'
-            '"sections":[{"section_id","title","content","supporting_answer_ids"}]}'
+            "markdown: French session summary markdown\n"
+            "sections:\n"
+            "  - section_id, title, content, supporting_answer_ids"
         ),
         initial_usage=usage,
     )
     if parsed is None:
         LOGGER.warning(
-            "Composer LLM JSON invalid after repair, using fallback draft",
+            "Composer LLM YAML invalid after repair, using fallback draft",
         )
         return _fallback_composer_draft(facts_payload, do_not_claim), usage
     sections = [
@@ -443,6 +457,10 @@ def run_audit_llm(
         "should not include low-level mechanics such as Ki spending, action "
         "economy, exact movement limits, exact positioning, transient combat "
         "modifiers, or per-attack details unless they are the main consequence.\n"
+        "Reject if a combat phase narrates individual attacks, spells, per-enemy "
+        "kills, positioning, or round-by-round exchanges instead of stating the "
+        "opponent and outcome. Mention combat details only for lasting "
+        "consequences such as a player character KO or unconsciousness.\n"
         "Reject if 'Résumé express' includes bookkeeping details such as "
         "temporary hit point amounts, exact healing numbers, spell-slot "
         "accounting, named concentration bookkeeping, turret/ballista mechanics, "
@@ -460,33 +478,31 @@ def run_audit_llm(
         "weakly inferred from an audio speaker label, an out-of-character joke, "
         "or MJ narration. Audio speaker labels are evidence provenance, not "
         "proof of who acted in the story.\n"
-        'Return JSON {"approved":bool,"issues":["..."]}\n\n'
-        f"{_general_context_block(context_text)}"
-        f"{_evidence_strictness_policy_block()}"
-        f"{_speaker_attribution_policy_block()}"
+        'Return YAML with approved: bool and issues: ["..."]\n\n'
         f"{_scene_timeline_block(scene_timeline)}"
-        f"Do-not-claim list: {json.dumps(do_not_claim, ensure_ascii=True)}\n\n"
-        f"Facts JSON:\n{json.dumps(facts_payload, ensure_ascii=True)}\n\n"
+        f"Do-not-claim list:\n{to_yaml(do_not_claim)}\n\n"
+        f"Facts YAML:\n{to_yaml(facts_payload)}\n\n"
         f"Summary markdown:\n{draft_markdown}"
     )
     request = LLMRequest(
         purpose="analysis.adversarial_audit",
-        system_prompt="You are a strict QA reviewer. Reply with JSON only.",
+        stage="audit",
+        system_prompt=build_audit_system_prompt(context_text),
         user_prompt=user_prompt,
         temperature=0.0,
     )
     response = llm_runner.run(request)
     usage = _response_usage(response)
-    parsed, usage = parse_with_single_json_repair(
+    parsed, usage = parse_with_single_yaml_repair(
         AuditLLMPayload,
         response.content,
         llm_runner,
         repair_purpose_prefix="analysis.adversarial_audit",
-        schema_description='{"approved":bool,"issues":["string",...]}',
+        schema_description="approved: bool\nissues:\n  - string",
         initial_usage=usage,
     )
     if parsed is None:
-        return ["audit_json_error: parse failed after repair"], usage
+        return ["audit_yaml_error: parse failed after repair"], usage
     if parsed.approved:
         return [], usage
     return list(parsed.issues), usage
@@ -512,7 +528,7 @@ def run_arbitration_llm(
     user_prompt = (
         "Determine whether these supported claims are complementary details, "
         "duplicates, or genuine contradictions for a tabletop RPG session.\n"
-        "Return JSON with keys: is_contradiction (bool), outcome "
+        "Return YAML with keys: is_contradiction (bool), outcome "
         "(accepted|merged|uncertain|do_not_claim), accepted_answer_ids, "
         "rejected_answer_ids, merged_claim (optional string), basis (string).\n\n"
         "Actor conflict rule: if claims agree on the event but disagree about "
@@ -522,29 +538,30 @@ def run_arbitration_llm(
         "'a character', 'a party member', or 'the group'; reject the "
         "actor-specific variants. If no neutral claim exists, outcome should "
         "be uncertain or merged with a neutral merged_claim.\n\n"
-        f"{_general_context_block(context_text)}"
-        f"{_evidence_strictness_policy_block()}"
-        f"{_speaker_attribution_policy_block()}"
         f"Conflict id: {conflict.conflict_id}\n"
-        f"Facts JSON:\n{json.dumps(fact_rows, ensure_ascii=True, indent=2)}"
+        f"Facts YAML:\n{to_yaml(fact_rows)}"
     )
     request = LLMRequest(
         purpose="analysis.arbitration",
-        system_prompt="You arbitrate factual consistency. Reply with JSON only.",
+        stage="arbitration",
+        system_prompt=build_arbitration_system_prompt(context_text),
         user_prompt=user_prompt,
         temperature=0.0,
     )
     response = llm_runner.run(request)
     usage = _response_usage(response)
-    parsed, usage = parse_with_single_json_repair(
+    parsed, usage = parse_with_single_yaml_repair(
         ArbitrationLLMVerdict,
         response.content,
         llm_runner,
         repair_purpose_prefix="analysis.arbitration",
         schema_description=(
-            '{"is_contradiction":bool,"outcome":"accepted|merged|uncertain|'
-            'do_not_claim","accepted_answer_ids":[],"rejected_answer_ids":[],'
-            '"merged_claim":null|string,"basis":string}'
+            "is_contradiction: bool\n"
+            "outcome: accepted|merged|uncertain|do_not_claim\n"
+            "accepted_answer_ids: []\n"
+            "rejected_answer_ids: []\n"
+            "merged_claim: null or string\n"
+            "basis: string"
         ),
         initial_usage=usage,
     )
@@ -560,6 +577,91 @@ def _looks_like_agent_prefixed_claim(claim: str) -> bool:
         return False
     head = stripped.split(":", 1)[0].strip()
     return head.endswith("Agent")
+
+
+def build_specialist_system_prompt(context_text: str | None) -> str:
+    """Build the stable specialist system prompt for cacheable LLM calls."""
+    return (
+        "You are a structured information extraction assistant. "
+        "Reply with YAML only, no markdown fences.\n\n"
+        f"{_general_context_block(context_text)}"
+        f"{_evidence_strictness_policy_block()}"
+        f"{_speaker_attribution_policy_block()}"
+    )
+
+
+def build_composer_system_prompt(
+    *,
+    context_text: str | None,
+    prior_context_text: str | None,
+) -> str:
+    """Build the stable composer system prompt for cacheable LLM calls."""
+    return (
+        "You are a careful editor for tabletop RPG session notes. "
+        "Reply with YAML only, no markdown fences.\n\n"
+        f"{_prior_context_block(prior_context_text)}"
+        f"{_general_context_block(context_text)}"
+        f"{_evidence_strictness_policy_block()}"
+        f"{_speaker_attribution_policy_block()}"
+        f"{_combat_summarization_policy_block()}"
+    )
+
+
+def build_audit_system_prompt(context_text: str | None) -> str:
+    """Build the stable audit system prompt for cacheable LLM calls."""
+    return (
+        "You are a strict QA reviewer. Reply with YAML only.\n\n"
+        f"{_general_context_block(context_text)}"
+        f"{_evidence_strictness_policy_block()}"
+        f"{_speaker_attribution_policy_block()}"
+        f"{_combat_summarization_policy_block()}"
+    )
+
+
+def build_arbitration_system_prompt(context_text: str | None) -> str:
+    """Build the stable arbitration system prompt for cacheable LLM calls."""
+    return (
+        "You arbitrate factual consistency. Reply with YAML only.\n\n"
+        f"{_general_context_block(context_text)}"
+        f"{_evidence_strictness_policy_block()}"
+        f"{_speaker_attribution_policy_block()}"
+    )
+
+
+def _specialist_tool_block(
+    chunks: list[EvidenceChunk],
+    transcription_path: Path | None,
+    enabled: bool,
+) -> str:
+    """Return optional on-demand excerpt tool instructions for specialists."""
+    if not enabled or transcription_path is None:
+        return ""
+    script_path = (
+        Path(__file__).resolve().parents[3]
+        / ".cursor"
+        / "skills"
+        / "tara-evidence"
+        / "scripts"
+        / "get_excerpt.py"
+    )
+    if not script_path.is_file():
+        return ""
+    ranges = sorted({(chunk.start, chunk.end) for chunk in chunks})
+    range_lines = "\n".join(
+        f"- {start:.1f}s to {end:.1f}s" for start, end in ranges
+    )
+    return (
+        "Optional transcript excerpt tool:\n"
+        "If the evidence chunks are insufficient, you may run this command to "
+        "fetch additional transcript rows by timestamp:\n"
+        f'python "{script_path}" '
+        f'--transcription "{transcription_path.resolve()}" '
+        "--start <seconds> --end <seconds> [--pad 15]\n"
+        "Candidate timestamp ranges from the seed chunks:\n"
+        f"{range_lines}\n"
+        "The seed evidence chunks below remain authoritative; use the tool only "
+        "to add missing context.\n\n"
+    )
 
 
 def _general_context_block(context_text: str | None) -> str:
@@ -624,6 +726,23 @@ def _evidence_strictness_policy_block() -> str:
     )
 
 
+COMBAT_SUMMARIZATION_POLICY = """Combat summarization policy (critical):
+- Do not narrate combats blow-by-blow. In "Résumé express", state who was fought and the outcome in one short sentence whenever possible.
+- Mention individual attacks, spells, damage, positioning, or enemy kills only when they materially change what players must remember before the next session (e.g. a player character KO/unconscious, a lasting wound, a key NPC death, a forced retreat, or a major tactical setback).
+- Omit routine enemy deaths, missed attacks, support buffs, poison duration bookkeeping, and mid-fight enemy traits unless they persist after the fight.
+- Exception: always mention a player character KO or unconsciousness.
+Example — do NOT write:
+**Combat au temple circulaire.** Le groupe affronte des blâmes goule-like dans une salle circulaire éclairée par des ouvertures dans les murs. Garath entre au combat, frappe à mains nues puis se replie ; Ilùvatar pose un Sanctuaire sur Garath et inflige de lourds dégâts à un adversaire, tandis qu'une attaque de lance détruit au moins une tête et que d'autres ennemis tombent, dont plusieurs consumés par le feu. un compagnon est déclarée empoisonnée pour vingt-quatre heures ; Aldrik encaisse d'importantes entailles et le groupe constate que les blâmes semblent parfois profiter des dégâts nécrotiques plutôt que d'en souffrir.
+Example — write instead:
+**Combat au temple circulaire.** Le groupe affronte des blâmes goule-like et finit par les vaincre.
+"""
+
+
+def _combat_summarization_policy_block() -> str:
+    """Return combat brevity rules and good/bad examples for summary prompts."""
+    return f"{COMBAT_SUMMARIZATION_POLICY}\n\n"
+
+
 def _prior_context_block(prior_context_text: str | None) -> str:
     """Return the summary-composer prompt block for previous sessions."""
     if not prior_context_text or not prior_context_text.strip():
@@ -650,7 +769,7 @@ def _scene_timeline_block(scene_timeline: object | None) -> str:
         "authoritative; if the timeline and facts disagree about who acted or "
         "was affected, keep the event and use neutral actor wording.\n"
         "--- scene timeline ---\n"
-        f"{json.dumps(payload, ensure_ascii=True, indent=2)}\n"
+        f"{to_yaml(payload)}\n"
         "--- end scene timeline ---\n\n"
     )
 
@@ -757,7 +876,7 @@ def _fallback_composer_draft(
         markdown=markdown,
         sections=[section, impacts, final_state],
         forbidden_claim_ids=list(do_not_claim),
-        metadata={"source": "composer_fallback", "composer_json_error": True},
+        metadata={"source": "composer_fallback", "composer_yaml_error": True},
     )
 
 

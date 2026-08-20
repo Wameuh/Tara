@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from abc import ABC
-
 import pytest
 
 from inference_server.base_backend import AbstractTranscriptionBackend

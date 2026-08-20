@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import sys
 import os
+import sys
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
+from types import ModuleType
 
 import pytest
 

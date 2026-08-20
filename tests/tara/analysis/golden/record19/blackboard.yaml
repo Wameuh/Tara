@@ -1,0 +1,9 @@
+facts:
+  - fact_id: fact_0001
+    claim: Baseline supported fact.
+    status: supported
+    confidence: high
+    importance: 3
+    do_not_claim: false
+conflicts: []
+do_not_claim_list: []

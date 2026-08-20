@@ -46,18 +46,20 @@ def load_analysis_context(
     *,
     general_path: Path | None,
     prior_path: Path | None,
+    general_char_limit: int | None = GENERAL_CONTEXT_CHAR_LIMIT,
+    prior_char_limit: int | None = PRIOR_CONTEXT_CHAR_LIMIT,
 ) -> AnalysisContext:
     """Load optional general and prior context files."""
     return AnalysisContext(
         general=load_text_context(
             general_path,
             label="context",
-            char_limit=GENERAL_CONTEXT_CHAR_LIMIT,
+            char_limit=general_char_limit,
         ),
         prior=load_text_context(
             prior_path,
             label="prior-context",
-            char_limit=PRIOR_CONTEXT_CHAR_LIMIT,
+            char_limit=prior_char_limit,
         ),
     )
 
@@ -66,7 +68,7 @@ def load_text_context(
     path: Path | None,
     *,
     label: str,
-    char_limit: int,
+    char_limit: int | None,
 ) -> LoadedTextContext:
     """Load an optional text context file with extension and size handling."""
     if path is None:
@@ -81,7 +83,7 @@ def load_text_context(
         return LoadedTextContext(path=None, text=None, warnings=(warning,))
     text = _read_text_with_fallback(resolved)
     warnings: list[str] = []
-    if len(text) > char_limit:
+    if char_limit is not None and len(text) > char_limit:
         text = text[:char_limit].rstrip() + "\n\n[truncated]\n"
         warnings.append(f"{label} file was truncated to {char_limit} characters.")
     return LoadedTextContext(path=resolved, text=text, warnings=tuple(warnings))

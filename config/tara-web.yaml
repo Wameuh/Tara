@@ -1,0 +1,21 @@
+# Portable Tara engine configuration for the Docker web worker.
+transcription:
+  inference_endpoint: http://host.docker.internal:8000
+  inference_auth_provider: none
+  request_timeout_seconds: 1800
+  streaming_enabled: true
+  parallelism: 3
+  modal_max_audio_bytes: 1073741824
+  modal_max_containers: 3
+  modal_files_per_container: 2
+  modal_queue_grace_seconds: 1800
+  modal_usd_per_second: "0.000306"
+analysis:
+  enabled: true
+  pipeline: blackboard_v1
+  output_dir: analysis
+  parallel: true
+  llm:
+    backend: deterministic
+    model: deterministic
+    usd_to_eur_rate: "0.92"

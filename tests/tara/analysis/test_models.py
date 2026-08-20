@@ -49,23 +49,25 @@ def _chunk() -> EvidenceChunk:
     )
 
 
-def test_merged_transcription_allows_optional_metadata() -> None:
-    """Merged transcription should validate known fields and preserve extras."""
+def test_merged_transcription_rejects_legacy_shape_and_extra_fields() -> None:
+    """Only the current envelope is valid outside the explicit adapter."""
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        MergedTranscription.model_validate(
+            {
+                "text": "On est parti.",
+                "segments": [],
+                "source_file": "example.json",
+            }
+        )
     merged = MergedTranscription.model_validate(
         {
-            "text": "On est parti.",
-            "segments": [{"start": 0.0, "end": 1.0, "text": "On est parti."}],
-            "language": "fr",
-            "duration": 1.0,
-            "model": "parakeet",
-            "source_file": "example.json",
+            "schema_name": "tara.merged_transcription",
+            "schema_version": "26.0.1",
+            "metadata": {"language": "fr"},
+            "content": {"text": "On est parti.", "segments": []},
         }
     )
-
-    assert merged.segments == [
-        TranscriptionSegment(start=0.0, end=1.0, text="On est parti.")
-    ]
-    assert merged.model_extra == {"source_file": "example.json"}
+    assert merged.segments == []
 
 
 def test_transcription_segment_accepts_author_metadata() -> None:
@@ -74,7 +76,7 @@ def test_transcription_segment_accepts_author_metadata() -> None:
         start=0.0,
         end=1.0,
         text="On est parti.",
-        author=SegmentAuthor(speaker="wameuh", source_file="2-wameuh.json"),
+        author=SegmentAuthor(speaker="wameuh", source_file="2-wameuh.yaml"),
     )
 
     assert segment.author is not None
@@ -238,7 +240,7 @@ def test_final_summary_sections_require_support() -> None:
         )
 
 
-def test_summary_round_trip_json(tmp_path: Path) -> None:
+def test_summary_round_trip_yaml(tmp_path: Path) -> None:
     """Final summaries should round-trip through JSON files."""
     summary = FinalSummary(
         markdown="## Résumé exécutif\nMolnir tombe.",
@@ -264,10 +266,10 @@ def test_summary_round_trip_json(tmp_path: Path) -> None:
         estimated_llm_tokens=120,
         estimated_cost_usd=0.02,
     )
-    path = tmp_path / "summary.json"
+    path = tmp_path / "summary.yaml"
 
-    summary.to_json(path)
-    loaded = FinalSummary.from_json(path)
+    summary.to_yaml(path)
+    loaded = FinalSummary.from_yaml(path)
 
     assert loaded == summary
 

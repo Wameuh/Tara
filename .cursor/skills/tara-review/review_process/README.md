@@ -10,6 +10,7 @@ It holds **commit safety expectations**, **subagent review prompts**, and
 | [report_template.md](report_template.md) | Markdown structure each reviewer writes to disk |
 | `reviews/` | One directory per roadmap task, each with `agent_1` … `agent_5` reports |
 | `benchmarks/` | Aggregate-only benchmark notes (no private transcript text) |
+| [../scripts/README.md](../scripts/README.md) | Optional batch runner `run_cursor_review_agents.py` (`agent -p`, flags, cumulative `--since`) |
 
 Planning details and acceptance criteria for this workflow live in
 `tmp/tasks/13_commit_review_process.md`. Operational prompts are canonical in
