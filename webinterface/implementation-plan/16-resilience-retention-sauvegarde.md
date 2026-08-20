@@ -82,3 +82,20 @@ Ne jamais sauvegarder audio ou intermediaires. Une sauvegarde ne survit pas a l'
 ## Definition de fin
 
 Les procedures automatiques convergent apres incident et la sauvegarde/restauration a ete executee avec succes sur un jeu representatif.
+
+## Etat d'implementation (2026-08-20)
+
+- Demarrage: verification WAL/integrite explicite avant reconciliation et reprise FIFO.
+- Retention: 24 h maximum pour les intermediaires, 7 jours a partir de la mise
+  a disposition du YAML final et retention des sessions configurable (24 h par
+  defaut).
+- Relance: nouveau job et nouvelle tentative logique pour la relance identique,
+  autorisee une seule fois; copie des entrees encore valides pour la relance
+  editable.
+- Arret: drain, refus des lancements, delai de grace, annulation cooperative,
+  reconciliation et sauvegarde optionnelle observable.
+- Sauvegarde: snapshot SQLite, YAML finaux uniquement, manifeste HMAC, publication
+  atomique, nettoyage selon expiration et restauration hors ligne dans une
+  nouvelle racine.
+- Exploitation: commandes `tara-web-operator backup|restore`, volumes Compose
+  separes, procedure documentee et tests de corruption/expiration/version.

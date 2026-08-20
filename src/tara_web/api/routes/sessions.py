@@ -91,6 +91,8 @@ def launch_job(
     idempotency_key: Annotated[str | None, Header()] = None,
     secret: Annotated[str | None, Header(alias="X-Tara-Job-Secret")] = None,
 ):
+    if request.app.state.draining:
+        return problem(request, 503)
     if expected_revision is None or not idempotency_key:
         return problem(request, 428)
     try:

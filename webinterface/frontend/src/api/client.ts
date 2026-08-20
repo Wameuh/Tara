@@ -28,6 +28,6 @@ export const api = {
   getResult: (id: string, secret: string) => request<ResultSnapshot>(`/api/v1/jobs/${id}/result`, { headers: ownerHeaders(secret) }),
   cancelJob: (id: string, secret: string, revision: number) => request(`/api/v1/jobs/${id}/cancel`, { method: "POST", headers: ownerHeaders(secret, revision, true) }),
   regenerateSecret: (id: string, secret: string, revision: number) => request<{ secret: string; revision: number }>(`/api/v1/jobs/${id}/secret`, { method: "POST", headers: ownerHeaders(secret, revision, true) }),
-  relaunchIdentical: (id: string, secret: string, revision: number) => request(`/api/v1/jobs/${id}/relaunch-identical`, { method: "POST", headers: ownerHeaders(secret, revision, true) }),
+  relaunchIdentical: (id: string, secret: string, revision: number) => request<{ accepted: boolean; job_id?: string | null }>(`/api/v1/jobs/${id}/relaunch-identical`, { method: "POST", headers: ownerHeaders(secret, revision, true) }),
   editAndRelaunch: (id: string, secret: string, revision: number) => request<{ session_id: string }>(`/api/v1/jobs/${id}/edit-and-relaunch`, { method: "POST", headers: ownerHeaders(secret, revision, true) })
 };

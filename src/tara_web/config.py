@@ -100,6 +100,7 @@ class LimitsConfig(StrictModel):
     max_reserved_upload_bytes: int = Field(default=10_737_418_240, ge=1)
     upload_read_timeout_seconds: int = Field(default=30, ge=1, le=600)
     upload_inactivity_seconds: int = Field(default=1800, ge=60, le=86_400)
+    upload_session_retention_hours: int = Field(default=24, ge=1, le=168)
     validation_concurrency: int = Field(default=2, ge=1, le=16)
     public_parallel_uploads: int = Field(default=3, ge=1, le=16)
     ffprobe_timeout_seconds: int = Field(default=30, ge=1, le=600)
@@ -131,6 +132,26 @@ class TimeoutsConfig(StrictModel):
 
 class DocumentationConfig(StrictModel):
     enabled: bool = False
+
+
+class BackupConfig(StrictModel):
+    """Controlled-shutdown backup policy.
+
+    The signing key deliberately lives in the environment and is never part of
+    the serialised web configuration or the backup itself.
+    """
+
+    enabled: bool = False
+    signing_key_env: str = "TARA_WEB_BACKUP_SIGNING_KEY"
+
+    @field_validator("signing_key_env")
+    @classmethod
+    def signing_environment_name_is_safe(cls, value: str) -> str:
+        if not value or not value.replace("_", "").isalnum() or value != value.upper():
+            raise ValueError(
+                "backup signing_key_env must be an uppercase environment variable"
+            )
+        return value
 
 
 class SecurityConfig(StrictModel):
@@ -202,6 +223,7 @@ class WebinterfaceConfig(StrictModel):
     supported_languages: tuple[str, ...] = ("fr",)
     workers: int = Field(default=1, ge=1, le=32)
     documentation: DocumentationConfig = DocumentationConfig()
+    backup: BackupConfig = BackupConfig()
     runner_mode: str = "fake"
     tara_config_path: Path | None = None
     allow_fake_runner: bool = False
@@ -261,6 +283,13 @@ class WebinterfaceConfig(StrictModel):
             raise ValueError("storage.sqlite_path must stay inside storage.root")
         if self.storage.root == self.storage.backups_root:
             raise ValueError("storage.root and storage.backups_root must be separate")
+        backup_root = self.storage.backups_root.resolve(strict=False)
+        if backup_root.is_relative_to(storage_root) or storage_root.is_relative_to(
+            backup_root
+        ):
+            raise ValueError(
+                "storage.root and storage.backups_root must be independent trees"
+            )
         return self
 
 
@@ -270,6 +299,7 @@ class RuntimeConfig(StrictModel):
     web: WebinterfaceConfig
     link_secret: SecretStr | None = None
     upload_hmac_key: SecretStr | None = None
+    backup_signing_key: SecretStr | None = None
     tara_config_snapshot: str | None = None
 
 
@@ -304,6 +334,11 @@ def load_config(
     upload_key = (environ or os.environ).get(web.security.upload_hmac_env)
     if upload_key is not None and len(upload_key.encode("utf-8")) < 32:
         raise ConfigError("upload HMAC key must contain at least 32 bytes")
+    backup_key = (environ or os.environ).get(web.backup.signing_key_env)
+    if backup_key is not None and len(backup_key.encode("utf-8")) < 32:
+        raise ConfigError("backup signing key must contain at least 32 bytes")
+    if web.backup.enabled and backup_key is None:
+        raise ConfigError(f"required secret is missing: {web.backup.signing_key_env}")
     tara_snapshot = (
         _tara_config_snapshot(web.tara_config_path)
         if web.runner_mode == "tara" and web.tara_config_path is not None
@@ -313,6 +348,7 @@ def load_config(
         web=web,
         link_secret=SecretStr(secret) if secret else None,
         upload_hmac_key=SecretStr(upload_key) if upload_key else None,
+        backup_signing_key=SecretStr(backup_key) if backup_key else None,
         tara_config_snapshot=tara_snapshot,
     )
 

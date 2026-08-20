@@ -167,35 +167,23 @@ def relaunch_identical(
     try:
 
         def relaunch(connection: object) -> dict[str, object]:
-            current_attempt = connection.execute(
-                "SELECT current_attempt_number FROM jobs WHERE public_id=?",
-                (job_id,),
-            ).fetchone()
-            if current_attempt is None:
-                raise DatabaseConflict("command unavailable")
+            new_job_id = new_opaque_id("job")
+            new_session_id = new_opaque_id("us")
             request.app.state.budget_service.reserve(
-                job_id,
-                int(current_attempt["current_attempt_number"]) + 1,
+                new_job_id,
+                1,
                 connection=connection,
             )
-            cursor = connection.execute(
-                "UPDATE jobs SET status='queued',current_attempt_number="
-                "current_attempt_number+1,error_code=NULL,error_message_key=NULL,"
-                "stage='queued',substage=NULL,stage_progress_milli=0,"
-                "total_progress_milli=0,queue_position=NULL,estimated_wait_ms=NULL,"
-                "estimated_remaining_ms=NULL,started_at=NULL,finished_at=NULL,"
-                "revision=revision+1,updated_at=datetime('now') "
-                "WHERE public_id=? AND revision=? AND status='timed_out'",
-                (job_id, expected_revision),
+            return request.app.state.relaunch_service.create_identical(
+                connection,
+                source_public_id=job_id,
+                expected_revision=expected_revision,
+                job_public_id=new_job_id,
+                session_public_id=new_session_id,
+                session_retention_hours=(
+                    request.app.state.runtime_config.web.limits.upload_session_retention_hours
+                ),
             )
-            if cursor.rowcount != 1:
-                raise DatabaseConflict("command unavailable")
-            connection.execute(
-                "INSERT INTO job_attempts(job_id,attempt_number,status) "
-                "SELECT id,current_attempt_number,'queued' FROM jobs WHERE public_id=?",
-                (job_id,),
-            )
-            return {"accepted": True}
 
         result = request.app.state.idempotency.transactional_execute(
             "relaunch_identical",
@@ -206,6 +194,7 @@ def relaunch_identical(
         )
         request.app.state.job_scheduler.wakeup()
         request.app.state.publish_job_event(job_id, expected_revision + 1)
+        request.app.state.publish_job_event(str(result["job_id"]), 1)
         return result
     except (DatabaseConflict, IdempotencyConflict):
         return problem(request, 409)
@@ -235,13 +224,16 @@ def edit_and_relaunch(
             if current is None or int(current["revision"]) != expected_revision:
                 raise DatabaseConflict("resource revision conflict")
             session_id = new_opaque_id("us")
-            request.app.state.audio_upload_repository.create_relaunch_session(
-                session_id,
-                request.app.state.secret_hmac.digest(secret, "upload-secret"),
-                parent_job_id=int(row["id"]),
-                connection=connection,
+            return request.app.state.relaunch_service.create_editable(
+                connection,
+                source_public_id=job_id,
+                expected_revision=expected_revision,
+                session_public_id=session_id,
+                secret_hmac=request.app.state.secret_hmac.digest(
+                    secret, "upload-secret"
+                ),
+                retention_hours=request.app.state.runtime_config.web.limits.upload_session_retention_hours,
             )
-            return {"session_id": session_id, "revision": 1}
 
         return request.app.state.idempotency.transactional_execute(
             "edit_and_relaunch",

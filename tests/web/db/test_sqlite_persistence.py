@@ -26,7 +26,7 @@ from tara_web.services.idempotency import (
     SecretHmac,
 )
 
-LATEST_VERSION = 15
+LATEST_VERSION = 16
 
 
 def factory(tmp_path: Path) -> ConnectionFactory:
@@ -175,7 +175,7 @@ def test_migration_is_idempotent_and_rejects_future_version(tmp_path: Path) -> N
     connection = db.connect()
     try:
         assert migrate(connection) == LATEST_VERSION
-        connection.execute("UPDATE schema_version SET version = 16 WHERE id = 1")
+        connection.execute("UPDATE schema_version SET version = 17 WHERE id = 1")
         connection.commit()
         with pytest.raises(DatabaseError, match="newer"):
             migrate(connection)

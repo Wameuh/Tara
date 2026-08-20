@@ -437,6 +437,8 @@ export interface components {
              * @default true
              */
             accepted: boolean;
+            /** Job Id */
+            job_id?: string | null;
         };
         /** CreatedJob */
         CreatedJob: {

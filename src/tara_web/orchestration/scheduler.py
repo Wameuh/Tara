@@ -31,6 +31,7 @@ class Scheduler:
         self._claim_task: asyncio.Task[tuple[object, str] | None] | None = None
         self._claim_requested = False
         self._closed = False
+        self._draining = False
         self._wakeup = asyncio.Event()
 
     def start(self) -> None:
@@ -44,7 +45,7 @@ class Scheduler:
         self._wakeup.set()
 
     def wakeup(self) -> None:
-        if not self._closed:
+        if not self._closed and not self._draining:
             self._claim_requested = True
             self._wakeup.set()
 
@@ -56,6 +57,26 @@ class Scheduler:
             self.pool.cancel(job_id)
             self._wakeup.set()
         return accepted
+
+    @property
+    def draining(self) -> bool:
+        return self._draining
+
+    def begin_drain(self) -> None:
+        """Refuse new claims while the current workers finish."""
+        self._draining = True
+        self._claim_requested = False
+        self._wakeup.set()
+
+    async def wait_idle(self) -> None:
+        while self.pool.active_count:
+            await asyncio.sleep(0.05)
+
+    def cancel_active(self) -> int:
+        cancelled = 0
+        for job_id in self.pool.active_job_ids:
+            cancelled += int(self.cancel(job_id))
+        return cancelled
 
     async def close(self) -> None:
         if self._closed:
@@ -92,7 +113,7 @@ class Scheduler:
                     )
                 self.service.publish_snapshot_change(task.job_id)
                 self._claim_requested = True
-            while self.pool.active_count < self.max_active_jobs:
+            while not self._draining and self.pool.active_count < self.max_active_jobs:
                 if not self._claim_requested:
                     break
                 if self._claim_task is None:

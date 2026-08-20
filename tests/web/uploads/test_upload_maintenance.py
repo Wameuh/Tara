@@ -36,7 +36,7 @@ def upload_stack(
     factory = ConnectionFactory(root / "tara.sqlite3", root)
     connection = factory.connect()
     try:
-        assert migrate(connection) == 15
+        assert migrate(connection) == 16
     finally:
         connection.close()
     repository = AudioUploadRepository(factory)
@@ -294,8 +294,8 @@ def test_upgrade_from_populated_v5_preserves_upload_data(tmp_path: Path) -> None
         )
         connection.commit()
 
-        assert migrate(connection) == 15
-        assert schema_version(connection) == 14
+        assert migrate(connection) == 16
+        assert schema_version(connection) == 16
         upgraded = connection.execute(
             "SELECT person,chunk_size,storage_cleaned_at FROM upload_files WHERE id=?",
             (file_id,),

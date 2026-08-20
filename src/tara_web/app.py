@@ -36,6 +36,8 @@ from .db.migrations import migrate
 from .db.repositories.artifacts import ArtifactRepository
 from .db.repositories.audio_uploads import AudioUploadRepository
 from .estimation.service import EstimationService
+from .lifecycle.shutdown import controlled_backup, controlled_drain
+from .lifecycle.startup import verify_database
 from .orchestration.job_service import JobService
 from .orchestration.job_workspace import JobWorkspaceService
 from .orchestration.scheduler import Scheduler
@@ -49,6 +51,7 @@ from .services.merged_transcription_validation import (
     MergedTranscriptionValidationRunner,
     MergedValidationPolicy,
 )
+from .services.relaunch import RelaunchService
 from .services.upload_maintenance import drain_startup_uploads, maintain_uploads
 from .services.upload_sessions import UploadSessionService
 from .services.validation_scheduler import ValidationScheduler
@@ -58,7 +61,13 @@ from .services.zip_archive_validation import (
 )
 from .services.zip_validation import ZipPolicy
 from .storage.artifacts import ArtifactPolicy, ArtifactService, validate_final_yaml_v1
-from .storage.cleanup import OrphanScanner, cleanup_expired, cleanup_orphans
+from .storage.cleanup import (
+    OrphanScanner,
+    cleanup_expired,
+    cleanup_expired_inputs,
+    cleanup_orphans,
+    expire_job_metadata,
+)
 from .storage.layout import StorageLayout
 from .storage.reconciliation import reconcile_all
 
@@ -71,6 +80,7 @@ def create_app(config: RuntimeConfig, frontend_dist: Path | None = None) -> Fast
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.ready = False
+        app.state.draining = False
         storage = config.web.storage
         for path in (storage.root, storage.backups_root, storage.sqlite_path.parent):
             _create_private_directory(path)
@@ -88,6 +98,7 @@ def create_app(config: RuntimeConfig, frontend_dist: Path | None = None) -> Fast
                 database_path=storage.sqlite_path,
                 backups_root=storage.backups_root,
             )
+            verify_database(connection)
             layout = StorageLayout(storage.root)
             artifacts = ArtifactRepository(database)
             policy = ArtifactPolicy(
@@ -152,11 +163,13 @@ def create_app(config: RuntimeConfig, frontend_dist: Path | None = None) -> Fast
                 max_merged_transcription_bytes=(
                     config.web.limits.max_merged_transcription_bytes
                 ),
+                retention_hours=config.web.limits.upload_session_retention_hours,
                 idempotency=IdempotencyService(database, upload_hmac),
             )
             app.state.audio_upload_repository = audio_uploads
             app.state.artifact_repository = artifacts
             app.state.upload_sessions = upload_sessions
+            app.state.relaunch_service = RelaunchService(layout)
             app.state.chunk_upload = ChunkUploadService(
                 upload_sessions,
                 audio_uploads,
@@ -356,6 +369,19 @@ def create_app(config: RuntimeConfig, frontend_dist: Path | None = None) -> Fast
             yield
         finally:
             app.state.ready = False
+            app.state.draining = True
+            if "scheduler" in locals():
+                drain_result = await controlled_drain(
+                    scheduler,
+                    grace_seconds=config.web.timeouts.shutdown_grace_seconds,
+                )
+                LOGGER.info(
+                    "scheduler_drained",
+                    extra={
+                        "completed": drain_result.completed,
+                        "cancelled": drain_result.cancelled,
+                    },
+                )
             if "maintenance" in locals():
                 maintenance.cancel()
                 try:
@@ -378,7 +404,34 @@ def create_app(config: RuntimeConfig, frontend_dist: Path | None = None) -> Fast
                 await validation_scheduler.close()
             if "scheduler" in locals():
                 await scheduler.close()
+            if "layout" in locals() and "artifacts" in locals():
+                reconcile_all(
+                    layout,
+                    artifacts,
+                    limit=policy.cleanup_batch_size,
+                    max_bytes=policy.max_bytes,
+                    validator=validate_final_yaml_v1,
+                )
             connection.close()
+            if (
+                config.web.backup.enabled
+                and "database" in locals()
+                and "layout" in locals()
+            ):
+                key = config.backup_signing_key
+                if key is None:
+                    raise RuntimeError("controlled backup signing key is unavailable")
+                result = await asyncio.to_thread(
+                    controlled_backup,
+                    database,
+                    layout,
+                    config.web.storage.backups_root,
+                    key.get_secret_value().encode("utf-8"),
+                )
+                LOGGER.info(
+                    "controlled_backup_created",
+                    extra={"artifact_count": result.artifact_count},
+                )
 
     docs_enabled = config.web.documentation.enabled
     app = FastAPI(
@@ -643,6 +696,8 @@ def _storage_maintenance_cycle(
         validator=validate_final_yaml_v1,
     )
     cleanup_expired(layout, artifacts, batch_size=policy.cleanup_batch_size)
+    cleanup_expired_inputs(layout, artifacts, batch_size=policy.cleanup_batch_size)
+    expire_job_metadata(artifacts, batch_size=policy.cleanup_batch_size)
     cleanup_orphans(
         layout,
         artifacts,

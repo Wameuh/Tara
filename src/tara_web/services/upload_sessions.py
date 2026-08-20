@@ -42,6 +42,7 @@ class UploadSessionService:
         max_reserved_bytes: int = 10_737_418_240,
         max_upload_bytes: int = 1_073_741_824,
         max_merged_transcription_bytes: int = 32 * 1024 * 1024,
+        retention_hours: int = 24,
         idempotency: IdempotencyService | None = None,
     ) -> None:
         self.repository, self.layout, self.hmac = repository, layout, hmac_service
@@ -50,6 +51,9 @@ class UploadSessionService:
         self.max_reserved_bytes = max_reserved_bytes
         self.max_upload_bytes = max_upload_bytes
         self.max_merged_transcription_bytes = max_merged_transcription_bytes
+        if not 1 <= retention_hours <= 168:
+            raise ValueError("upload session retention is invalid")
+        self.retention_hours = retention_hours
         self.idempotency = idempotency
 
     def create(
@@ -67,6 +71,7 @@ class UploadSessionService:
                     self.hmac.digest(secret, "upload-secret"),
                     max_sessions=self.max_sessions,
                     input_type=input_type,
+                    expires_hours=self.retention_hours,
                 )
                 return {"session_id": session_id, "revision": 1}
 
@@ -91,6 +96,7 @@ class UploadSessionService:
             self.hmac.digest(secret, "upload-secret"),
             max_sessions=self.max_sessions,
             input_type=input_type,
+            expires_hours=self.retention_hours,
         )
         return CreatedSession(session_id, secret)
 

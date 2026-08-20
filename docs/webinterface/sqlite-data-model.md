@@ -46,3 +46,8 @@ revendiques, un job et une tentative sont crees, puis la session est consommee. 
 d'idempotence ne contiennent que des HMAC versionnes. Les artefacts intermediaires
 expirent apres 24h, le YAML final apres une semaine. `job_metrics` n'a volontairement
 pas de FK: ses echantillons survivent a la purge du job et sont purges par `completed_at`.
+
+Depuis la migration 16, `jobs.identical_relaunch_job_id` enregistre le nouveau job
+cree par une relance identique. La mise a jour conditionnelle depuis `NULL` garantit
+qu'un timeout ne peut produire qu'un seul enfant identique, y compris sous concurrence
+ou apres rejeu idempotent.

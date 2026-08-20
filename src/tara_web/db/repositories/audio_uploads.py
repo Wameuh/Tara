@@ -58,21 +58,30 @@ class AudioUploadRepository:
         secret_hmac: str,
         *,
         parent_job_id: int,
+        expires_hours: int = 24,
         connection: object | None = None,
     ) -> None:
         if connection is not None:
             self._create_relaunch_session(
-                connection, public_id, secret_hmac, parent_job_id
+                connection, public_id, secret_hmac, parent_job_id, expires_hours
             )
             return
         with self._factory.transaction() as database_connection:
             self._create_relaunch_session(
-                database_connection, public_id, secret_hmac, parent_job_id
+                database_connection,
+                public_id,
+                secret_hmac,
+                parent_job_id,
+                expires_hours,
             )
 
     @staticmethod
     def _create_relaunch_session(
-        connection: object, public_id: str, secret_hmac: str, parent_job_id: int
+        connection: object,
+        public_id: str,
+        secret_hmac: str,
+        parent_job_id: int,
+        expires_hours: int,
     ) -> None:
         now = datetime.now(UTC)
         parent = connection.execute(
@@ -89,7 +98,7 @@ class AudioUploadRepository:
             (
                 public_id,
                 secret_hmac,
-                (now + timedelta(hours=24)).isoformat(),
+                (now + timedelta(hours=expires_hours)).isoformat(),
                 now.isoformat(),
                 now.isoformat(),
                 now.isoformat(),

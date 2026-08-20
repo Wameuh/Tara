@@ -86,6 +86,20 @@ export function JobPage({ jobId, secret, locale, go }: { jobId: string; secret?:
     }
   };
 
+  const relaunchIdentical = async () => {
+    if (!currentSecret || !job) return;
+    setCommand(true);
+    try {
+      const relaunched = await api.relaunchIdentical(jobId, currentSecret, job.revision);
+      if (!relaunched.job_id) throw new Error("missing_relaunch_job");
+      go(withSecret(`/jobs/${relaunched.job_id}`, currentSecret));
+    } catch {
+      setToast(t("errors.generic"));
+    } finally {
+      setCommand(false);
+    }
+  };
+
   if (!currentSecret || error) return <main className="page"><h1>{t("job.unavailable")}</h1></main>;
   if (result) return <ResultPage result={result} locale={locale} jobId={jobId} secret={currentSecret} toast={toast} />;
   if (!job) return <main className="page"><h1>{t("app.loading")}</h1></main>;
@@ -111,7 +125,7 @@ export function JobPage({ jobId, secret, locale, go }: { jobId: string; secret?:
     <div className="job-grid"><StageTimeline job={job} /><div><JobInfoPanel job={job} locale={locale} /><div aria-busy={command}>
       <JobActions disabled={command} job={job} onCopy={() => void copy()} onRotate={() => void rotateSecret()}
         onCancel={() => void run(() => api.cancelJob(jobId, currentSecret, job.revision).then(() => setToast(t("toast.cancel_requested"))))}
-        onRelaunch={() => void run(() => api.relaunchIdentical(jobId, currentSecret, job.revision))}
+        onRelaunch={() => void relaunchIdentical()}
         onEdit={() => void run(async () => { const session = await api.editAndRelaunch(jobId, currentSecret, job.revision); go(withSecret(`/sessions/${session.session_id}`, currentSecret)); })} />
     </div></div></div>
     {resultError && <button onClick={() => void loadResult()} disabled={loadingResult}>{t("upload.retry")}</button>}

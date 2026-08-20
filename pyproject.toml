@@ -16,6 +16,7 @@ dependencies = [
 [project.scripts]
 tara = "tara.__main__:main"
 tara-web = "tara_web.main:main"
+tara-web-operator = "tara_web.cli:main"
 
 [project.optional-dependencies]
 dev = [

@@ -8,8 +8,10 @@ services:
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_OVERRIDE]
-    entrypoint: ["/bin/sh", "-c", "mkdir -p /data/runtime /data/backups && chown -R 0:0 /data && chmod 700 /data /data/runtime /data/backups && chown -R 10001:10001 /data"]
-    volumes: [tara_web_data:/data]
+    entrypoint: ["/bin/sh", "-c", "chmod 700 /data/runtime /data/backups && chown -R 10001:10001 /data/runtime /data/backups"]
+    volumes:
+      - tara_web_runtime:/data/runtime
+      - tara_web_backups:/data/backups
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=16m
     network_mode: none
@@ -38,15 +40,17 @@ services:
       TARA_TRANSCRIPTION_PARALLELISM: ${TARA_TRANSCRIPTION_PARALLELISM:-3}
       MODAL_TOKEN_ID: ${MODAL_TOKEN_ID:-}
       MODAL_TOKEN_SECRET: ${MODAL_TOKEN_SECRET:-}
+      TARA_WEB_BACKUP_SIGNING_KEY: ${TARA_WEB_BACKUP_SIGNING_KEY:-}
     volumes:
       - ./config/webinterface.yaml:/config/webinterface.yaml:ro
       - ./config/tara-web.yaml:/config/tara.yaml:ro
-      - tara_web_data:/data
+      - tara_web_runtime:/data/runtime
+      - tara_web_backups:/data/backups
     extra_hosts: ["host.docker.internal:host-gateway"]
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=256m
     networks: [tara_internal, tara_provider]
-    stop_grace_period: 45s
+    stop_grace_period: 90s
     pids_limit: ${TARA_WEB_PIDS_LIMIT:-256}
     mem_limit: ${TARA_WEB_MEM_LIMIT:-2g}
     cpus: ${TARA_WEB_CPUS:-2}
@@ -78,7 +82,9 @@ services:
     cpus: ${TARA_PROXY_CPUS:-0.5}
 
 volumes:
-  tara_web_data:
+  tara_web_runtime:
+  # This volume must be backed by encrypted-at-rest storage in production.
+  tara_web_backups:
 
 networks:
   tara_internal:

@@ -43,6 +43,7 @@ webinterface:
     max_reserved_upload_bytes: 10737418240
     upload_read_timeout_seconds: 30
     upload_inactivity_seconds: 1800
+    upload_session_retention_hours: 24
     validation_concurrency: 2
     public_parallel_uploads: 3
     ffprobe_timeout_seconds: 30
@@ -68,3 +69,8 @@ webinterface:
   workers: 1
   documentation:
     enabled: true
+  # Enable only with a distinct encrypted-at-rest backup filesystem and a
+  # TARA_WEB_BACKUP_SIGNING_KEY value of at least 32 bytes.
+  backup:
+    enabled: false
+    signing_key_env: TARA_WEB_BACKUP_SIGNING_KEY

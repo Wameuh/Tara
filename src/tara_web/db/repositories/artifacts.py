@@ -104,12 +104,18 @@ class ArtifactRepository:
 
     def mark_ready(self, artifact_id: int) -> None:
         with self._factory.transaction() as connection:
+            now = datetime.now(UTC)
             cursor = connection.execute(
                 "UPDATE job_artifacts SET storage_state='ready',"
-                "staged_temp_name=NULL,updated_at=? WHERE id=? "
+                "staged_temp_name=NULL,expires_at=CASE WHEN artifact_type="
+                "'final_yaml' THEN ? ELSE expires_at END,updated_at=? WHERE id=? "
                 "AND storage_state='staged' AND byte_size IS NOT NULL "
                 "AND (artifact_type != 'final_yaml' OR sha256_hex IS NOT NULL)",
-                (utc_now(), artifact_id),
+                (
+                    (now + _RETENTION["final_result"]).isoformat(),
+                    now.isoformat(),
+                    artifact_id,
+                ),
             )
             if cursor.rowcount != 1:
                 raise DatabaseConflict("artifact state conflict")
@@ -156,6 +162,10 @@ class ArtifactRepository:
 
     def mark_deleted(self, artifact_id: int) -> None:
         with self._factory.transaction() as connection:
+            row = connection.execute(
+                "SELECT job_id,artifact_type FROM job_artifacts WHERE id=?",
+                (artifact_id,),
+            ).fetchone()
             cursor = connection.execute(
                 "UPDATE job_artifacts SET storage_state='deleted',deleted_at=?,"
                 "original_filename=NULL,staged_temp_name=NULL,updated_at=? "
@@ -164,6 +174,12 @@ class ArtifactRepository:
             )
             if cursor.rowcount != 1:
                 raise DatabaseConflict("artifact state conflict")
+            if row is not None and row["artifact_type"] == "final_yaml":
+                connection.execute(
+                    "UPDATE jobs SET status='expired',revision=revision+1,"
+                    "updated_at=? WHERE id=? AND status='completed'",
+                    (utc_now(), row["job_id"]),
+                )
 
     def get_final_ready(self, *, artifact_id: int, job_id: int) -> dict[str, object]:
         connection = self._factory.connect()
@@ -220,6 +236,69 @@ class ArtifactRepository:
             (now,),
             limit,
         )
+
+    def expired_input_batch(self, now: str, limit: int) -> list[dict[str, object]]:
+        if not isinstance(limit, int) or not 1 <= limit <= 10_000:
+            raise ValueError("artifact batch is invalid")
+        connection = self._factory.connect()
+        try:
+            rows = connection.execute(
+                "SELECT p.id,p.job_id,p.destination_path,j.public_id "
+                "FROM job_input_preparations p "
+                "JOIN upload_files f ON f.id=p.upload_file_id "
+                "JOIN jobs j ON j.id=p.job_id WHERE p.state='moved' "
+                "AND j.status IN ('completed','failed','timed_out','cancelled',"
+                "'cancel_failed','expired','deleted') "
+                "AND julianday(f.created_at,'+24 hours')<=julianday(?) "
+                "ORDER BY p.id LIMIT ?",
+                (now, limit),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            connection.close()
+
+    def remove_input_preparation(self, preparation_id: int) -> None:
+        with self._factory.transaction() as connection:
+            connection.execute(
+                "DELETE FROM job_input_preparations WHERE id=? AND job_id IN "
+                "(SELECT id FROM jobs WHERE status IN ('completed','failed',"
+                "'timed_out','cancelled','cancel_failed','expired','deleted'))",
+                (preparation_id,),
+            )
+
+    def job_has_input_preparations(self, job_id: int) -> bool:
+        connection = self._factory.connect()
+        try:
+            return (
+                connection.execute(
+                    "SELECT 1 FROM job_input_preparations WHERE job_id=? LIMIT 1",
+                    (job_id,),
+                ).fetchone()
+                is not None
+            )
+        finally:
+            connection.close()
+
+    def expire_jobs(self, now: str, limit: int) -> int:
+        if not isinstance(limit, int) or not 1 <= limit <= 10_000:
+            raise ValueError("artifact batch is invalid")
+        with self._factory.transaction() as connection:
+            rows = connection.execute(
+                "SELECT id FROM jobs WHERE status IN ('completed','failed',"
+                "'timed_out','cancelled','cancel_failed') AND expires_at IS NOT NULL "
+                "AND julianday(expires_at)<=julianday(?) ORDER BY id LIMIT ?",
+                (now, limit),
+            ).fetchall()
+            if not rows:
+                return 0
+            identifiers = [int(row["id"]) for row in rows]
+            marks = ",".join("?" for _ in identifiers)
+            connection.execute(
+                f"UPDATE jobs SET status='expired',revision=revision+1,updated_at=? "
+                f"WHERE id IN ({marks})",
+                (now, *identifiers),
+            )
+            return len(identifiers)
 
     def path_exists(self, relative_path: str) -> bool:
         connection = self._factory.connect()

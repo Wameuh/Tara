@@ -35,6 +35,7 @@ MIGRATIONS = (
     Migration(13, "0013_merged_transcription_upload.sql"),
     Migration(14, "0014_zip_archives.sql"),
     Migration(15, "0015_inference_budget.sql"),
+    Migration(16, "0016_resilience.sql"),
 )
 
 

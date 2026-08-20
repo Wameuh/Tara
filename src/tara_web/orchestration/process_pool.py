@@ -53,6 +53,10 @@ class ProcessPool:
     def active_count(self) -> int:
         return len(self._tasks)
 
+    @property
+    def active_job_ids(self) -> tuple[str, ...]:
+        return tuple(self._tasks)
+
     def submit(
         self,
         request: RunnerRequest,

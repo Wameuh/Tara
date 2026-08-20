@@ -196,6 +196,44 @@ def cleanup_expired(
     return count
 
 
+def cleanup_expired_inputs(
+    layout: StorageLayout,
+    repository: ArtifactRepository,
+    *,
+    batch_size: int,
+    now: datetime | None = None,
+) -> int:
+    """Remove terminal job inputs no later than 24 hours after upload."""
+    _validate_cleanup_arguments(batch_size=batch_size, now=now)
+    current = now or datetime.now(UTC)
+    count = 0
+    for row in repository.expired_input_batch(current.isoformat(), batch_size):
+        try:
+            destination = layout.parse_artifact_path(str(row["destination_path"]))
+            unlink_regular(layout, destination)
+            repository.remove_input_preparation(int(row["id"]))
+            job_id = int(row["job_id"])
+            if not repository.job_has_input_preparations(job_id):
+                unlink_regular(
+                    layout, layout.source_manifest(str(row["public_id"]))
+                )
+            count += 1
+        except (DatabaseConflict, StorageError, ValueError):
+            continue
+    return count
+
+
+def expire_job_metadata(
+    repository: ArtifactRepository,
+    *,
+    batch_size: int,
+    now: datetime | None = None,
+) -> int:
+    _validate_cleanup_arguments(batch_size=batch_size, now=now)
+    current = now or datetime.now(UTC)
+    return repository.expire_jobs(current.isoformat(), batch_size)
+
+
 def _validate_cleanup_arguments(
     *,
     batch_size: int,

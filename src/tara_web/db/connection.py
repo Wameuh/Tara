@@ -25,6 +25,8 @@ def _assert_safe_database_path(path: Path, storage_root: Path) -> None:
         raise DatabaseError("database storage must not be a symbolic link")
     raw_root = storage_root.absolute()
     raw_path = path.absolute()
+    if path.exists() and path.is_symlink():
+        raise DatabaseError("database file must not be a symbolic link")
     if not raw_path.is_relative_to(raw_root):
         raise DatabaseError("database path is outside configured storage")
     entry = raw_path.parent
@@ -38,8 +40,6 @@ def _assert_safe_database_path(path: Path, storage_root: Path) -> None:
     candidate = path.resolve(strict=False)
     if not candidate.is_relative_to(root):
         raise DatabaseError("database path is outside configured storage")
-    if path.exists() and path.is_symlink():
-        raise DatabaseError("database file must not be a symbolic link")
     if os.name != "nt":
         for entry in (root, path.parent):
             if entry.exists() and entry.stat().st_mode & 0o077:

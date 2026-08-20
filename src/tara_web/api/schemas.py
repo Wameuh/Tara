@@ -232,6 +232,9 @@ class ProblemDetails(PublicModel):
 
 class CommandAccepted(PublicModel):
     accepted: bool = True
+    job_id: Annotated[
+        str | None, Field(pattern=r"^[A-Za-z0-9_-]+$", max_length=128)
+    ] = None
 
 
 class DeletedResponse(PublicModel):
