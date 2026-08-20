@@ -1,0 +1,29 @@
+# Production container paths. Secrets are supplied as mounted files.
+webinterface:
+  storage:
+    root: /data/runtime
+    backups_root: /data/backups
+    sqlite_path: /data/runtime/db/tara-web.sqlite3
+  public_url: https://localhost:8443
+  security:
+    allowed_hosts: [localhost, 127.0.0.1]
+    allowed_origins: []
+    upload_hmac_env: TARA_WEB_UPLOAD_HMAC_KEY
+    trusted_proxy_networks: [172.29.0.0/29]
+  limits:
+    max_active_jobs: 5
+    storage_maintenance_interval_seconds: 3600
+    upload_session_retention_hours: 24
+  timeouts:
+    shutdown_grace_seconds: 30
+  default_language: fr
+  locale: fr-FR
+  supported_languages: [fr, en]
+  runner_mode: tara
+  tara_config_path: /config/tara.yaml
+  workers: 1
+  documentation:
+    enabled: false
+  backup:
+    enabled: true
+    signing_key_env: TARA_WEB_BACKUP_SIGNING_KEY

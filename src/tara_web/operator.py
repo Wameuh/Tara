@@ -24,6 +24,7 @@ def main() -> None:
     budget = commands.add_parser("set-budget")
     budget.add_argument("ceiling_micro_eur", type=int)
     commands.add_parser("backup")
+    commands.add_parser("migrate")
     restore = commands.add_parser("restore")
     restore.add_argument("generation", type=Path)
     restore.add_argument("--not-before", type=datetime.fromisoformat)
@@ -56,9 +57,21 @@ def main() -> None:
     )
     connection = database.connect()
     try:
-        migrate(connection)
+        migrate(
+            connection,
+            database_path=config.web.storage.sqlite_path,
+            backups_root=config.web.storage.backups_root,
+        )
     finally:
         connection.close()
+    if arguments.command == "migrate":
+        with database.transaction() as connection:
+            connection.execute(
+                "INSERT INTO operator_action_audit(action,target,created_at) "
+                "VALUES('migrate','current-schema',?)",
+                (utc_now(),),
+            )
+        return
     if arguments.command == "backup":
         result = create_backup(
             database,

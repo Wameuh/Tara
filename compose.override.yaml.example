@@ -1,0 +1,31 @@
+services:
+  tara-web-migrate:
+    secrets: [backup_signing_key]
+    environment:
+      TARA_WEB_BACKUP_SIGNING_KEY_FILE: /run/secrets/backup_signing_key
+  tara-web:
+    environment:
+      TARA_INFERENCE_ENDPOINT: http://host.docker.internal:8000
+      TARA_WEB_BACKUP_SIGNING_KEY_FILE: /run/secrets/backup_signing_key
+      MODAL_TOKEN_ID_FILE: /run/secrets/modal_token_id
+      MODAL_TOKEN_SECRET_FILE: /run/secrets/modal_token_secret
+    secrets:
+      - backup_signing_key
+      - modal_token_id
+      - modal_token_secret
+  tara-web-backup:
+    secrets: [backup_signing_key]
+    environment:
+      TARA_WEB_BACKUP_SIGNING_KEY_FILE: /run/secrets/backup_signing_key
+  tara-web-restore:
+    secrets: [backup_signing_key]
+    environment:
+      TARA_WEB_BACKUP_SIGNING_KEY_FILE: /run/secrets/backup_signing_key
+
+secrets:
+  backup_signing_key:
+    file: ${TARA_WEB_BACKUP_KEY_FILE:-./secrets/backup-signing-key}
+  modal_token_id:
+    file: ${MODAL_TOKEN_ID_FILE:-./secrets/modal-token-id}
+  modal_token_secret:
+    file: ${MODAL_TOKEN_SECRET_FILE:-./secrets/modal-token-secret}

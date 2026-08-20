@@ -107,6 +107,20 @@ def test_backup_and_offline_restore_copy_only_database_and_live_final_yaml(
     assert not (restored / "uploads").exists()
 
 
+def test_restore_validates_database_from_read_only_generation(tmp_path: Path) -> None:
+    factory, layout, _ = _source(tmp_path)
+    result = create_backup(factory, layout, tmp_path / "backups", KEY)
+    database = result.path / "state.sqlite3"
+    database.chmod(0o400)
+    result.path.chmod(0o500)
+    try:
+        restored = restore_backup(result.path, tmp_path / "read-only-restore", KEY)
+        assert (restored / "db" / "tara.sqlite3").is_file()
+    finally:
+        result.path.chmod(0o700)
+        database.chmod(0o600)
+
+
 def test_restore_rejects_modified_manifest_before_creating_target(
     tmp_path: Path,
 ) -> None:

@@ -1,23 +1,66 @@
 services:
   tara-web-init:
     image: tara-web:local
-    build: .
+    build:
+      context: .
+      args:
+        OCI_SOURCE: ${TARA_OCI_SOURCE:-local}
+        OCI_REVISION: ${TARA_OCI_REVISION:-unknown}
+        OCI_VERSION: ${TARA_OCI_VERSION:-dev}
     user: "0:0"
     read_only: true
     privileged: false
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
-    cap_add: [CHOWN, DAC_OVERRIDE]
-    entrypoint: ["/bin/sh", "-c", "chmod 700 /data/runtime /data/backups && chown -R 10001:10001 /data/runtime /data/backups"]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    entrypoint: ["/bin/sh", "-c", "chmod 700 /data/runtime /data/runtime/db /data/backups && chown -R 10001:10001 /data/runtime /data/backups"]
     volumes:
-      - tara_web_runtime:/data/runtime
+      - tara_web_jobs:/data/runtime
+      - tara_web_db:/data/runtime/db
       - tara_web_backups:/data/backups
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,size=16m
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
     network_mode: none
     pids_limit: 32
     mem_limit: ${TARA_WEB_INIT_MEM_LIMIT:-64m}
     cpus: ${TARA_WEB_INIT_CPUS:-0.25}
+    restart: "no"
+    logging: &bounded_logs
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  tara-web-migrate:
+    image: tara-web:local
+    user: "10001:10001"
+    read_only: true
+    privileged: false
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    depends_on:
+      tara-web-init: { condition: service_completed_successfully }
+    entrypoint: ["/app/scripts/docker-migrate.sh"]
+    environment: &tara_environment
+      TARA_WEB_CONFIG: /config/webinterface.yaml
+      TARA_WEB_STORAGE_ROOT: /data/runtime
+      TARA_WEB_BACKUPS_ROOT: /data/backups
+      TARA_WEB_SQLITE_PATH: /data/runtime/db/tara-web.sqlite3
+      TARA_WEB_PUBLIC_URL: ${TARA_WEB_PUBLIC_URL:-https://localhost:8443}
+      TARA_WEB_TARA_CONFIG: /config/tara.yaml
+      TARA_INFERENCE_ENDPOINT: ${TARA_INFERENCE_ENDPOINT:-http://host.docker.internal:8000}
+      TARA_INFERENCE_AUTH_PROVIDER: ${TARA_INFERENCE_AUTH_PROVIDER:-none}
+      TARA_TRANSCRIPTION_PARALLELISM: ${TARA_TRANSCRIPTION_PARALLELISM:-3}
+    volumes: &tara_volumes
+      - ./config/docker.example.yaml:/config/webinterface.yaml:ro
+      - ./config/tara-web.yaml:/config/tara.yaml:ro
+      - tara_web_jobs:/data/runtime
+      - tara_web_db:/data/runtime/db
+      - tara_web_backups:/data/backups
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=32m"]
+    network_mode: none
+    pids_limit: 64
+    mem_limit: ${TARA_WEB_MIGRATE_MEM_LIMIT:-256m}
+    cpus: ${TARA_WEB_MIGRATE_CPUS:-0.5}
+    restart: "no"
+    logging: *bounded_logs
 
   tara-web:
     image: tara-web:local
@@ -28,41 +71,27 @@ services:
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
     depends_on:
-      tara-web-init: { condition: service_completed_successfully }
-    environment:
-      TARA_WEB_STORAGE_ROOT: /data/runtime
-      TARA_WEB_BACKUPS_ROOT: /data/backups
-      TARA_WEB_SQLITE_PATH: /data/runtime/tara-web.sqlite3
-      TARA_WEB_PUBLIC_URL: ${TARA_WEB_PUBLIC_URL:-http://localhost:8080}
-      TARA_WEB_TARA_CONFIG: /config/tara.yaml
-      TARA_INFERENCE_ENDPOINT: ${TARA_INFERENCE_ENDPOINT:-http://host.docker.internal:8000}
-      TARA_INFERENCE_AUTH_PROVIDER: ${TARA_INFERENCE_AUTH_PROVIDER:-none}
-      TARA_TRANSCRIPTION_PARALLELISM: ${TARA_TRANSCRIPTION_PARALLELISM:-3}
-      MODAL_TOKEN_ID: ${MODAL_TOKEN_ID:-}
-      MODAL_TOKEN_SECRET: ${MODAL_TOKEN_SECRET:-}
-      TARA_WEB_BACKUP_SIGNING_KEY: ${TARA_WEB_BACKUP_SIGNING_KEY:-}
-    volumes:
-      - ./config/webinterface.yaml:/config/webinterface.yaml:ro
-      - ./config/tara-web.yaml:/config/tara.yaml:ro
-      - tara_web_runtime:/data/runtime
-      - tara_web_backups:/data/backups
-    extra_hosts: ["host.docker.internal:host-gateway"]
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,size=256m
+      tara-web-migrate: { condition: service_completed_successfully }
+    environment: *tara_environment
+    volumes: *tara_volumes
+    extra_hosts: [host.docker.internal:host-gateway]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=256m"]
     networks: [tara_internal, tara_provider]
     stop_grace_period: 90s
     pids_limit: ${TARA_WEB_PIDS_LIMIT:-256}
     mem_limit: ${TARA_WEB_MEM_LIMIT:-2g}
     cpus: ${TARA_WEB_CPUS:-2}
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/api/v1/live'); urlopen('http://127.0.0.1:8000/api/v1/ready')\""]
+      test: [CMD, python, /app/docker/healthcheck.py]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
+    logging: *bounded_logs
 
   tara-proxy:
-    image: nginxinc/nginx-unprivileged:1.27.4-alpine
+    image: nginxinc/nginx-unprivileged:1.31.3-alpine3.24@sha256:f972e5322b9797dc2a6b830030094426437b1ae7032e4644496395336ac6fdac
     user: "101:101"
     read_only: true
     privileged: false
@@ -70,21 +99,75 @@ services:
     cap_drop: [ALL]
     depends_on:
       tara-web: { condition: service_healthy }
-    ports: ["127.0.0.1:${TARA_WEB_HOST_PORT:-8080}:8080"]
-    volumes: [./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro]
+    ports: ["${TARA_WEB_BIND_ADDRESS:-127.0.0.1}:${TARA_WEB_HOST_PORT:-8443}:8443"]
+    volumes:
+      - ./docker/reverse-proxy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    secrets: [tls_certificate, tls_private_key]
     tmpfs:
-      - /var/cache/nginx:rw,noexec,nosuid,size=32m
-      - /tmp:rw,noexec,nosuid,size=16m
+      - "/var/cache/nginx:rw,noexec,nosuid,size=32m"
+      - "/tmp:rw,noexec,nosuid,size=16m"
     networks: [tara_internal, tara_public]
     stop_grace_period: 10s
     pids_limit: ${TARA_PROXY_PIDS_LIMIT:-64}
     mem_limit: ${TARA_PROXY_MEM_LIMIT:-256m}
     cpus: ${TARA_PROXY_CPUS:-0.5}
+    restart: unless-stopped
+    logging: *bounded_logs
+
+  tara-web-backup:
+    image: tara-web:local
+    profiles: [operations]
+    user: "10001:10001"
+    read_only: true
+    privileged: false
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    entrypoint: ["/app/scripts/docker-backup.sh"]
+    environment: *tara_environment
+    volumes: *tara_volumes
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=32m"]
+    network_mode: none
+    pids_limit: 64
+    mem_limit: 512m
+    cpus: 1
+    restart: "no"
+    logging: *bounded_logs
+
+  tara-web-restore:
+    image: tara-web:local
+    profiles: [restore]
+    user: "10001:10001"
+    read_only: true
+    privileged: false
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    entrypoint: ["/app/scripts/docker-restore.sh"]
+    environment:
+      TARA_WEB_CONFIG: /config/webinterface.yaml
+      TARA_RESTORE_GENERATION: ${TARA_RESTORE_GENERATION:-}
+    volumes:
+      - ./config/docker.restore.example.yaml:/config/webinterface.yaml:ro
+      - tara_web_backups:/data/backups:ro
+      - tara_web_restore_jobs:/restore
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=32m"]
+    network_mode: none
+    pids_limit: 64
+    mem_limit: 512m
+    cpus: 1
+    restart: "no"
+    logging: *bounded_logs
 
 volumes:
-  tara_web_runtime:
-  # This volume must be backed by encrypted-at-rest storage in production.
+  tara_web_jobs:
+  tara_web_db:
   tara_web_backups:
+  tara_web_restore_jobs:
+
+secrets:
+  tls_certificate:
+    file: ${TARA_WEB_TLS_CERTIFICATE_FILE:-./secrets/tls.crt}
+  tls_private_key:
+    file: ${TARA_WEB_TLS_PRIVATE_KEY_FILE:-./secrets/tls.key}
 
 networks:
   tara_internal:

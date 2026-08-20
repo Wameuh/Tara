@@ -174,7 +174,9 @@ def restore_backup(
     database_path = backup_path / _DATABASE_NAME
     if _file_sha256(database_path) != manifest["database"]["sha256"]:
         raise BackupError("backup database integrity check failed")
-    connection = sqlite3.connect(f"file:{database_path}?mode=ro", uri=True)
+    connection = sqlite3.connect(
+        f"{database_path.as_uri()}?mode=ro&immutable=1", uri=True
+    )
     try:
         _integrity(connection)
         if schema_version(connection) != int(manifest["schema_version"]):

@@ -157,3 +157,23 @@ Les commandes de sauvegarde/restauration utilisent des profils ou services one-s
 ## Definition de fin
 
 Le service complet se deploie avec une commande Compose documentee, n'expose que le reverse proxy, ne peut ecrire que dans ses volumes dedies et passe les tests fonctionnels, d'isolation, de signaux, de migration et de restauration.
+
+## Etat d'implementation (2026-08-20)
+
+- Image multi-stage Node/Python avec contrôles frontend, OpenAPI et catalogues,
+  runtime non-root minimal et labels OCI.
+- Entrypoint à propagation directe des signaux, preflight fermé et healthcheck
+  Python borné.
+- Volumes DB, jobs et sauvegardes distincts, migration préalable et services
+  one-shot de sauvegarde/restauration sans réseau.
+- Reverse proxy TLS seul exposé, headers recréés et buffering SSE désactivé.
+- Secrets montés par fichiers dans la surcharge, limites ressources/logs et
+  documentation opérateur versionnées.
+- Smoke test exécuté sur Docker Linux ARM64 : build verrouillé, migration
+  réelle, TLS, santé, UID/rootfs/montages, arrêt `SIGTERM`, sauvegarde
+  authentifiée, restauration isolée et intégrité SQLite validés.
+- Scan Trivy après mise à jour d'`aiohttp` : aucune vulnérabilité HIGH/CRITICAL
+  non corrigée et aucun secret détecté. SBOM SPDX 2.3 généré (340 paquets).
+- Limite de l'hôte de validation : son noyau ignore les limites mémoire Docker.
+  Le test d'épuisement contrôlé des ressources reste donc à rejouer sur l'hôte
+  Linux de production doté du contrôleur mémoire cgroup.

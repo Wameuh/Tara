@@ -1,0 +1,12 @@
+webinterface:
+  storage:
+    root: /restore/runtime
+    backups_root: /data/backups
+    sqlite_path: /restore/runtime/db/tara-web.sqlite3
+  public_url: https://localhost:8443
+  security:
+    allowed_hosts: [localhost]
+  runner_mode: fake
+  allow_fake_runner: false
+  backup:
+    enabled: false
