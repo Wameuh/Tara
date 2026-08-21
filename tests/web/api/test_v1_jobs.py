@@ -140,3 +140,27 @@ def test_session_inputs_are_canonical_persisted_and_revisioned(tmp_path) -> None
             headers={"X-Tara-Job-Secret": secret},
         ).json()
         assert "context_text" not in legacy
+
+
+def test_session_inputs_accept_documented_maximum_text_sizes(tmp_path) -> None:
+    with TestClient(create_app(_config(tmp_path))) as client:
+        created = client.post(
+            "/api/v1/uploads/sessions", headers={"Idempotency-Key": "large-inputs"}
+        ).json()
+        response = client.patch(
+            f"/api/v1/sessions/{created['session_id']}/inputs",
+            headers={
+                "X-Tara-Job-Secret": created["secret"],
+                "Expected-Revision": "1",
+                "Idempotency-Key": "large-inputs-once",
+            },
+            json={
+                "language": "fr",
+                "context_text": "c" * 200_000,
+                "previous_summaries_text": "s" * 2_000_000,
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["revision"] == 2
+        assert len(response.json()["context_text"]) == 200_000
+        assert len(response.json()["previous_summaries_text"]) == 2_000_000

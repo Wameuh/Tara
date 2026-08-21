@@ -54,23 +54,21 @@ export function NewJobPage({ config, go }: { config: PublicConfig; go: (path: st
     }
   };
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    const selected = inputKind === "audio" ? files.map(({ file }) => file) : inputKind === "zip" ? (zipFile ? [zipFile] : []) : mergedFile ? [mergedFile] : [];
+  const prepare = async (kind: InputKind, selected: File[], audioFiles: SelectedAudio[] = []) => {
     if (!selected.length) {
-      setError(t(inputKind === "audio" ? "new.file_required" : inputKind === "zip" ? "new.zip_invalid" : "new.merged_transcription_invalid"));
+      setError(t(kind === "audio" ? "new.file_required" : kind === "zip" ? "new.zip_invalid" : "new.merged_transcription_invalid"));
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      const created = await api.createUploadSession(inputKind);
+      const created = await api.createUploadSession(kind);
       await api.updateSessionInputs(created.session_id, created.secret, created.revision, { language, context_text: context, previous_summaries_text: summaries });
       setPending(created.session_id, selected.map((file, index) => ({
-        key: inputKind === "audio" ? files[index].key : crypto.randomUUID(),
+        key: kind === "audio" ? audioFiles[index].key : crypto.randomUUID(),
         file,
-        inputKind,
-        ...(inputKind === "audio" ? { person: files[index].person } : {}),
+        inputKind: kind,
+        ...(kind === "audio" ? { person: audioFiles[index].person } : {}),
         state: "queued",
         hashingLoaded: 0,
         confirmedOffset: 0,
@@ -84,13 +82,26 @@ export function NewJobPage({ config, go }: { config: PublicConfig; go: (path: st
     }
   };
 
+  const selectAudio = (event: ChangeEvent<HTMLInputElement>) => {
+    const selected = Array.from(event.target.files ?? []).map((file) => ({ key: crypto.randomUUID(), file, person: personFor(file) }));
+    event.target.value = "";
+    setFiles(selected);
+    if (selected.length) void prepare("audio", selected.map(({ file }) => file), selected);
+  };
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    const selected = inputKind === "audio" ? files.map(({ file }) => file) : inputKind === "zip" ? (zipFile ? [zipFile] : []) : mergedFile ? [mergedFile] : [];
+    void prepare(inputKind, selected, files);
+  };
+
   return <main className="page form-page"><p className="eyebrow">{t("new.eyebrow")}</p><h1>{t("new.title")}</h1><p className="lede">{t("new.lede")}</p><form onSubmit={submit}>
     <fieldset className="input-kind" aria-describedby="input-kind-hint"><legend>{t("new.input_kind")}</legend><p id="input-kind-hint" className="muted">{t("new.input_kind_hint")}</p><div className="input-kind-options">
       {config.input_modes.includes("audio") && <label><input type="radio" name="input-kind" value="audio" checked={inputKind === "audio"} onChange={() => { setInputKind("audio"); setError(null); }} />{t("new.audio")}</label>}
       {config.input_modes.includes("merged_transcription") && <label><input type="radio" name="input-kind" value="merged_transcription" checked={inputKind === "merged_transcription"} onChange={() => { setInputKind("merged_transcription"); setError(null); }} />{t("new.merged_transcription")}</label>}
       {config.input_modes.includes("zip") && <label><input type="radio" name="input-kind" value="zip" checked={inputKind === "zip"} onChange={() => { setInputKind("zip"); setError(null); }} />{t("new.zip")}</label>}
     </div></fieldset>
-    {inputKind === "audio" ? <><label className="dropzone"><strong>{t("new.audio")}</strong><span>{t("new.audio_hint")}</span><input type="file" accept="audio/mpeg,audio/ogg,.mp3,.ogg" multiple onChange={(event) => setFiles(Array.from(event.target.files ?? []).map((file) => ({ key: crypto.randomUUID(), file, person: personFor(file) })))} /></label>
+    {inputKind === "audio" ? <><label className="dropzone"><strong>{t("new.audio")}</strong><span>{t("new.audio_hint")}</span><input type="file" accept="audio/mpeg,audio/ogg,.mp3,.ogg" multiple disabled={busy} onChange={selectAudio} /></label>
       {files.length > 0 && <ul className="file-list">{files.map((item) => <li key={item.key}><strong>{item.file.name}</strong><label>{t("upload.person")}<input value={item.person} onChange={(event) => setFiles((current) => current.map((value) => value.key === item.key ? { ...value, person: event.target.value } : value))} /></label></li>)}</ul>}</> : inputKind === "zip" ? <ZipInput file={zipFile} onChange={(file) => { setZipFile(file); setError(file ? null : t("new.zip_invalid")); }} /> : <MergedTranscriptionInput file={mergedFile} onChange={(file) => { setMergedFile(file); setError(file ? null : t("new.merged_transcription_invalid")); }} />}
     <div className="field-grid"><label>{t("new.context")}<textarea value={context} onChange={(event) => setContext(event.target.value)} rows={6} /></label><label>{t("new.summaries")}<textarea value={summaries} onChange={(event) => setSummaries(event.target.value)} rows={6} /></label></div>
     <div className="form-actions">{config.supported_languages.length > 1 && <label>{t("job.language")}<select value={language} onChange={(event) => setLanguage(event.target.value)}>{config.supported_languages.map((item) => <option key={item}>{item}</option>)}</select></label>}

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
@@ -62,7 +63,16 @@ def update_inputs(
             "update_session_inputs",
             session_id,
             idempotency_key,
-            {"revision": expected_revision, **body.model_dump()},
+            {
+                "revision": expected_revision,
+                "language": body.language,
+                "context_sha256": hashlib.sha256(
+                    body.context_text.encode()
+                ).hexdigest(),
+                "previous_summaries_sha256": hashlib.sha256(
+                    body.previous_summaries_text.encode()
+                ).hexdigest(),
+            },
             update,
         )
     except (DatabaseConflict, IdempotencyConflict):

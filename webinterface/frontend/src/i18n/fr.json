@@ -40,7 +40,7 @@
     "new.title":  "Préparer une session Tara",
     "new.lede":  "Ajoutez vos enregistrements et les éléments narratifs utiles.",
     "new.audio":  "Pistes audio",
-    "new.audio_hint":  "MP3 ou OGG",
+    "new.audio_hint":  "MP3 ou OGG — le transfert démarre dès la sélection",
     "new.input_kind": "Format source",
     "new.input_kind_hint": "Choisissez soit des pistes audio, soit un seul fichier de transcription fusionnee.",
     "new.merged_transcription": "Transcription fusionnee",

@@ -40,7 +40,7 @@
     "new.title":  "Prepare a Tara session",
     "new.lede":  "Add recordings and useful narrative material.",
     "new.audio":  "Audio tracks",
-    "new.audio_hint":  "MP3 or OGG",
+    "new.audio_hint":  "MP3 or OGG — upload starts immediately after selection",
     "new.input_kind": "Source format",
     "new.input_kind_hint": "Choose either audio tracks or one merged transcription file.",
     "new.merged_transcription": "Merged transcription",
