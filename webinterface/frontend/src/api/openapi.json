@@ -1003,6 +1003,18 @@
             "title": "Status",
             "type": "string"
           },
+          "summary_markdown": {
+            "anyOf": [
+              {
+                "maxLength": 4194304,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary Markdown"
+          },
           "type": {
             "const": "tara_result_v1",
             "title": "Type",

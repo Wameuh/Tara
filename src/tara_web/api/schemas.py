@@ -137,9 +137,10 @@ class SessionSnapshot(PublicModel):
     status: UploadSessionStatus
     input_type: Literal["audio", "merged_transcription", "zip"] = "audio"
     archive_excluded_count: Annotated[int, Field(ge=0)] = 0
-    archive_phase: Literal[
-        "transfer", "extraction", "track_validation", "launch_preparation"
-    ] | None = None
+    archive_phase: (
+        Literal["transfer", "extraction", "track_validation", "launch_preparation"]
+        | None
+    ) = None
     files: Annotated[tuple[UploadFileSnapshot, ...], Field(max_length=100)] = ()
     next_files_cursor: Annotated[str | None, Field(default=None, max_length=512)]
     validations: Annotated[tuple[ValidationSnapshot, ...], Field(max_length=100)] = ()
@@ -347,6 +348,13 @@ class ResultSnapshot(PublicModel):
     type: Literal["tara_result_v1"]
     status: Literal["available", "expired"]
     expires_at: datetime | None = None
+    summary_markdown: (
+        Annotated[
+            str,
+            Field(max_length=4 * 1024 * 1024),
+        ]
+        | None
+    ) = None
     sections: Annotated[tuple[ResultSection, ...], Field(max_length=100)] = ()
     cost: ResultCost
 

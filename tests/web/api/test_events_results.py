@@ -19,6 +19,12 @@ CURRENT_PUBLIC_RESULT = b"""schema_name: tara.public_result
 schema_version: 26.0.1
 content:
   title: Public result
+  summary_markdown: |-
+    # Session summary
+
+    ## Public result
+
+    Opening paragraph.
   sections:
     - section_id: overview-public-result
       section_type: overview
@@ -126,6 +132,9 @@ def test_result_projection_and_explicit_cost_states(tmp_path: Path) -> None:
         assert section["text"] == (
             "Opening paragraph.\nFirst item\nSecond item\nFirst step\nSecond step\n"
             "Status: Ready\nName | State\nTara | Ready\nNote\nKeep this in mind."
+        )
+        assert result.json()["summary_markdown"] == (
+            "# Session summary\n\n## Public result\n\nOpening paragraph."
         )
         assert result.json()["cost"] == {
             "status": "unavailable",

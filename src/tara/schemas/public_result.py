@@ -130,6 +130,13 @@ class PublicSection(StrictSchema):
 class PublicResultContent(StrictSchema):
     title: Annotated[str, Field(min_length=1, max_length=255)]
     sections: list[PublicSection] = Field(min_length=1, max_length=100)
+    summary_markdown: (
+        Annotated[
+            str,
+            Field(min_length=1, max_length=MAX_PUBLIC_SOURCE_CHARS),
+        ]
+        | None
+    ) = None
 
     @field_validator("sections")
     @classmethod
@@ -148,11 +155,19 @@ class PublicResult(StrictSchema):
 
     @model_validator(mode="after")
     def reject_private_public_values(self) -> PublicResult:
-        for value in _iter_public_strings(self.model_dump(mode="json")):
+        payload = self.model_dump(mode="json")
+        content = payload.get("content")
+        if isinstance(content, dict):
+            content.pop("summary_markdown", None)
+        for value in _iter_public_strings(payload):
             if _PUBLIC_MARKDOWN.search(value):
                 raise ValueError("public result contains raw Markdown")
             if _ABSOLUTE_PATH.search(value):
                 raise ValueError("public result contains an absolute path")
+        if self.content.summary_markdown and _ABSOLUTE_PATH.search(
+            self.content.summary_markdown
+        ):
+            raise ValueError("public result contains an absolute path")
         return self
 
 
@@ -190,7 +205,11 @@ def stable_section_id(section_type: str, title: str, used: set[str]) -> str:
 
 
 def publish_internal_result(
-    title: str, sections: Iterable[object], *, language: str | None = None
+    title: str,
+    sections: Iterable[object],
+    *,
+    language: str | None = None,
+    summary_markdown: str | None = None,
 ) -> PublicResult:
     """Positive-allowlist projection from internal sections to public blocks."""
     used: set[str] = set()
@@ -237,7 +256,15 @@ def publish_internal_result(
     public_title = _public_line(_bounded_public_source(title))[:255] or "Tara result"
     return PublicResult(
         metadata=PortableMetadata(language=language, producer="tara"),
-        content=PublicResultContent(title=public_title, sections=public),
+        content=PublicResultContent(
+            title=public_title,
+            sections=public,
+            summary_markdown=(
+                _bounded_public_source(summary_markdown)
+                if summary_markdown is not None
+                else None
+            ),
+        ),
     )
 
 

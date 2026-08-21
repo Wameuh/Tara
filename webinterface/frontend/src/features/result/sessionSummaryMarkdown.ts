@@ -24,6 +24,7 @@ function blockMarkdown(block: Block): string {
 }
 
 export function buildSessionSummaryMarkdown(result: ResultSnapshot, title: string): string {
+  if (result.summary_markdown) return result.summary_markdown;
   const sections = result.sections.slice().sort((left, right) => left.order - right.order);
   const body = sections.map((section) => {
     const content = section.blocks.map(blockMarkdown).join("\n\n");

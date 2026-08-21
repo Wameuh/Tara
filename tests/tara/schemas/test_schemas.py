@@ -152,6 +152,26 @@ def test_public_projection_is_allowlisted() -> None:
     assert "```" not in str(dumped)
 
 
+def test_public_projection_preserves_bounded_summary_markdown() -> None:
+    markdown = "# Résumé de session\n\n## Résumé express\n\n- Le groupe avance.\n"
+    result = publish_internal_result(
+        "Tara",
+        [{"title": "Résumé express", "content": "- Le groupe avance."}],
+        summary_markdown=markdown,
+    )
+
+    assert result.content.summary_markdown == markdown
+
+
+def test_public_summary_markdown_rejects_absolute_paths() -> None:
+    with pytest.raises(ValueError, match="absolute path"):
+        publish_internal_result(
+            "Tara",
+            [{"title": "Résumé", "content": "Contenu"}],
+            summary_markdown="# Résumé\n\n/data/private/result.yaml",
+        )
+
+
 def test_public_projection_keeps_narrative_trace_and_converts_markdown() -> None:
     result = publish_internal_result(
         "Rapport C:/private/title",

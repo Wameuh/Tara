@@ -69,6 +69,7 @@ def get_result(
             "type": "tara_result_v1",
             "status": "available",
             "expires_at": artifact["expires_at"],
+            "summary_markdown": document.content.summary_markdown,
             "sections": sections,
             "cost": cost,
         }

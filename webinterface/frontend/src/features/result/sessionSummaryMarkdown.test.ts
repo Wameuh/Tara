@@ -4,6 +4,23 @@ import type { ResultSnapshot } from "../../api/client";
 import { buildSessionSummaryMarkdown } from "./sessionSummaryMarkdown";
 
 describe("buildSessionSummaryMarkdown", () => {
+  it("returns the exact published session summary when available", () => {
+    const markdown = "# Résumé de session\n\nTexte exact sans nouvelle ligne finale.";
+    const result = {
+      type: "tara_result_v1",
+      status: "available",
+      summary_markdown: markdown,
+      sections: [],
+      cost: {
+        status: "unavailable",
+        value_micro_eur: null,
+        explanation_key: "result.cost_unavailable_explanation",
+      },
+    } satisfies ResultSnapshot;
+
+    expect(buildSessionSummaryMarkdown(result, "Titre ignoré")).toBe(markdown);
+  });
+
   it("exports ordered public sections and structured blocks as Markdown", () => {
     const result = {
       type: "tara_result_v1",

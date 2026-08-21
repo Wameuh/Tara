@@ -742,6 +742,8 @@ export interface components {
              * @enum {string}
              */
             status: "available" | "expired";
+            /** Summary Markdown */
+            summary_markdown?: string | null;
             /**
              * Type
              * @constant

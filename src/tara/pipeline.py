@@ -306,6 +306,7 @@ class TaraControlAgent:
             "Tara analysis",
             result.final_summary.sections,
             language=transcription.language,
+            summary_markdown=result.final_summary.markdown or None,
         )
         write_yaml(
             yaml_path,
