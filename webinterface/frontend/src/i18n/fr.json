@@ -156,6 +156,8 @@
     "result.previous_match":  "Correspondance précédente",
     "result.open_all":  "Tout ouvrir",
     "result.close_all":  "Tout fermer",
+    "result.download_markdown": "Télécharger le résumé (.md)",
+    "result.markdown_title": "Résumé de session",
     "result.copy":  "Copier",
     "result.copied":  "Section copiée.",
     "result.copy_failed":  "Copie indisponible.",

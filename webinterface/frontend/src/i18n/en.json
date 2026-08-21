@@ -156,6 +156,8 @@
     "result.previous_match":  "Previous match",
     "result.open_all":  "Open all",
     "result.close_all":  "Close all",
+    "result.download_markdown": "Download summary (.md)",
+    "result.markdown_title": "Session summary",
     "result.copy":  "Copy",
     "result.copied":  "Section copied.",
     "result.copy_failed":  "Copy unavailable.",
