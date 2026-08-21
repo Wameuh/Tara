@@ -62,6 +62,10 @@ def test_release_verifies_hardened_compose_without_publishing() -> None:
         "browser-matrix",
         "compose-smoke",
     }
+    compose_commands = "\n".join(
+        str(step.get("run", ""))
+        for step in workflow["jobs"]["compose-smoke"]["steps"]
+    )
     rendered = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
     assert "PYTHONHASHSEED" in rendered
     assert "uv sync --frozen --extra dev" in rendered
@@ -70,6 +74,8 @@ def test_release_verifies_hardened_compose_without_publishing() -> None:
     assert "playwright install --with-deps chromium firefox webkit" in rendered
     assert "npm run test:e2e" in rendered
     assert "scripts/smoke-web-compose.sh" in rendered
+    assert "scripts/smoke_real_audio_compose.py --playwright" in compose_commands
+    assert "playwright install --with-deps chromium" in compose_commands
     assert "ghcr.io/aquasecurity/trivy:0.73.0@sha256:" in rendered
     assert "--format spdx-json" in rendered
     assert "--severity HIGH,CRITICAL --ignore-unfixed --exit-code 1" in rendered

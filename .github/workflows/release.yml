@@ -100,6 +100,17 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.23.2
+          cache: npm
+          cache-dependency-path: webinterface/frontend/package-lock.json
+      - name: Install locked browser dependencies
+        working-directory: webinterface/frontend
+        run: |
+          npm ci --ignore-scripts
+          npx --no-install playwright install --with-deps chromium
       - name: Validate the Compose model
         run: docker compose config --quiet
       - name: Run the hardened Compose smoke test
@@ -108,6 +119,12 @@ jobs:
           TARA_OCI_REVISION: ${{ github.sha }}
           TARA_OCI_VERSION: ${{ github.ref_name }}
         run: scripts/smoke-web-compose.sh
+      - name: Run the real audio browser journey
+        env:
+          TARA_OCI_SOURCE: ${{ github.server_url }}/${{ github.repository }}
+          TARA_OCI_REVISION: ${{ github.sha }}
+          TARA_OCI_VERSION: ${{ github.ref_name }}
+        run: python scripts/smoke_real_audio_compose.py --playwright
       - name: Generate the release image SBOM
         id: image-sbom
         continue-on-error: true

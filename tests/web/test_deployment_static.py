@@ -99,6 +99,14 @@ def test_compose_uses_dedicated_volumes_and_narrow_mounts() -> None:
     )
 
 
+def test_compose_override_preserves_external_inference_configuration() -> None:
+    rendered = (ROOT / "compose.override.yaml.example").read_text(encoding="utf-8")
+    assert (
+        "TARA_INFERENCE_ENDPOINT: "
+        "${TARA_INFERENCE_ENDPOINT:-http://host.docker.internal:8000}"
+    ) in rendered
+
+
 def test_image_context_entrypoint_proxy_and_config_are_production_shaped() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")

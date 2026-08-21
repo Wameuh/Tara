@@ -58,6 +58,7 @@ npm run test:e2e
 cd ../..
 docker compose config --quiet
 scripts/smoke-web-compose.sh
+python scripts/smoke_real_audio_compose.py --playwright
 ```
 
 Le test de charge initialise explicitement le tokenizer, admet 30 jobs sans
@@ -70,11 +71,14 @@ tests Axe vérifient WCAG A/AA ; les scénarios contrôlent aussi les largeurs
 1440, 980, 390 et 320 px, le clavier, la réduction des animations et l'absence
 de débordement horizontal.
 
-Le smoke test Compose exerce TLS, santé, isolation, rootfs en lecture seule,
-UID non privilégié, `SIGTERM`, sauvegarde et restauration. La release génère
-ensuite un SBOM SPDX JSON et scanne l'image avec Trivy verrouillé par digest. Un
-scan absent, en erreur, ou une vulnérabilité corrigeable `HIGH`/`CRITICAL`
-bloquent la livraison.
+Le premier smoke test Compose exerce TLS, santé, isolation, rootfs en lecture
+seule, UID non privilégié, `SIGTERM`, sauvegarde et restauration. Un second
+smoke provider-free démarre une inférence HTTP déterministe, envoie deux pistes
+MP3/OGG par l'interface réelle dans Chromium, attend le résultat Tara et vérifie
+l'attribution des personnes sans fuite de secret. La release génère ensuite un
+SBOM SPDX JSON et scanne l'image avec Trivy verrouillé par digest. Un scan
+absent, en erreur, ou une vulnérabilité corrigeable `HIGH`/`CRITICAL` bloquent
+la livraison.
 
 ## Sécurité des dépendances
 

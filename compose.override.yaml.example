@@ -5,7 +5,7 @@ services:
       TARA_WEB_BACKUP_SIGNING_KEY_FILE: /run/secrets/backup_signing_key
   tara-web:
     environment:
-      TARA_INFERENCE_ENDPOINT: http://host.docker.internal:8000
+      TARA_INFERENCE_ENDPOINT: ${TARA_INFERENCE_ENDPOINT:-http://host.docker.internal:8000}
       TARA_WEB_BACKUP_SIGNING_KEY_FILE: /run/secrets/backup_signing_key
       MODAL_TOKEN_ID_FILE: /run/secrets/modal_token_id
       MODAL_TOKEN_SECRET_FILE: /run/secrets/modal_token_secret

@@ -10,6 +10,7 @@ export default defineConfig({
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
     baseURL: externalBaseUrl ?? "http://127.0.0.1:4173",
+    ignoreHTTPSErrors: process.env.E2E_IGNORE_HTTPS_ERRORS === "1",
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
   },
