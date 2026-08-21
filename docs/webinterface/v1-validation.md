@@ -18,8 +18,10 @@ dans la [Checklist de livraison](release-checklist.md).
   preuve du 21 août 2026.
 
 Le commit `9f10742` ajoute en plus un parcours Compose provider-free avec deux
-audios réels et Chromium. Il ferme les quatre skips Playwright du scénario
-vertical qui restaient hors de la matrice statique.
+audios réels et Chromium. Le scénario reste volontairement ignoré dans les
+quatre projets de la matrice statique, mais passe séparément contre la pile TLS
+réelle. Les mesures actuelles et le digest d'image sont consignés dans
+[Validation V1 web](mvp-validation.md).
 
 ## Modèle de menace final
 
@@ -68,3 +70,16 @@ livrer, pas les tests reproductibles.
 Le dépôt fournit les commandes et contrôles techniques. La signature, le test
 sur l'hôte de production cible et la décision de livraison restent des actes
 opérateur non substituables par le développement local.
+
+## État de clôture local au 21 août 2026
+
+Tous les critères localement exécutables sont verts sur `00d2be5` : 845 tests
+Python, 53 tests Vitest, 60 scénarios navigateur statiques, le scénario
+Chromium/Compose réel, 74 tests adversariaux, les audits de dépendances, Bandit,
+les scans source/image, les SBOM, les checksums et les deux smokes Compose.
+
+La clôture d'une release distribuée reste suspendue aux trois preuves externes
+identifiées : attestation OIDC effectivement émise par GitHub, contrôleur
+mémoire cgroup actif sur l'hôte Linux cible et smoke Docker Desktop Windows. Le
+workflow et la checklist sont prêts à les produire ou à bloquer la livraison ;
+aucune réussite n'est simulée dans ce rapport.

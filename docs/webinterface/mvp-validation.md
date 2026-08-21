@@ -116,35 +116,48 @@ dépôt.
 
 ## Résultat de la validation finale
 
-Validation locale exécutée le 2026-08-21 sur la révision `c4a5df1`, avant ce
+Validation locale rejouée le 2026-08-21 sur la révision `00d2be5`, avant ce
 seul ajout de preuve documentaire :
 
-- Ruff : surface web maintenue sans erreur ;
-- Pytest : **839 passed, 5 skipped**, 1 avertissement externe
-  Starlette/httpx, en 177,66 s ; le test de charge 5+25 passe en 3,334 s ;
-- frontend : ESLint, **53 tests Vitest**, TypeScript, build Vite, budget bundle,
-  OpenAPI et manifestes i18n réussis ;
-- Playwright : **60 passed, 4 skipped** en 4,7 min sur Chromium, Firefox,
+- Ruff sur la surface web maintenue, Actionlint et modèle Compose : réussis ;
+- Pytest avec tous les extras : **845 passed, 5 skipped**, 1 avertissement
+  externe Starlette/httpx, en 174,23 s ; le test de charge 5+25 est inclus ;
+- garde adversarial API/upload/YAML/ZIP/SSE : **74 passed, 2 skipped** en
+  56,51 s ;
+- frontend : ESLint, **53 tests Vitest**, TypeScript, build Vite, budget bundle
+  et contrat OpenAPI réussis ;
+- Playwright : **60 passed, 4 skipped** en 4,6 min sur Chromium, Firefox,
   WebKit et Chromium mobile, contrôles Axe inclus ;
-- `actionlint` et `docker compose config --quiet` réussis ;
-- `pip-audit 2.10.1` : 45 dépendances runtime, **0 vulnérabilité connue** ;
-- `npm audit --audit-level=high` : **0 vulnérabilité** ;
+- parcours Compose réel distinct : **1 passed** dans Chromium, puis smoke API
+  MP3/OGG rejoué avec succès sur l'image finale ;
+- `pip-audit 2.10.1` : **0 vulnérabilité connue** ;
+- `npm audit --audit-level=high` : **0 vulnérabilité** sur 344 dépendances ;
+- Bandit 1.9.4 : **0 finding HIGH** ; le scan exhaustif non bloquant conserve
+  10 heuristiques MEDIUM sans suppression dans le code ;
+- deux SBOM source SPDX générés, scan secrets/configuration des fichiers suivis
+  réussi et manifeste SHA-256 vérifié ;
 - smoke Compose complet réussi : TLS, santé, UID `10001:10001`, rootfs en
   lecture seule, absence de port FastAPI publié, `SIGTERM`, sauvegarde,
   restauration et `PRAGMA integrity_check` ;
 - image reconstruite :
-  `sha256:e433fe62949600a3a3d286379e48d62f8f58b05cf42ed925794e6ac421765d6d` ;
+  `sha256:091663a4b7e5390fe2bd6bae582191091e0e1c26cf6d1f91bffce104f66acd7e` ;
 - SBOM SPDX JSON généré et Trivy 0.73.0 verrouillé par digest :
   **0 vulnérabilité corrigeable HIGH/CRITICAL**.
 
 Les cinq skips Python sont attendus dans cet environnement : un probe Cursor
 CLI réel explicitement opt-in et quatre validations média qui exigent FFmpeg
 dans le conteneur de tests. FFmpeg est présent et contrôlé dans l'image de
-production par le smoke Compose. Les quatre skips Playwright correspondent au
-scénario qui exige `E2E_BASE_URL` vers une pile Compose réelle et qui est donc
-exclu de la matrice statique ; le smoke Compose constitue une validation de
-déploiement distincte. Enfin, le noyau de cet hôte ARM ne fournit pas les
-contrôleurs cgroup mémoire à Docker ; Compose a donc
-signalé que les limites mémoire locales étaient ignorées. La CI Ubuntu reste la
-preuve de référence pour leur application, tandis que les autres contrôles de
-durcissement ont réussi localement.
+production par le smoke Compose. Les deux skips du garde adversarial ont la
+même cause. Les quatre skips Playwright correspondent au scénario qui exige
+`E2E_BASE_URL` vers une pile Compose réelle ; ce scénario passe séparément dans
+Chromium contre la pile TLS réelle. Enfin, le noyau de cet hôte ARM ne fournit
+pas les contrôleurs cgroup mémoire à Docker ; Compose a donc signalé que les
+limites mémoire locales étaient ignorées. La CI Ubuntu reste la preuve de
+référence pour leur application, tandis que les autres contrôles de durcissement
+ont réussi localement.
+
+Trois preuves exigent encore un environnement externe et ne sont donc pas
+présentées comme exécutées localement : l'émission OIDC de l'attestation signée
+par GitHub Actions, le test d'épuisement mémoire sur un hôte Linux avec cgroup
+actif et le smoke Docker Desktop Windows. Elles restent bloquantes dans la
+checklist de la release qui revendiquera ces environnements.
