@@ -27,7 +27,7 @@ async function appendTextFiles(event: ChangeEvent<HTMLInputElement>, current: st
 export function NewJobPage({ config, go }: { config: PublicConfig; go: (path: string) => void }) {
   const { t } = useTranslation();
   const draft = loadDraft();
-  const [inputKind, setInputKind] = useState<InputKind>("audio");
+  const [inputKind, setInputKind] = useState<InputKind>(config.input_modes[0]);
   const [files, setFiles] = useState<SelectedAudio[]>([]);
   const [mergedFile, setMergedFile] = useState<File | null>(null);
   const [zipFile, setZipFile] = useState<File | null>(null);
@@ -86,9 +86,9 @@ export function NewJobPage({ config, go }: { config: PublicConfig; go: (path: st
 
   return <main className="page form-page"><p className="eyebrow">{t("new.eyebrow")}</p><h1>{t("new.title")}</h1><p className="lede">{t("new.lede")}</p><form onSubmit={submit}>
     <fieldset className="input-kind" aria-describedby="input-kind-hint"><legend>{t("new.input_kind")}</legend><p id="input-kind-hint" className="muted">{t("new.input_kind_hint")}</p><div className="input-kind-options">
-      <label><input type="radio" name="input-kind" value="audio" checked={inputKind === "audio"} onChange={() => { setInputKind("audio"); setError(null); }} />{t("new.audio")}</label>
-      <label><input type="radio" name="input-kind" value="merged_transcription" checked={inputKind === "merged_transcription"} onChange={() => { setInputKind("merged_transcription"); setError(null); }} />{t("new.merged_transcription")}</label>
-      <label><input type="radio" name="input-kind" value="zip" checked={inputKind === "zip"} onChange={() => { setInputKind("zip"); setError(null); }} />{t("new.zip")}</label>
+      {config.input_modes.includes("audio") && <label><input type="radio" name="input-kind" value="audio" checked={inputKind === "audio"} onChange={() => { setInputKind("audio"); setError(null); }} />{t("new.audio")}</label>}
+      {config.input_modes.includes("merged_transcription") && <label><input type="radio" name="input-kind" value="merged_transcription" checked={inputKind === "merged_transcription"} onChange={() => { setInputKind("merged_transcription"); setError(null); }} />{t("new.merged_transcription")}</label>}
+      {config.input_modes.includes("zip") && <label><input type="radio" name="input-kind" value="zip" checked={inputKind === "zip"} onChange={() => { setInputKind("zip"); setError(null); }} />{t("new.zip")}</label>}
     </div></fieldset>
     {inputKind === "audio" ? <><label className="dropzone"><strong>{t("new.audio")}</strong><span>{t("new.audio_hint")}</span><input type="file" accept="audio/mpeg,audio/ogg,.mp3,.ogg" multiple onChange={(event) => setFiles(Array.from(event.target.files ?? []).map((file) => ({ key: crypto.randomUUID(), file, person: personFor(file) })))} /></label>
       {files.length > 0 && <ul className="file-list">{files.map((item) => <li key={item.key}><strong>{item.file.name}</strong><label>{t("upload.person")}<input value={item.person} onChange={(event) => setFiles((current) => current.map((value) => value.key === item.key ? { ...value, person: event.target.value } : value))} /></label></li>)}</ul>}</> : inputKind === "zip" ? <ZipInput file={zipFile} onChange={(file) => { setZipFile(file); setError(file ? null : t("new.zip_invalid")); }} /> : <MergedTranscriptionInput file={mergedFile} onChange={(file) => { setMergedFile(file); setError(file ? null : t("new.merged_transcription_invalid")); }} />}

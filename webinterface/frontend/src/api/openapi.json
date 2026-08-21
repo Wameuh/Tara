@@ -448,6 +448,19 @@
       "PublicConfigResponse": {
         "additionalProperties": false,
         "properties": {
+          "input_modes": {
+            "items": {
+              "enum": [
+                "audio",
+                "merged_transcription",
+                "zip"
+              ],
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Input Modes",
+            "type": "array"
+          },
           "language": {
             "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$",
             "title": "Language",
@@ -491,6 +504,7 @@
           "language",
           "locale",
           "supported_languages",
+          "input_modes",
           "max_upload_bytes",
           "recommended_chunk_bytes",
           "max_chunk_bytes",

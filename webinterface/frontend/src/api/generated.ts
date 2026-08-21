@@ -567,6 +567,8 @@ export interface components {
         };
         /** PublicConfigResponse */
         PublicConfigResponse: {
+            /** Input Modes */
+            input_modes: ("audio" | "merged_transcription" | "zip")[];
             /** Language */
             language: string;
             /** Locale */

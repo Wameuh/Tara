@@ -462,6 +462,7 @@ def test_embedded_manifest_publishes_only_complete_languages(tmp_path: Path) -> 
             "language",
             "locale",
             "supported_languages",
+            "input_modes",
             "max_upload_bytes",
             "recommended_chunk_bytes",
             "max_chunk_bytes",

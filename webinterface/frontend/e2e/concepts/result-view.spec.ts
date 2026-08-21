@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 const secret = "s".repeat(43);
-const config = { language: "fr", locale: "fr-FR", supported_languages: ["fr"], max_upload_bytes: 1024, recommended_chunk_bytes: 16384, max_chunk_bytes: 16384, parallel_uploads: 1 };
+const config = { language: "fr", locale: "fr-FR", supported_languages: ["fr"], input_modes: ["audio", "merged_transcription", "zip"], max_upload_bytes: 1024, recommended_chunk_bytes: 16384, max_chunk_bytes: 16384, parallel_uploads: 1 };
 const completed = { job_id: "job_abcdefghijklmnop", status: "completed", revision: 4, attempt_number: 1, language: "fr", allowed_actions: [], identical_relaunch_available: false, inputs: [], warnings: [], expires_at: "2026-07-24T12:00:00Z", progress: null, stages: [] };
 const result = { type: "tara_result_v1", status: "available", expires_at: "2026-07-24T12:00:00Z", cost: { status: "available", value_micro_eur: 0 }, sections: [
   { id: "overview", title: "Vue d'ensemble", text: "Le groupe entre dans la cite.", order: 0 },

@@ -2,11 +2,12 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { PublicConfig } from "../api/client";
 import "../i18n";
 import { clearPending, setPending } from "../features/upload/pending";
 import { UploadSessionPage } from "./UploadSessionPage";
 
-const config = { language: "fr", locale: "fr-FR", supported_languages: ["fr"], max_upload_bytes: 1, recommended_chunk_bytes: 16384, max_chunk_bytes: 16384, parallel_uploads: 1 };
+const config: PublicConfig = { language: "fr", locale: "fr-FR", supported_languages: ["fr"], input_modes: ["audio", "merged_transcription", "zip"], max_upload_bytes: 1, recommended_chunk_bytes: 16384, max_chunk_bytes: 16384, parallel_uploads: 1 };
 
 describe("UploadSessionPage merged transcription", () => {
   afterEach(() => { cleanup(); clearPending("session"); vi.unstubAllGlobals(); });

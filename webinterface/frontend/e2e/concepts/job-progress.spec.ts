@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 const secret = "s".repeat(43);
-const config = { language: "fr", locale: "fr-FR", supported_languages: ["fr"], max_upload_bytes: 1024, recommended_chunk_bytes: 16384, max_chunk_bytes: 16384, parallel_uploads: 1 };
+const config = { language: "fr", locale: "fr-FR", supported_languages: ["fr"], input_modes: ["audio", "merged_transcription", "zip"], max_upload_bytes: 1024, recommended_chunk_bytes: 16384, max_chunk_bytes: 16384, parallel_uploads: 1 };
 const job = (status: string, revision = 1) => ({
   job_id: "job_abcdefghijklmnop", status, revision, attempt_number: 1, language: "fr",
   allowed_actions: status === "running" ? ["cancel", "regenerate_secret"] : [], identical_relaunch_available: false,

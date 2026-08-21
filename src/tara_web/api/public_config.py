@@ -1,5 +1,7 @@
 """The deliberately small public configuration endpoint."""
 
+from typing import Literal
+
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -11,6 +13,9 @@ class PublicConfigResponse(BaseModel):
     language: str = Field(pattern=r"^[a-z]{2,3}(?:-[A-Z]{2})?$")
     locale: str = Field(pattern=r"^[a-z]{2,3}-[A-Z]{2}$")
     supported_languages: tuple[str, ...]
+    input_modes: tuple[Literal["audio", "merged_transcription", "zip"], ...] = Field(
+        min_length=1
+    )
     max_upload_bytes: int = Field(gt=0)
     recommended_chunk_bytes: int = Field(ge=16_384)
     max_chunk_bytes: int = Field(ge=16_384)

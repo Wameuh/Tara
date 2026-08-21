@@ -445,6 +445,7 @@ def public_runtime_config(
             "language": config.web.default_language,
             "locale": config.web.locale,
             "supported_languages": languages,
+            "input_modes": ("audio", "merged_transcription", "zip"),
             "max_upload_bytes": config.web.limits.max_upload_bytes,
             "recommended_chunk_bytes": config.web.limits.recommended_chunk_bytes,
             "max_chunk_bytes": config.web.limits.max_chunk_bytes,

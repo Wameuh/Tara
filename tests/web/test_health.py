@@ -30,6 +30,7 @@ def test_technical_endpoints_are_stable_and_do_not_expose_paths(tmp_path: Path) 
             "language": "fr",
             "locale": "fr-FR",
             "supported_languages": ["fr"],
+            "input_modes": ["audio", "merged_transcription", "zip"],
             "max_upload_bytes": 1_073_741_824,
             "recommended_chunk_bytes": 1_048_576,
             "max_chunk_bytes": 8_388_608,
