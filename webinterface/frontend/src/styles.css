@@ -25,3 +25,15 @@
 .table-scroll th,.table-scroll td { padding:10px; border:1px solid var(--border); text-align:left; }
 @media (max-width:380px) { .toolbar { grid-template-columns:1fr; } .toolbar input,.toolbar span { grid-column:1; } .toolbar button { width:100%; white-space:normal; } }
 @media (max-width:680px) { .app-header .icon-text { display:none; } .app-header .help { font-size:0; gap:0; } .help-grid { grid-template-columns:1fr; } .upload-list label { grid-template-columns:1fr; } }
+
+/* The timeline has one shared axis so every marker is centered on the same line. */
+.timeline { --timeline-axis:8px; position:relative; }
+.timeline::before { content:""; position:absolute; z-index:0; left:var(--timeline-axis); top:26px; bottom:30px; border-left:2px dotted var(--border); transform:translateX(-1px); }
+.timeline li { border-left:0; }
+.timeline li::before { z-index:1; left:var(--timeline-axis); transform:translateX(-50%); transition:border-color .25s ease,background-color .25s ease,box-shadow .25s ease,transform .25s ease; }
+.timeline li.completed strong { color:var(--success); }
+.timeline li.active { border-left:0; animation:timeline-enter .35s ease-out both; }
+.timeline li.active::before { background:var(--surface); animation:timeline-pulse 1.6s ease-out infinite; }
+.timeline li.failed::before { border-color:var(--danger); background:var(--danger); }
+@keyframes timeline-enter { from { opacity:.55; transform:translateY(5px); } to { opacity:1; transform:translateY(0); } }
+@keyframes timeline-pulse { 0% { box-shadow:0 0 0 0 rgb(61 90 254 / 30%); transform:translateX(-50%) scale(.92); } 65% { box-shadow:0 0 0 10px rgb(61 90 254 / 0%); transform:translateX(-50%) scale(1); } 100% { box-shadow:0 0 0 0 rgb(61 90 254 / 0%); transform:translateX(-50%) scale(.92); } }

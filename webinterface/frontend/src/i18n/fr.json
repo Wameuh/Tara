@@ -5,7 +5,7 @@
     "errors.generic":  "Une erreur est survenue.",
     "errors.input_invalid":  "Les entrées fournies ne sont pas valides.",
     "errors.input_too_large":  "Les entrées dépassent la limite autorisée.",
-    "errors.transcription_failed":  "La transcription a échoué.",
+    "errors.transcription_failed":  "Le moteur de transcription est indisponible ou a rencontré une erreur. Vérifiez sa configuration avant de relancer l’analyse.",
     "errors.processing_failed":  "L’analyse a échoué.",
     "errors.processing":  "L’analyse a échoué.",
     "errors.timeout":  "Le traitement a dépassé la durée maximale.",

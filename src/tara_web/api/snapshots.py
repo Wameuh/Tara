@@ -120,9 +120,18 @@ def job_snapshot(request: object, row: dict[str, object]) -> dict[str, object]:
         )
     error = None
     if row.get("error_code"):
+        error_code = str(row["error_code"])
+        # Older workers classified every unexpected pipeline failure as a
+        # generic processing error. The persisted stage still identifies a
+        # transcription failure without exposing provider details.
+        if (
+            error_code == ErrorCode.PROCESSING_FAILED.value
+            and stage == StageCode.TRANSCRIPTION.value
+        ):
+            error_code = ErrorCode.TRANSCRIPTION_FAILED.value
         error = {
-            "code": row["error_code"],
-            "message_key": "processing_unavailable",
+            "code": error_code,
+            "message_key": f"errors.{error_code}",
             "parameters": {},
         }
     status = JobStatus(row["status"])

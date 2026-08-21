@@ -68,6 +68,29 @@ def test_job_snapshot_requires_secret_and_is_no_store(tmp_path) -> None:
         assert response.headers["cache-control"] == "no-store"
 
 
+def test_failed_transcription_has_a_specific_public_error(tmp_path) -> None:
+    with TestClient(create_app(_config(tmp_path))) as client:
+        job_id, secret = _job(client)
+        with client.app.state.database.transaction() as connection:
+            connection.execute(
+                "UPDATE jobs SET status='failed',stage='transcription',"
+                "error_code='processing_failed' WHERE public_id=?",
+                (job_id,),
+            )
+
+        response = client.get(
+            f"/api/v1/jobs/{job_id}",
+            headers={"X-Tara-Job-Secret": secret},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["error"] == {
+            "code": "transcription_failed",
+            "message_key": "errors.transcription_failed",
+            "parameters": {},
+        }
+
+
 def test_secret_rotation_revokes_old_secret(tmp_path) -> None:
     with TestClient(create_app(_config(tmp_path))) as client:
         job_id, secret = _job(client)
@@ -124,7 +147,11 @@ def test_session_inputs_are_canonical_persisted_and_revisioned(tmp_path) -> None
         session_id, secret = created["session_id"], created["secret"]
         response = client.patch(
             f"/api/v1/sessions/{session_id}/inputs",
-            headers={"X-Tara-Job-Secret": secret, "Expected-Revision": "1", "Idempotency-Key": "inputs-once"},
+            headers={
+                "X-Tara-Job-Secret": secret,
+                "Expected-Revision": "1",
+                "Idempotency-Key": "inputs-once",
+            },
             json={
                 "language": "fr",
                 "context_text": "Contexte persiste",

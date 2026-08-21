@@ -129,7 +129,12 @@ class TaraWebRunner:
                 return RunnerResult(CONTRACT_VERSION, RunnerStatus.CANCELLED)
             # Provider messages, paths, command lines and credentials stay in
             # worker-local logs.  The orchestration boundary sees a stable code.
-            return _failed_result(sink, ErrorCode.PROCESSING_FAILED, started)
+            code = (
+                ErrorCode.TRANSCRIPTION_FAILED
+                if sink.current_stage is StageCode.TRANSCRIPTION
+                else ErrorCode.PROCESSING_FAILED
+            )
+            return _failed_result(sink, code, started)
 
     def _prepare_args(
         self, request: RunnerRequest, workspace: Path
@@ -187,6 +192,12 @@ class _SequencedSink:
         self._target = target
         self._revision = 0
         self._lock = Lock()
+        self._current_stage: StageCode | None = None
+
+    @property
+    def current_stage(self) -> StageCode | None:
+        with self._lock:
+            return self._current_stage
 
     def emit(
         self,
@@ -198,9 +209,13 @@ class _SequencedSink:
     ) -> None:
         with self._lock:
             if isinstance(event, RunnerEvent):
+                if event.stage_code is not None:
+                    self._current_stage = event.stage_code
                 self._revision += 1
                 self._target.emit(replace(event, revision=self._revision))
                 return
+            if stage_code is not None:
+                self._current_stage = stage_code
             self._revision += 1
             self._target.emit(
                 RunnerEvent(

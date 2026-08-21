@@ -522,6 +522,27 @@ def test_runner_masks_hostile_exception_from_public_contract(
     assert marker not in public and path not in public
 
 
+def test_runner_classifies_failure_during_transcription(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace, job_id = _workspace(tmp_path)
+
+    class TranscriptionFailureAgent:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.sink = kwargs["event_sink"]
+
+        def run(self) -> object:
+            self.sink.stage_started(StageCode.TRANSCRIPTION)
+            raise RuntimeError("provider unavailable")
+
+    monkeypatch.chdir(workspace)
+    monkeypatch.setattr("tara.web_runner.TaraControlAgent", TranscriptionFailureAgent)
+    result = TaraWebRunner(TaraConfig()).run(_request(job_id), Sink(), Token())
+
+    assert result.status is RunnerStatus.FAILED
+    assert result.error_code is ErrorCode.TRANSCRIPTION_FAILED
+
+
 def test_late_runner_cancellation_emits_no_completion_events(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
