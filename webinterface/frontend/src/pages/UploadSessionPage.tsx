@@ -17,11 +17,26 @@ const isAbort = (reason: unknown) => reason instanceof DOMException && reason.na
 const personFor = (file: File) => file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim() || file.name;
 const inputKindFor = (snapshot: SessionSnapshot | null, pending: PendingUpload[]) => snapshot?.input_type ?? pending[0]?.inputKind ?? "audio";
 
-export function UploadSessionPage({ sessionId, secret, config, go }: {
+export function UploadSessionPage({
+  sessionId,
+  secret,
+  config,
+  go,
+  embedded = false,
+  autoLaunch = true,
+  pendingRevision = 0,
+  onSnapshot,
+  onPendingChange,
+}: {
   sessionId: string;
   secret?: string;
   config: PublicConfig;
   go: (path: string) => void;
+  embedded?: boolean;
+  autoLaunch?: boolean;
+  pendingRevision?: number;
+  onSnapshot?: (snapshot: SessionSnapshot) => void;
+  onPendingChange?: (pending: PendingUpload[]) => void;
 }) {
   const { t } = useTranslation();
   const initial = getPending(sessionId);
@@ -46,8 +61,9 @@ export function UploadSessionPage({ sessionId, secret, config, go }: {
   const commit = useCallback((next: PendingUpload[]) => {
     pendingRef.current = next;
     setPending(sessionId, next);
+    onPendingChange?.(next);
     if (mounted.current) setPendingState(next);
-  }, [sessionId]);
+  }, [onPendingChange, sessionId]);
 
   const patch = useCallback((key: string, change: Partial<PendingUpload>) => {
     commit(pendingRef.current.map((item) => item.key === key ? { ...item, ...change } : item));
@@ -59,11 +75,22 @@ export function UploadSessionPage({ sessionId, secret, config, go }: {
       const value = await api.getSession(sessionId, secret);
       snapshotRef.current = value;
       setSnapshot(value);
+      onSnapshot?.(value);
       setFatalError(false);
     } catch {
       if (!snapshotRef.current) setFatalError(true);
     }
-  }, [secret, sessionId]);
+  }, [onSnapshot, secret, sessionId]);
+
+  useEffect(() => {
+    const stored = getPending(sessionId);
+    const known = new Set(pendingRef.current.map((item) => item.key));
+    const additions = stored.filter((item) => !known.has(item.key));
+    if (additions.length) {
+      commit([...pendingRef.current, ...additions]);
+      if (!controller.current) bumpQueue();
+    }
+  }, [commit, pendingRevision, sessionId]);
 
   useEffect(() => {
     void refresh();
@@ -213,6 +240,12 @@ export function UploadSessionPage({ sessionId, secret, config, go }: {
   }, [queueFile, t]);
 
   const retryLocal = (key: string) => {
+    const item = pendingRef.current.find((value) => value.key === key);
+    const server = snapshotRef.current?.files.find((file) => file.file_id === item?.fileId);
+    if (item?.fileId && item.confirmedOffset >= item.file.size && item.person !== server?.person) {
+      void persistPerson(item, server);
+      return;
+    }
     patch(key, { state: "queued", error: undefined });
     if (!controller.current) bumpQueue();
   };
@@ -227,11 +260,33 @@ export function UploadSessionPage({ sessionId, secret, config, go }: {
     }
   };
 
+  async function persistPerson(item: PendingUpload, server?: ServerFile) {
+    const person = (item.person ?? "").trim();
+    if (!secret || !person || !item.fileId || person === server?.person) return;
+    const revision = server?.revision ?? item.fileRevision;
+    if (!revision) return;
+    patch(item.key, { state: "finalizing", error: undefined });
+    try {
+      const changed = await api.changePerson(
+        sessionId,
+        item.fileId,
+        secret,
+        revision,
+        person,
+      );
+      patch(item.key, { state: "done", fileRevision: changed.revision });
+      await refresh();
+    } catch {
+      patch(item.key, { state: "failed", error: t("errors.generic") });
+      await refresh();
+    }
+  }
+
   const localBusy = pending.some((item) => ["queued", "hashing", "declaring", "uploading", "finalizing"].includes(item.state));
   const localFailed = pending.some((item) => item.state === "failed");
   const automaticInputKind = inputKindFor(snapshot, pending);
   useEffect(() => {
-    if (!secret || automaticInputKind === "zip" || !snapshot?.allowed_actions.includes("launch") || localBusy || localFailed || launching.current) return;
+    if (!autoLaunch || !secret || automaticInputKind === "zip" || !snapshot?.allowed_actions.includes("launch") || localBusy || localFailed || launching.current) return;
     const timer = setTimeout(() => {
       if (launching.current) return;
       launching.current = true;
@@ -246,10 +301,11 @@ export function UploadSessionPage({ sessionId, secret, config, go }: {
         });
     }, 0);
     return () => clearTimeout(timer);
-  }, [automaticInputKind, go, localBusy, localFailed, secret, sessionId, snapshot, t]);
+  }, [autoLaunch, automaticInputKind, go, localBusy, localFailed, secret, sessionId, snapshot, t]);
 
   if (!secret || fatalError) {
-    return <main className="page"><h1>{t("upload.unavailable")}</h1></main>;
+    const UnavailableWrapper = embedded ? "section" : "main";
+    return <UnavailableWrapper className="page"><h1>{t("upload.unavailable")}</h1></UnavailableWrapper>;
   }
 
   const mappedIds = new Set(pending.flatMap((item) => item.fileId ? [item.fileId] : []));
@@ -291,9 +347,9 @@ export function UploadSessionPage({ sessionId, secret, config, go }: {
     }
   };
 
-  return <main className="page upload-page">
-    <h1>{t("upload.title")}</h1>
-    <p className="lede">{t("upload.lede")}</p>
+  const Wrapper = embedded ? "section" : "main";
+  return <Wrapper className={embedded ? "upload-page embedded-upload" : "page upload-page"}>
+    {!embedded && <><h1>{t("upload.title")}</h1><p className="lede">{t("upload.lede")}</p></>}
     {inputKind === "merged_transcription" && <section className="validation-details" aria-live="polite">
       <h2>{t("upload.merged_transcription")}</h2>
       {mergedFile?.schema_name && <p>{t("upload.schema_name", { name: mergedFile.schema_name })}</p>}
@@ -323,15 +379,16 @@ export function UploadSessionPage({ sessionId, secret, config, go }: {
         {inputKind === "audio" && <label>{t("upload.person")}
           <input
             value={item.person}
-            disabled={item.state === "finalizing" || item.state === "done"}
+            disabled={item.state === "finalizing"}
             onChange={(event) => patch(item.key, { person: event.target.value })}
+            onBlur={() => { if (item.state === "done") void persistPerson(item, server); }}
           />
         </label>}
         {item.state === "hashing" && <progress value={item.hashingLoaded} max={Math.max(item.file.size, 1)} aria-label={t("upload.hashing_progress")} />}
         {item.state !== "hashing" && <progress value={confirmedOffset} max={Math.max(item.file.size, 1)} aria-label={t("upload.file_progress", { name: item.file.name })} />}
         <span>{Math.round(confirmedOffset / Math.max(item.file.size, 1) * 100)} %</span>
         {item.error && <p className="error">{item.error}</p>}
-        {item.state === "failed" && <button onClick={() => retryLocal(item.key)}>{t("upload.retry")}</button>}
+        {item.state === "failed" && <button type="button" onClick={() => retryLocal(item.key)}>{t("upload.retry")}</button>}
       </li>;
       })}
       {standaloneServerFiles.map((file) => {
@@ -353,13 +410,13 @@ export function UploadSessionPage({ sessionId, secret, config, go }: {
           {(canResume || canReplace) && <label className="file-text">{t(canReplace ? "upload.replace" : "upload.resume")}
             <input type="file" accept={inputKind === "merged_transcription" ? ".yaml,.yml,application/yaml,text/yaml" : inputKind === "zip" ? ".zip,application/zip" : "audio/mpeg,audio/ogg,.mp3,.ogg"} onChange={(event) => reselect(file, event)} />
           </label>}
-          {file.allowed_actions.includes("retry_finalization") && <button onClick={() => void runServerAction(() => api.retryFile(sessionId, file.file_id, secret, file.revision ?? 1))}>{t("upload.retry")}</button>}
-          {file.allowed_actions.includes("delete_file") && <button onClick={() => void runServerAction(() => api.deleteFile(sessionId, file.file_id, secret, file.revision ?? 1))}>{t("upload.delete")}</button>}
+          {file.allowed_actions.includes("retry_finalization") && <button type="button" onClick={() => void runServerAction(() => api.retryFile(sessionId, file.file_id, secret, file.revision ?? 1))}>{t("upload.retry")}</button>}
+          {file.allowed_actions.includes("delete_file") && <button type="button" onClick={() => void runServerAction(() => api.deleteFile(sessionId, file.file_id, secret, file.revision ?? 1))}>{t("upload.delete")}</button>}
         </li>;
       })}
     </ul>
-    {inputKind === "zip" && snapshot?.allowed_actions.includes("launch") && <button className="primary" disabled={launching.current} onClick={() => void launchZip()}>{t("upload.zip_confirm")}</button>}
-    {snapshot?.allowed_actions.includes("cancel") && <button className="danger" onClick={() => {
+    {inputKind === "zip" && snapshot?.allowed_actions.includes("launch") && <button type="button" className="primary" disabled={launching.current} onClick={() => void launchZip()}>{t("upload.zip_confirm")}</button>}
+    {!embedded && snapshot?.allowed_actions.includes("cancel") && <button type="button" className="danger" onClick={() => {
       cancelling.current = true;
       controller.current?.abort();
       setActionError(null);
@@ -372,5 +429,5 @@ export function UploadSessionPage({ sessionId, secret, config, go }: {
         })
         .catch(() => setActionError(t("errors.generic")));
     }}>{t("upload.cancel")}</button>}
-  </main>;
+  </Wrapper>;
 }

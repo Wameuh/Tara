@@ -54,6 +54,8 @@ class LimitsConfig(StrictModel):
     rate_limit_expensive_command: int = Field(default=60, ge=1, le=100_000)
     rate_limit_polling: int = Field(default=120, ge=1, le=100_000)
     rate_limit_sse_open: int = Field(default=20, ge=1, le=100_000)
+    rate_limit_upload_chunk: int = Field(default=2_000, ge=1, le=100_000)
+    rate_limit_upload_chunk_global: int = Field(default=10_000, ge=1, le=100_000)
     rate_limit_window_seconds: int = Field(default=60, ge=1, le=3600)
     max_upload_bytes: int = Field(default=1_073_741_824, gt=0)
     max_merged_transcription_bytes: int = Field(

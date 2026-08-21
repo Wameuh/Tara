@@ -9,6 +9,27 @@ import { UploadSessionPage } from "./UploadSessionPage";
 
 const config: PublicConfig = { language: "fr", locale: "fr-FR", supported_languages: ["fr"], input_modes: ["audio", "merged_transcription", "zip"], max_upload_bytes: 1, recommended_chunk_bytes: 16384, max_chunk_bytes: 16384, parallel_uploads: 1 };
 
+describe("UploadSessionPage audio", () => {
+  afterEach(() => { cleanup(); clearPending("audio-session"); vi.unstubAllGlobals(); });
+
+  it("keeps the person editable after upload and persists the change", async () => {
+    setPending("audio-session", [{ key: "audio", file: new File(["audio"], "Alice.mp3"), inputKind: "audio", person: "Alice", state: "done", hashingLoaded: 5, confirmedOffset: 5, idempotencyKey: "key", fileId: "audio-file", fileRevision: 3 }]);
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith("/person")) return new Response(JSON.stringify({ revision: 4 }));
+      return new Response(JSON.stringify({
+        session_id: "audio-session", revision: 4, status: "ready", expires_at: "2030-01-01T00:00:00Z", language: "fr", context_text: "", previous_summaries_text: "", validations: [], allowed_actions: ["launch"], input_type: "audio",
+        files: [{ file_id: "audio-file", revision: 3, status: "ready", confirmed_offset: 5, total_size: 5, display_name: "Alice.mp3", person: "Alice", allowed_actions: ["change_person"] }],
+      }), { headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    render(<UploadSessionPage sessionId="audio-session" secret="secret" config={config} go={() => undefined} autoLaunch={false} />);
+    const person = await screen.findByLabelText("Personne");
+    fireEvent.change(person, { target: { value: "Alicia" } });
+    fireEvent.blur(person);
+    await vi.waitFor(() => expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/person"))).toBe(true));
+  });
+});
+
 describe("UploadSessionPage merged transcription", () => {
   afterEach(() => { cleanup(); clearPending("session"); vi.unstubAllGlobals(); });
 

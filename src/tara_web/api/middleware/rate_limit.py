@@ -40,8 +40,12 @@ class RateLimiter:
 
     def _allow(self, category: str, identity: str) -> int | None:
         now = self.clock()
+        category_global = f"{category}_global"
+        global_category = (
+            category_global if category_global in self.limits else "global"
+        )
         values = []
-        for key in (("global", "*"), (category, identity)):
+        for key in ((global_category, "*"), (category, identity)):
             started, count = self._items.get(key, (now, 0))
             if now - started >= self.window_seconds:
                 started, count = now, 0

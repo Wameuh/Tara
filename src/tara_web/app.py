@@ -346,6 +346,10 @@ def create_app(config: RuntimeConfig, frontend_dist: Path | None = None) -> Fast
                     "expensive_command": config.web.limits.rate_limit_expensive_command,
                     "polling": config.web.limits.rate_limit_polling,
                     "sse_open": config.web.limits.rate_limit_sse_open,
+                    "upload_chunk": config.web.limits.rate_limit_upload_chunk,
+                    "upload_chunk_global": (
+                        config.web.limits.rate_limit_upload_chunk_global
+                    ),
                 },
                 window_seconds=config.web.limits.rate_limit_window_seconds,
             )
@@ -856,6 +860,8 @@ def _canonical_origin(value: str) -> str | None:
 
 def _rate_category(request: Request) -> str:
     path = request.url.path
+    if request.method == "PATCH" and path.endswith("/chunks"):
+        return "upload_chunk"
     if path.endswith("/events"):
         return "sse_open"
     if request.method == "GET":

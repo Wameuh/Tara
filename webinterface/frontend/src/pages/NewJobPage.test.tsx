@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { PublicConfig } from "../api/client";
@@ -12,11 +12,11 @@ const config: PublicConfig = { language: "fr", locale: "fr-FR", supported_langua
 describe("NewJobPage audio selection", () => {
   afterEach(() => { cleanup(); clearPending("session_audio"); vi.unstubAllGlobals(); });
 
-  it("creates a session and queues upload immediately after files are selected", async () => {
+  it("uploads in the form while the user continues editing", async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/uploads/sessions")) return new Response(JSON.stringify({ session_id: "session_audio", secret: "secret", revision: 1 }));
-      return new Response(JSON.stringify({ revision: 2 }));
+      if (/\/uploads\/sessions\?input_type=audio$/.test(url)) return new Response(JSON.stringify({ session_id: "session_audio", secret: "secret", revision: 1 }));
+      return new Promise<Response>(() => undefined);
     });
     vi.stubGlobal("fetch", fetcher);
     const go = vi.fn();
@@ -25,9 +25,15 @@ describe("NewJobPage audio selection", () => {
     expect(input).not.toBeNull();
     fireEvent.change(input!, { target: { files: [new File(["audio"], "Alice.mp3", { type: "audio/mpeg" })] } });
 
-    await vi.waitFor(() => expect(go).toHaveBeenCalledWith("/sessions/session_audio#secret=secret"));
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(getPending("session_audio")).toHaveLength(1));
+    expect(go).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Contexte"), { target: { value: "Contexte ajouté pendant le transfert" } });
+    expect(screen.getByLabelText("Contexte")).toHaveValue("Contexte ajouté pendant le transfert");
     expect(getPending("session_audio")).toHaveLength(1);
-    expect(getPending("session_audio")[0]).toMatchObject({ inputKind: "audio", person: "Alice", state: "queued" });
+    expect(getPending("session_audio")[0]).toMatchObject({ inputKind: "audio", person: "Alice" });
+
+    fireEvent.change(input!, { target: { files: [new File(["more"], "Bob.ogg", { type: "audio/ogg" })] } });
+    await vi.waitFor(() => expect(getPending("session_audio")).toHaveLength(2));
+    expect(fetcher.mock.calls.filter(([url]) => /\/uploads\/sessions\?input_type=audio$/.test(String(url)))).toHaveLength(1);
   });
 });
