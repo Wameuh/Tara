@@ -2,7 +2,9 @@
 
 Ce document définit les preuves requises avant une livraison V1. Les commandes
 doivent partir d'un checkout propre avec les fichiers verrouillés. Les résultats
-mesurés de la validation finale sont enregistrés dans la dernière section.
+mesurés de la validation finale sont enregistrés dans la dernière section. Le
+[rapport V1](v1-validation.md) distingue ces preuves reproductibles des actes
+opérateur à signer pour une release donnée.
 
 ## Contrats fonctionnels couverts
 

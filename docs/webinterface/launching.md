@@ -72,4 +72,6 @@ scripts/smoke-web-compose.sh
 
 Sous Docker Desktop Windows, `scripts/smoke_web_compose.ps1` délègue le même
 scénario à Bash via WSL ou Git Bash. La matrice complète et les contrôles de
-livraison sont détaillés dans [Validation V1 web](mvp-validation.md).
+livraison sont détaillés dans [Validation V1 web](mvp-validation.md). Pour une
+instance durable, utiliser le [runbook](runbook.md), le [guide API](api.md) et
+la [checklist de livraison](release-checklist.md).
