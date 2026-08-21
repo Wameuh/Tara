@@ -31,6 +31,7 @@ def test_ci_has_reproducible_required_checks() -> None:
     assert workflow["permissions"] == {"contents": "read"}
     assert workflow["concurrency"]["cancel-in-progress"] is True
     assert set(workflow["jobs"]) == {
+        "dependency-security",
         "python",
         "frontend",
         "e2e-chromium",
@@ -38,6 +39,8 @@ def test_ci_has_reproducible_required_checks() -> None:
     }
     rendered = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
     for required in (
+        "pip-audit==2.10.1",
+        "npm audit --audit-level=high",
         "uv sync --frozen",
         "umask 077",
         "uv run pytest",
@@ -67,6 +70,9 @@ def test_release_verifies_hardened_compose_without_publishing() -> None:
     assert "playwright install --with-deps chromium firefox webkit" in rendered
     assert "npm run test:e2e" in rendered
     assert "scripts/smoke-web-compose.sh" in rendered
+    assert "ghcr.io/aquasecurity/trivy:0.73.0@sha256:" in rendered
+    assert "--format spdx-json" in rendered
+    assert "--severity HIGH,CRITICAL --ignore-unfixed --exit-code 1" in rendered
     assert "docker push" not in rendered
 
 

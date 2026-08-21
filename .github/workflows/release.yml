@@ -93,6 +93,8 @@ jobs:
     needs: [load-gate, browser-matrix]
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    env:
+      TRIVY_IMAGE: ghcr.io/aquasecurity/trivy:0.73.0@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c
     steps:
       - name: Check out the repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -106,3 +108,42 @@ jobs:
           TARA_OCI_REVISION: ${{ github.sha }}
           TARA_OCI_VERSION: ${{ github.ref_name }}
         run: scripts/smoke-web-compose.sh
+      - name: Generate the release image SBOM
+        id: image-sbom
+        continue-on-error: true
+        run: |
+          mkdir -p reports
+          docker run --rm \
+            --volume /var/run/docker.sock:/var/run/docker.sock \
+            --volume "$PWD/reports:/reports" \
+            "$TRIVY_IMAGE" image --format spdx-json \
+            --output /reports/image.spdx.json tara-web:local
+      - name: Scan the release image
+        id: image-scan
+        continue-on-error: true
+        run: |
+          docker run --rm \
+            --volume /var/run/docker.sock:/var/run/docker.sock \
+            --volume "$PWD/reports:/reports" \
+            "$TRIVY_IMAGE" image --scanners vuln \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+            --format json --output /reports/image-vulnerabilities.json \
+            tara-web:local
+      - name: Upload image security reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-image-security-reports
+          path: |
+            reports/image.spdx.json
+            reports/image-vulnerabilities.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Enforce image security results
+        if: always()
+        env:
+          IMAGE_SBOM_OUTCOME: ${{ steps.image-sbom.outcome }}
+          IMAGE_SCAN_OUTCOME: ${{ steps.image-scan.outcome }}
+        run: |
+          test "$IMAGE_SBOM_OUTCOME" = success
+          test "$IMAGE_SCAN_OUTCOME" = success

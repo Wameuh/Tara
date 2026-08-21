@@ -47,8 +47,9 @@ Date: 2026-07-17. Statut: **signee comme base de regression du MVP**.
 - La CSP autorise uniquement `script-src 'self' 'wasm-unsafe-eval'` pour `hash-wasm` et `worker-src 'self'`; elle n'autorise pas l'evaluation JavaScript generique.
 - Le scan de regression cree de vrais marqueurs prives et confirme leur absence des logs, reponses non autorisees et chemins absolus. Le secret brut et les fragments sont absents du dump SQLite; seuls les champs prives prevus conservent contexte et resumes.
 - Les E2E confirment que secrets, contexte et resumes ne figurent jamais dans les URL reseau.
-- `npm audit` est revenu a **0 vulnerability** apres mise a jour de Playwright vers 1.61.1.
-- `uvx --python 3.13 pip-audit --requirement <export uv> --format json`: **aucune vulnerabilite connue** dans les 21 dependances verrouillees de TaraRepo. L'execution a ete explicitement autorisee, car elle peut transmettre le graphe de dependances a un service externe.
+- `npm audit` est revenu a **0 vulnerability** apres actualisation des dependances transitives verrouillees.
+- `pip-audit 2.10.1` est revenu a **0 vulnerability** apres contrainte de `h2>=4.4.1`. La CI exporte le graphe runtime verrouille, execute les audits Python et Node separement, conserve leurs rapports JSON 14 jours et echoue si l'un des deux audits echoue.
+- La verification de release genere un SBOM SPDX JSON et scanne l'image construite avec Trivy 0.73.0 verrouille par digest. Les vulnerabilites corrigeables `HIGH` ou `CRITICAL`, un SBOM absent ou un scanner en echec bloquent la release; les deux rapports sont conserves 14 jours.
 
 ## Fonctions differees
 
