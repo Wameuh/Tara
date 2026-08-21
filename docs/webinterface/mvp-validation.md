@@ -86,6 +86,35 @@ aux rapports ou au dépôt.
 
 ## Résultat de la validation finale
 
-À renseigner après l'exécution complète de la tâche de validation finale : date,
-révision, décomptes Python/Vitest/Playwright, charge, audits, smoke Compose,
-digest de l'image et résultat du scan.
+Validation locale exécutée le 2026-08-21 sur la révision `c4a5df1`, avant ce
+seul ajout de preuve documentaire :
+
+- Ruff : surface web maintenue sans erreur ;
+- Pytest : **839 passed, 5 skipped**, 1 avertissement externe
+  Starlette/httpx, en 177,66 s ; le test de charge 5+25 passe en 3,334 s ;
+- frontend : ESLint, **53 tests Vitest**, TypeScript, build Vite, budget bundle,
+  OpenAPI et manifestes i18n réussis ;
+- Playwright : **60 passed, 4 skipped** en 4,7 min sur Chromium, Firefox,
+  WebKit et Chromium mobile, contrôles Axe inclus ;
+- `actionlint` et `docker compose config --quiet` réussis ;
+- `pip-audit 2.10.1` : 45 dépendances runtime, **0 vulnérabilité connue** ;
+- `npm audit --audit-level=high` : **0 vulnérabilité** ;
+- smoke Compose complet réussi : TLS, santé, UID `10001:10001`, rootfs en
+  lecture seule, absence de port FastAPI publié, `SIGTERM`, sauvegarde,
+  restauration et `PRAGMA integrity_check` ;
+- image reconstruite :
+  `sha256:e433fe62949600a3a3d286379e48d62f8f58b05cf42ed925794e6ac421765d6d` ;
+- SBOM SPDX JSON généré et Trivy 0.73.0 verrouillé par digest :
+  **0 vulnérabilité corrigeable HIGH/CRITICAL**.
+
+Les cinq skips Python sont attendus dans cet environnement : un probe Cursor
+CLI réel explicitement opt-in et quatre validations média qui exigent FFmpeg
+dans le conteneur de tests. FFmpeg est présent et contrôlé dans l'image de
+production par le smoke Compose. Les quatre skips Playwright correspondent au
+scénario qui exige `E2E_BASE_URL` vers une pile Compose réelle et qui est donc
+exclu de la matrice statique ; le smoke Compose constitue une validation de
+déploiement distincte. Enfin, le noyau de cet hôte ARM ne fournit pas les
+contrôleurs cgroup mémoire à Docker ; Compose a donc
+signalé que les limites mémoire locales étaient ignorées. La CI Ubuntu reste la
+preuve de référence pour leur application, tandis que les autres contrôles de
+durcissement ont réussi localement.
