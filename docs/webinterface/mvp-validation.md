@@ -30,7 +30,8 @@ Date: 2026-07-17. Statut: **signee comme base de regression du MVP**.
 ## Charge et reprise
 
 - Le test de charge admet 30 jobs sans provider, revendique exactement 5 jobs actifs et conserve 25 jobs en file. Il exerce 60 lectures concurrentes, 10 abonnements temps reel bornes, la limite du broker, l'annulation d'un job actif et d'un job en attente, la reprise serveur et `PRAGMA integrity_check`.
-- La latence p95 des lectures est bornee a 250 ms dans le test et chaque promotion a 1 s. Les limites 5/25 sont verifiees dans SQLite avant et apres reprise.
+- Apres initialisation explicite du tokenizer, la latence p95 des lectures est bornee a 250 ms dans le test et chaque promotion a 1 s. Les limites 5/25 sont verifiees dans SQLite avant et apres reprise.
+- La verification de release execute ce scenario sans provider dans un job dedie, avec Python et `uv` fixes, dependances verrouillees, locale UTC et `PYTHONHASHSEED=0`. Son rapport JUnit `web-load.xml` est conserve 14 jours, y compris en cas d'echec.
 - La matrice crash couvre reservation, chunk durable avec suffixe non commite, finalisation/validation, promotion transactionnelle, revendication de job, progression, ecriture de resultat et suppression. Chaque cas execute la reconciliation reelle deux fois et verifie l'idempotence DB/fichiers.
 
 ## UI et accessibilite

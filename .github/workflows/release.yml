@@ -14,6 +14,47 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  load-gate:
+    name: Reproducible 5+25 load gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONHASHSEED: "0"
+      TZ: UTC
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: 3.13.14
+      - name: Install uv
+        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version: 0.8.0
+          enable-cache: true
+      - name: Install locked load-test dependencies
+        run: uv sync --frozen --extra dev
+      - name: Run the provider-free load gate
+        run: |
+          umask 077
+          mkdir -p reports
+          uv run pytest tests/web/load/test_mvp_load.py \
+            --junitxml=reports/web-load.xml \
+            --durations=1
+      - name: Upload the load report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: web-load-report
+          path: reports/web-load.xml
+          if-no-files-found: error
+          retention-days: 14
+
   browser-matrix:
     name: Cross-browser and mobile tests
     runs-on: ubuntu-24.04
@@ -49,7 +90,7 @@ jobs:
 
   compose-smoke:
     name: Build and smoke-test the release image
-    needs: browser-matrix
+    needs: [load-gate, browser-matrix]
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:

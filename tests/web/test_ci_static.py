@@ -12,9 +12,7 @@ FULL_COMMIT = re.compile(r"^[^@\s]+@[0-9a-f]{40}$")
 
 
 def load_workflow(name: str) -> dict[str, Any]:
-    workflow = YAML(typ="safe").load(
-        (WORKFLOWS / name).read_text(encoding="utf-8")
-    )
+    workflow = YAML(typ="safe").load((WORKFLOWS / name).read_text(encoding="utf-8"))
     assert isinstance(workflow, dict)
     return workflow
 
@@ -56,8 +54,16 @@ def test_release_verifies_hardened_compose_without_publishing() -> None:
     workflow = load_workflow("release.yml")
     assert workflow["permissions"] == {"contents": "read"}
     assert workflow["concurrency"]["cancel-in-progress"] is False
-    assert set(workflow["jobs"]) == {"browser-matrix", "compose-smoke"}
+    assert set(workflow["jobs"]) == {
+        "load-gate",
+        "browser-matrix",
+        "compose-smoke",
+    }
     rendered = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
+    assert "PYTHONHASHSEED" in rendered
+    assert "uv sync --frozen --extra dev" in rendered
+    assert "pytest tests/web/load/test_mvp_load.py" in rendered
+    assert "--junitxml=reports/web-load.xml" in rendered
     assert "playwright install --with-deps chromium firefox webkit" in rendered
     assert "npm run test:e2e" in rendered
     assert "scripts/smoke-web-compose.sh" in rendered

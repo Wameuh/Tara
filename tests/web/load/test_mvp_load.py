@@ -11,6 +11,7 @@ from time import perf_counter
 
 import pytest
 
+from tara.token_limits import require_token_limit
 from tara_web.db.connection import ConnectionFactory, DatabaseConflict
 from tara_web.db.migrations import migrate
 from tara_web.db.repositories.jobs import JobRepository
@@ -44,8 +45,9 @@ def _seed_ready_sessions(factory: ConnectionFactory, count: int) -> None:
             )
             connection.execute(
                 "INSERT INTO upload_files(public_id,session_id,status,storage_path,"
-                "declared_bytes,confirmed_offset,sha256_hex,active,created_at,updated_at) "
-                "SELECT ?,id,'ready',?,1,1,?,1,?,? FROM upload_sessions WHERE public_id=?",
+                "declared_bytes,confirmed_offset,sha256_hex,active,created_at,"
+                "updated_at) SELECT ?,id,'ready',?,1,1,?,1,?,? FROM upload_sessions "
+                "WHERE public_id=?",
                 (
                     f"file_{index:016d}",
                     f"uploads/{session_id}/file_{index:016d}.part",
@@ -67,6 +69,10 @@ def test_five_active_twenty_five_waiting_remain_bounded(tmp_path: Path) -> None:
     finally:
         connection.close()
     _seed_ready_sessions(factory, 31)
+
+    # Keep the timed admission window independent from test order. The first token
+    # check initializes tiktoken and is deliberately part of warm-up, not load.
+    require_token_limit("", 2_000)
 
     repository = JobRepository(factory)
     secret = "v1:" + "a" * 64
@@ -131,7 +137,8 @@ def test_five_active_twenty_five_waiting_remain_bounded(tmp_path: Path) -> None:
     subscriptions = []
     for index in range(5):
         for _ in range(2):
-            subscriptions.append((f"job_{index:016d}", broker.subscribe(f"job_{index:016d}")))
+            job_id = f"job_{index:016d}"
+            subscriptions.append((job_id, broker.subscribe(job_id)))
     with pytest.raises(RealtimeLimitExceeded):
         for _ in range(3):
             broker.subscribe("job_overflow")
@@ -151,7 +158,8 @@ def test_five_active_twenty_five_waiting_remain_bounded(tmp_path: Path) -> None:
 
     database = factory.connect()
     try:
-        counts = dict(database.execute("SELECT status,COUNT(*) FROM jobs GROUP BY status"))
+        rows = database.execute("SELECT status,COUNT(*) FROM jobs GROUP BY status")
+        counts = dict(rows)
         assert counts == {"cancelled": 1, "failed": 5, "queued": 24}
         assert database.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     finally:
