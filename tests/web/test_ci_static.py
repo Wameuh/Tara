@@ -40,6 +40,7 @@ def test_ci_has_reproducible_required_checks() -> None:
     rendered = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
     for required in (
         "pip-audit==2.10.1",
+        "bandit==1.9.4",
         "npm audit --audit-level=high",
         "uv sync --frozen",
         "umask 077",
@@ -51,6 +52,8 @@ def test_ci_has_reproducible_required_checks() -> None:
         "docker build",
     ):
         assert required in rendered
+    assert "--severity-level high" in rendered
+    assert "reports/python-sast.json" in rendered
 
 
 def test_release_verifies_hardened_compose_without_publishing() -> None:

@@ -54,7 +54,17 @@ jobs:
         continue-on-error: true
         working-directory: webinterface/frontend
         run: npm audit --audit-level=high --json > ../../reports/npm-audit.json
-      - name: Upload dependency audit reports
+      - name: Run Python security analysis
+        id: python-sast
+        continue-on-error: true
+        run: >-
+          uvx --python 3.13 --from bandit==1.9.4 bandit
+          --recursive src
+          --format json
+          --output reports/python-sast.json
+          --severity-level high
+          --confidence-level medium
+      - name: Upload dependency and SAST reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -62,6 +72,7 @@ jobs:
           path: |
             reports/python-audit.json
             reports/npm-audit.json
+            reports/python-sast.json
           if-no-files-found: error
           retention-days: 14
       - name: Enforce dependency audit results
@@ -69,9 +80,11 @@ jobs:
         env:
           NODE_AUDIT_OUTCOME: ${{ steps.node-audit.outcome }}
           PYTHON_AUDIT_OUTCOME: ${{ steps.python-audit.outcome }}
+          PYTHON_SAST_OUTCOME: ${{ steps.python-sast.outcome }}
         run: |
           test "$PYTHON_AUDIT_OUTCOME" = success
           test "$NODE_AUDIT_OUTCOME" = success
+          test "$PYTHON_SAST_OUTCOME" = success
 
   python:
     name: Python checks

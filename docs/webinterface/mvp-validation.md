@@ -86,10 +86,12 @@ rapport absent, un scan en erreur, ou une vulnérabilité corrigeable
 ## Sécurité des dépendances
 
 La CI exporte les dépendances Python runtime depuis `uv.lock`, exécute
-`pip-audit`, puis lance `npm audit --audit-level=high` sur le frontend. Les deux
-rapports JSON sont conservés 14 jours et chaque audit est bloquant. Aucun
-credential, média privé, base locale ou artefact d'analyse ne doit être ajouté
-aux rapports ou au dépôt.
+`pip-audit`, puis lance `npm audit --audit-level=high` sur le frontend. Bandit
+1.9.4 analyse également tout `src` et bloque toute alerte SAST de sévérité
+élevée avec une confiance moyenne ou élevée. Les trois rapports JSON sont
+conservés 14 jours et chaque contrôle est bloquant. Aucun credential, média
+privé, base locale ou artefact d'analyse ne doit être ajouté aux rapports ou au
+dépôt.
 
 ## Résultat de la validation finale
 

@@ -31,7 +31,8 @@ responsable désigné.
 
 - [ ] `pip-audit` et `npm audit` ne signalent aucune vulnérabilité exploitable
   HIGH/CRITICAL.
-- [ ] SAST, secret scan, scan de configuration et scan d'image sont réussis.
+- [ ] Bandit SAST au seuil HIGH, secret scan, scan de configuration et scan
+  d'image sont réussis.
 - [ ] SBOM Python, npm et image, rapports de scan et versions des outils sont
   archivés avec leurs SHA-256.
 - [ ] Le modèle de menace est relu ; toute exception possède propriétaire,
