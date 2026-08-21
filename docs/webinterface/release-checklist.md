@@ -11,7 +11,7 @@ responsable désigné.
 - [ ] Worktree propre ; lockfiles Python/npm et actions CI inchangés pendant la
   validation.
 - [ ] Image reconstruite avec les labels OCI source, révision et version ; son
-  digest est archivé.
+  digest et sa provenance SLSA signée sont archivés et vérifiables.
 - [ ] Configuration Compose rendue et expurgée archivée.
 
 ## Qualité et contrats

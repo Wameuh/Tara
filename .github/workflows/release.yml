@@ -142,6 +142,10 @@ jobs:
     timeout-minutes: 25
     env:
       TRIVY_IMAGE: ghcr.io/aquasecurity/trivy:0.73.0@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
     steps:
       - name: Check out the repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -197,6 +201,37 @@ jobs:
             --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
             --format json --output /reports/image-vulnerabilities.json \
             tara-web:local
+      - name: Capture rendered deployment and image evidence
+        id: image-evidence
+        run: |
+          docker image inspect tara-web:local > reports/image-metadata.json
+          image_digest=$(docker image inspect --format '{{.Id}}' tara-web:local)
+          case "$image_digest" in
+            sha256:[0-9a-f][0-9a-f]*) ;;
+            *) echo "invalid image digest" >&2; exit 1 ;;
+          esac
+          echo "digest=$image_digest" >> "$GITHUB_OUTPUT"
+          docker compose -f compose.yaml -f compose.override.yaml.example \
+            config > reports/compose.rendered.yaml
+          sha256sum \
+            reports/python.spdx.json \
+            reports/npm.spdx.json \
+            reports/source-security.json \
+            reports/image.spdx.json \
+            reports/image-vulnerabilities.json \
+            reports/image-metadata.json \
+            reports/compose.rendered.yaml \
+            > reports/release-evidence.sha256
+      - name: Attest the release image provenance
+        id: image-attestation
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-name: tara-web
+          subject-digest: ${{ steps.image-evidence.outputs.digest }}
+      - name: Preserve the signed provenance bundle
+        env:
+          ATTESTATION_BUNDLE: ${{ steps.image-attestation.outputs.bundle-path }}
+        run: cp "$ATTESTATION_BUNDLE" reports/image-provenance.json
       - name: Upload release security reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -209,6 +244,10 @@ jobs:
             reports/source-security.sha256
             reports/image.spdx.json
             reports/image-vulnerabilities.json
+            reports/image-metadata.json
+            reports/compose.rendered.yaml
+            reports/release-evidence.sha256
+            reports/image-provenance.json
           if-no-files-found: error
           retention-days: 14
       - name: Enforce release security results

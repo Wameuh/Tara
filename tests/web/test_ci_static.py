@@ -90,6 +90,16 @@ def test_release_verifies_hardened_compose_without_publishing() -> None:
     assert "reports/python.spdx.json" in rendered
     assert "reports/npm.spdx.json" in rendered
     assert "reports/source-security.json" in rendered
+    assert "reports/compose.rendered.yaml" in rendered
+    assert "reports/image-metadata.json" in rendered
+    assert "reports/release-evidence.sha256" in rendered
+    assert "reports/image-provenance.json" in rendered
+    assert "subject-digest: ${{ steps.image-evidence.outputs.digest }}" in rendered
+    assert workflow["jobs"]["compose-smoke"]["permissions"] == {
+        "attestations": "write",
+        "contents": "read",
+        "id-token": "write",
+    }
     assert "--severity HIGH,CRITICAL --ignore-unfixed --exit-code 1" in rendered
     assert "docker push" not in rendered
     assert set(workflow["jobs"]["compose-smoke"]["needs"]) == {

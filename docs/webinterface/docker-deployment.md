@@ -77,6 +77,12 @@ local avec Syft. Sous Docker Desktop Windows, le script PowerShell délègue ce
 même scénario à Bash (WSL ou Git Bash) afin de conserver une seule procédure de
 référence.
 
+La release archive aussi la configuration Compose rendue, les métadonnées et le
+digest de configuration OCI de `tara-web:local`, puis `actions/attest` génère
+une provenance SLSA signée par une identité OIDC GitHub éphémère. Le bundle
+`image-provenance.json` se vérifie avec `gh attestation verify` contre le dépôt
+qui a exécuté la release. Cette attestation n'effectue aucun push d'image.
+
 Pour reproduire localement les rapports de source sans inclure les fichiers non
 suivis du worktree :
 

@@ -99,6 +99,11 @@ sources suivies, puis scanne l'image avec Trivy verrouillé par digest. Un
 rapport absent, un scan en erreur, ou une vulnérabilité corrigeable
 `HIGH`/`CRITICAL` bloque la livraison.
 
+La configuration Compose rendue, les métadonnées d'image et leurs SHA-256 sont
+archivés. Le digest OCI local reçoit une provenance SLSA signée avec l'identité
+OIDC du workflow par `actions/attest` verrouillé sur un commit immuable ; l'image
+reste locale et n'est jamais poussée par cette vérification.
+
 ## Sécurité des dépendances
 
 La CI exporte les dépendances Python runtime depuis `uv.lock`, exécute
