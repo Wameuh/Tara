@@ -92,6 +92,19 @@ Task `13` publishes the commit safety gate and five-role subagent review prompts
 (under `.cursor/skills/tara-review/review_process/`) for repeatable reviews before
 each merge to `master`.
 
+### Web V1
+
+The V1 web interface provides resumable uploads for MP3/OGG tracks, merged
+transcription YAML, and ZIP archives, then runs the real Tara pipeline behind a
+protected result link. It includes public capability/help contracts, job
+recovery, authenticated backups, a TLS reverse proxy, and a hardened Docker
+Compose deployment. The fake runner is limited to local development and
+provider-free automated tests.
+
+- [Run the web interface](docs/webinterface/launching.md)
+- [Deploy with Docker Compose](docs/webinterface/docker-deployment.md)
+- [Validate the V1 release](docs/webinterface/mvp-validation.md)
+
 ### Cursor CLI pipeline probe (benchmarks)
 
 To validate the full stack through Cursor CLI `agent -p` without changing

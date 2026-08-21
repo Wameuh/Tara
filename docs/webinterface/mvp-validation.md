@@ -1,62 +1,91 @@
-# Validation MVP web - etape 08
+# Validation V1 web
 
-Date: 2026-07-17. Statut: **signee comme base de regression du MVP**.
+Ce document définit les preuves requises avant une livraison V1. Les commandes
+doivent partir d'un checkout propre avec les fichiers verrouillés. Les résultats
+mesurés de la validation finale sont enregistrés dans la dernière section.
 
-## Preuves executees
+## Contrats fonctionnels couverts
 
-- `uv run pytest tests/web --basetemp .pytest-task08-final2 -q`: **232 passed, 8 skipped**. Les skips sont lies aux primitives non disponibles sur Windows; un avertissement de deprecation Starlette/httpx reste non bloquant.
-- `npm.cmd run check`: lint, **41 tests Vitest**, TypeScript, build Vite, budget bundle, OpenAPI et manifestes i18n reussis.
-- `npx playwright test e2e/concepts e2e/scenarios --project=chromium`: **14 passed** sans mise a jour des baselines.
-- `E2E_BASE_URL=http://localhost:8080 npx playwright test e2e/real`: **1 passed** en 5,5 s.
-- `docker compose up --build -d`: image reconstruite et services sains. Le build execute aussi lint, Vitest, TypeScript, Vite, bundle, OpenAPI et i18n.
-- Image MVP: `tara-web@sha256:513e29f05124e70e64fb49dc2546f2fcd4bc2a723a56c9e574dc044c8c49cf5b`.
-- La configuration rendue par `docker compose config` confirme: proxy seul sur `127.0.0.1:8080`; `tara-web` sans port publie, utilisateur `10001:10001`, lecture seule, `cap_drop: ALL`, `no-new-privileges`, volumes dedies; reseau backend interne.
+- entrées audio MP3/OGG, transcription fusionnée YAML et archive ZIP ;
+- pipeline Tara réel en production, faux runner limité aux tests sans provider ;
+- upload reprenable, validation, file FIFO 5+25, progression SSE et polling ;
+- annulation, relance, expiration, reprise après crash et rotation du secret ;
+- résultat navigable, recherche, accordions, copie et informations de coût ;
+- arrêt contrôlé, réconciliation, sauvegarde authentifiée et restauration ;
+- contrats publics de capacités et d'aide, français et anglais.
 
-## Matrice fonctionnelle
+Les tests d'intégration du runner réel remplacent les providers externes par des
+doubles déterministes. Ils valident l'adaptateur, les artefacts et les
+transitions sans effectuer d'inférence payante ou dépendre d'un service distant.
 
-1. Parcours Compose reel: deux OGG, personne modifiee, contexte, resume, upload, validation, lancement, faux runner, resultat, rechargement et reouverture dans un nouveau contexte navigateur.
-2. Upload interrompu puis repris depuis l'offset serveur, checksum binaire et finalisation.
-3. File FIFO, double progression, polling et transition dynamique vers le resultat.
-4. Reouverture avec secret en fragment et authentification par header uniquement.
-5. Secret invalide puis rotation atomique: ancien secret abandonne et nouveau fragment actif.
-6. Erreur puis `Modifier et relancer` vers une nouvelle session.
-7. Timeout, relance identique unique, compteur incremente, puis relance modifiee.
-8. Annulation depuis les etats en attente et en execution.
-9. Expiration explicite du job et du resultat.
-10. Perte SSE, polling et resynchronisation sur une revision plus recente.
-11. Suivi conforme au concept 1: deux progressions, chronologie, informations, actions et transition.
-12. Resultat conforme au concept 2: navigation, recherche, accordions, copie, cout et expiration.
+## Contrôles CI
 
-## Charge et reprise
+La CI utilise Python 3.13.14, `uv` 0.8.0 et Node.js 22.23.2. Les commandes de
+référence sont :
 
-- Le test de charge admet 30 jobs sans provider, revendique exactement 5 jobs actifs et conserve 25 jobs en file. Il exerce 60 lectures concurrentes, 10 abonnements temps reel bornes, la limite du broker, l'annulation d'un job actif et d'un job en attente, la reprise serveur et `PRAGMA integrity_check`.
-- Apres initialisation explicite du tokenizer, la latence p95 des lectures est bornee a 250 ms dans le test et chaque promotion a 1 s. Les limites 5/25 sont verifiees dans SQLite avant et apres reprise.
-- La verification de release execute ce scenario sans provider dans un job dedie, avec Python et `uv` fixes, dependances verrouillees, locale UTC et `PYTHONHASHSEED=0`. Son rapport JUnit `web-load.xml` est conserve 14 jours, y compris en cas d'echec.
-- La matrice crash couvre reservation, chunk durable avec suffixe non commite, finalisation/validation, promotion transactionnelle, revendication de job, progression, ecriture de resultat et suppression. Chaque cas execute la reconciliation reelle deux fois et verifie l'idempotence DB/fichiers.
+```bash
+uv sync --frozen --all-extras
+uv run ruff check src/tara_web tests/web/test_ci_static.py \
+  scripts/generate_web_openapi.py scripts/generate_i18n_manifest.py \
+  scripts/docker_preflight.py docker/healthcheck.py
+umask 077
+uv run pytest --junitxml=reports/python-tests.xml
 
-## UI et accessibilite
+cd webinterface/frontend
+npm ci --ignore-scripts
+npm run check
+npm run test:e2e -- --project=chromium
+```
 
-- Les baselines `toHaveScreenshot` couvrent `1440x900`, `980x900`, `390x844` et `320x720` pour le suivi et le resultat.
-- Le test a detecte puis fait corriger un debordement des boutons de recherche a 320 px.
-- Les assertions couvrent absence de debordement horizontal, deux progressions accessibles, accordions, recherche, navigation, reduced motion, logo statique/anime et absence de controles interactifs imbriques.
-- Les adaptations volontaires aux concepts sont: donnees dynamiques, double progression, sections ordonnees par contrat, commandes de copie separees et icones Lucide.
+`npm run check` enchaîne lint, Vitest, TypeScript, build Vite, budget du bundle,
+contrat OpenAPI et manifestes i18n. Le job conteneur valide également le modèle
+Compose et reconstruit l'image de production.
 
-## Securite
+## Contrôles de release
 
-- Origine, hotes, headers CSP/HSTS, rate limits, proxy, secrets absents/interdits, uploads hostiles, IPC falsifie et resultats corrompus sont couverts par `tests/web/security` et les suites API/orchestration.
-- La CSP autorise uniquement `script-src 'self' 'wasm-unsafe-eval'` pour `hash-wasm` et `worker-src 'self'`; elle n'autorise pas l'evaluation JavaScript generique.
-- Le scan de regression cree de vrais marqueurs prives et confirme leur absence des logs, reponses non autorisees et chemins absolus. Le secret brut et les fragments sont absents du dump SQLite; seuls les champs prives prevus conservent contexte et resumes.
-- Les E2E confirment que secrets, contexte et resumes ne figurent jamais dans les URL reseau.
-- `npm audit` est revenu a **0 vulnerability** apres actualisation des dependances transitives verrouillees.
-- `pip-audit 2.10.1` est revenu a **0 vulnerability** apres contrainte de `h2>=4.4.1`. La CI exporte le graphe runtime verrouille, execute les audits Python et Node separement, conserve leurs rapports JSON 14 jours et echoue si l'un des deux audits echoue.
-- La verification de release genere un SBOM SPDX JSON et scanne l'image construite avec Trivy 0.73.0 verrouille par digest. Les vulnerabilites corrigeables `HIGH` ou `CRITICAL`, un SBOM absent ou un scanner en echec bloquent la release; les deux rapports sont conserves 14 jours.
+La vérification de release est déclenchée manuellement ou par une étiquette
+`v*`. Elle n'effectue aucun push d'image :
 
-## Fonctions differees
+```bash
+uv sync --frozen --extra dev
+uv run pytest tests/web/load/test_mvp_load.py \
+  --junitxml=reports/web-load.xml --durations=1
 
-- Runner Tara reel: remplace le faux runner lors d'une etape d'integration ulterieure.
-- Entree merged transcription YAML et schemas publics YAML `26.0.1`: etape 09.
-- Upload ZIP: implementation ulterieure deja documentee dans le plan.
+cd webinterface/frontend
+npm ci --ignore-scripts
+npm run test:e2e
 
-## Decision
+cd ../..
+docker compose config --quiet
+scripts/smoke-web-compose.sh
+```
 
-Le MVP est signe comme base de regression. L'integration Tara et les schemas YAML peuvent commencer sans modifier les contrats HTTP/frontend valides ici.
+Le test de charge initialise explicitement le tokenizer, admet 30 jobs sans
+provider, revendique exactement 5 jobs actifs et conserve 25 jobs en file. Il
+borne le p95 des lectures à 250 ms et chaque promotion à une seconde, puis
+vérifie la reprise serveur et `PRAGMA integrity_check`.
+
+La matrice Playwright couvre Chromium, Firefox, WebKit et Chromium mobile. Les
+tests Axe vérifient WCAG A/AA ; les scénarios contrôlent aussi les largeurs
+1440, 980, 390 et 320 px, le clavier, la réduction des animations et l'absence
+de débordement horizontal.
+
+Le smoke test Compose exerce TLS, santé, isolation, rootfs en lecture seule,
+UID non privilégié, `SIGTERM`, sauvegarde et restauration. La release génère
+ensuite un SBOM SPDX JSON et scanne l'image avec Trivy verrouillé par digest. Un
+scan absent, en erreur, ou une vulnérabilité corrigeable `HIGH`/`CRITICAL`
+bloquent la livraison.
+
+## Sécurité des dépendances
+
+La CI exporte les dépendances Python runtime depuis `uv.lock`, exécute
+`pip-audit`, puis lance `npm audit --audit-level=high` sur le frontend. Les deux
+rapports JSON sont conservés 14 jours et chaque audit est bloquant. Aucun
+credential, média privé, base locale ou artefact d'analyse ne doit être ajouté
+aux rapports ou au dépôt.
+
+## Résultat de la validation finale
+
+À renseigner après l'exécution complète de la tâche de validation finale : date,
+révision, décomptes Python/Vitest/Playwright, charge, audits, smoke Compose,
+digest de l'image et résultat du scan.

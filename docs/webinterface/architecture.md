@@ -48,7 +48,7 @@ secret transmis dans le fragment local de l'URL.
 | Menace | Controle contractuel |
 |---|---|
 | Attaquant Internet | identifiants opaques, actions et types inconnus refuses, payloads bornes |
-| Detenteur d'un lien | secret hors URL serveur, snapshots sans fuite interne, regeneration future du secret |
+| Detenteur d'un lien | secret hors URL serveur, snapshots sans fuite interne, rotation atomique et revocation de l'ancien secret |
 | Fichier hostile | chemins relatifs geres, validation positive, tailles et evenements bornes |
 | Provider compromis | erreurs converties en codes stables; reponses brutes et credentials restent internes |
 | Operateur mal configure | dependances a sens unique, privileges minimaux et listes positives de contrats |

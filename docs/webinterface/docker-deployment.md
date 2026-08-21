@@ -57,16 +57,20 @@ docker compose -f compose.yaml -f compose.override.yaml config --quiet
 docker compose -f compose.yaml -f compose.override.yaml build --pull
 ```
 
-L'image doit également être scannée et accompagnée d'un SBOM dans la CI. Les
-arguments `TARA_OCI_SOURCE`, `TARA_OCI_REVISION` et `TARA_OCI_VERSION` alimentent
-les labels OCI sans introduire de secret dans l'image. Les bases Node, Python,
-uv et Nginx sont verrouillées par version et digest ; leur mise à jour doit être
-une modification explicite suivie d'un rebuild, des tests et du scan complet.
+L'image doit également être scannée et accompagnée d'un SBOM. La vérification
+de release utilise une image Trivy verrouillée par version et digest, produit un
+SBOM SPDX JSON et bloque les vulnérabilités corrigeables `HIGH` ou `CRITICAL`.
+Les rapports sont conservés comme artefacts CI pendant 14 jours. Les arguments
+`TARA_OCI_SOURCE`, `TARA_OCI_REVISION` et `TARA_OCI_VERSION` alimentent les
+labels OCI sans introduire de secret dans l'image. Les bases Node, Python, uv et
+Nginx sont verrouillées par version et digest ; leur mise à jour doit être une
+modification explicite suivie d'un rebuild, des tests et du scan complet.
 
 Sur l'hôte Linux cible, `scripts/smoke-web-compose.sh` construit une pile
 éphémère, contrôle TLS, santé, isolation, rootfs, UID et `SIGTERM`, puis détruit
-ses volumes. `scripts/docker-sbom.sh IMAGE /chemin/absolu/sbom.spdx.json` produit
-le SBOM avec Syft. Sous Docker Desktop Windows, le script PowerShell délègue ce
+ses volumes. Pour un contrôle opérateur indépendant,
+`scripts/docker-sbom.sh IMAGE /chemin/absolu/sbom.spdx.json` produit un SBOM
+local avec Syft. Sous Docker Desktop Windows, le script PowerShell délègue ce
 même scénario à Bash (WSL ou Git Bash) afin de conserver une seule procédure de
 référence.
 
