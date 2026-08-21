@@ -61,6 +61,7 @@ def test_release_verifies_hardened_compose_without_publishing() -> None:
     assert workflow["permissions"] == {"contents": "read"}
     assert workflow["concurrency"]["cancel-in-progress"] is False
     assert set(workflow["jobs"]) == {
+        "adversarial-gate",
         "load-gate",
         "browser-matrix",
         "compose-smoke",
@@ -74,6 +75,10 @@ def test_release_verifies_hardened_compose_without_publishing() -> None:
     assert "uv sync --frozen --extra dev" in rendered
     assert "pytest tests/web/load/test_mvp_load.py" in rendered
     assert "--junitxml=reports/web-load.xml" in rendered
+    assert "--junitxml=reports/web-adversarial.xml" in rendered
+    assert "tests/web/uploads/test_merged_transcription_validation.py" in rendered
+    assert "tests/web/zip/test_zip_security.py" in rendered
+    assert "tests/web/api/test_sse_broker.py" in rendered
     assert "playwright install --with-deps chromium firefox webkit" in rendered
     assert "npm run test:e2e" in rendered
     assert "scripts/smoke-web-compose.sh" in rendered
@@ -87,6 +92,11 @@ def test_release_verifies_hardened_compose_without_publishing() -> None:
     assert "reports/source-security.json" in rendered
     assert "--severity HIGH,CRITICAL --ignore-unfixed --exit-code 1" in rendered
     assert "docker push" not in rendered
+    assert set(workflow["jobs"]["compose-smoke"]["needs"]) == {
+        "adversarial-gate",
+        "browser-matrix",
+        "load-gate",
+    }
 
 
 def test_third_party_actions_are_pinned_to_full_commits() -> None:

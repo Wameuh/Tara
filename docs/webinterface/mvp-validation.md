@@ -53,6 +53,16 @@ uv sync --frozen --extra dev
 uv run pytest tests/web/load/test_mvp_load.py \
   --junitxml=reports/web-load.xml --durations=1
 
+umask 077
+uv run pytest tests/web/security \
+  tests/web/uploads/test_audio_probe.py \
+  tests/web/uploads/test_merged_transcription_validation.py \
+  tests/web/uploads/test_resumable_upload.py \
+  tests/web/zip/test_zip_security.py \
+  tests/web/api/test_sse_broker.py \
+  tests/web/api/test_events_results.py \
+  --junitxml=reports/web-adversarial.xml
+
 cd webinterface/frontend
 npm ci --ignore-scripts
 npm run test:e2e
@@ -67,6 +77,12 @@ Le test de charge initialise explicitement le tokenizer, admet 30 jobs sans
 provider, revendique exactement 5 jobs actifs et conserve 25 jobs en file. Il
 borne le p95 des lectures à 250 ms et chaque promotion à une seconde, puis
 vérifie la reprise serveur et `PRAGMA integrity_check`.
+
+Le garde adversarial dynamique démarre l'application avec `TestClient` et
+réexécute les corpus négatifs HTTP, upload, média polyglotte, YAML hostile, ZIP
+traversal/bomb et SSE borné. Il n'utilise aucune donnée réelle ni provider. Son
+rapport JUnit distinct empêche qu'une régression de sécurité reste masquée dans
+la suite fonctionnelle générale.
 
 La matrice Playwright couvre Chromium, Firefox, WebKit et Chromium mobile. Les
 tests Axe vérifient WCAG A/AA ; les scénarios contrôlent aussi les largeurs

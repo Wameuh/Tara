@@ -39,7 +39,8 @@ responsable désigné.
   justification, compensation, échéance et signature.
 - [ ] Aucun debug, faux runner, docs publiques, credential de test, origine ou
   hôte joker n'est actif dans la configuration rendue.
-- [ ] DAST/fuzz ciblé couvre API, upload, YAML, ZIP et SSE sans donnée réelle.
+- [ ] Le garde adversarial dynamique couvre API, upload, média polyglotte, YAML,
+  ZIP et SSE sans donnée réelle ; son rapport JUnit est archivé.
 
 ## Déploiement et reprise
 
