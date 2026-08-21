@@ -56,8 +56,10 @@ def test_release_verifies_hardened_compose_without_publishing() -> None:
     workflow = load_workflow("release.yml")
     assert workflow["permissions"] == {"contents": "read"}
     assert workflow["concurrency"]["cancel-in-progress"] is False
-    assert set(workflow["jobs"]) == {"compose-smoke"}
+    assert set(workflow["jobs"]) == {"browser-matrix", "compose-smoke"}
     rendered = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
+    assert "playwright install --with-deps chromium firefox webkit" in rendered
+    assert "npm run test:e2e" in rendered
     assert "scripts/smoke-web-compose.sh" in rendered
     assert "docker push" not in rendered
 

@@ -26,12 +26,14 @@ test("suivi: deux progressions, annulation et fallback SSE", async ({ page }) =>
   await expect(page.locator("button button")).toHaveCount(0);
 });
 
-test("suivi: les quatre viewports restent sans debordement horizontal", async ({ page }) => {
+test("suivi: les quatre viewports restent sans debordement horizontal", async ({ page }, testInfo) => {
   await mockJobApi(page);
   for (const viewport of [{ width: 1440, height: 900 }, { width: 980, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 720 }]) {
     await page.setViewportSize(viewport);
     await page.goto(`/jobs/job_abcdefghijklmnop#secret=${secret}`);
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await expect(page).toHaveScreenshot(`job-progress-${viewport.width}.png`, { fullPage: true, animations: "disabled", maxDiffPixelRatio: 0.01 });
+    if (testInfo.project.name === "chromium") {
+      await expect(page).toHaveScreenshot(`job-progress-${viewport.width}.png`, { fullPage: true, animations: "disabled", maxDiffPixelRatio: 0.01 });
+    }
   }
 });

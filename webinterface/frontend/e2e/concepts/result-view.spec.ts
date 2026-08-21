@@ -9,10 +9,10 @@ const result = { type: "tara_result_v1", status: "available", expires_at: "2026-
   { id: "characters", section_type: "characters", status: "available", title: "Personnages", text: "Aline recherche l'indice perdu.", blocks: [{ type: "paragraph", text: "Aline recherche l'indice perdu." }], order: 1 },
 ] };
 
-test("resultat: recherche, accordions, navigation et fragment secret", async ({ page }) => {
+test("resultat: recherche, accordions, navigation et fragment secret", async ({ page }, testInfo) => {
   await page.route("**/api/v1/config/public", route => route.fulfill({ json: config }));
   await page.route("**/events", route => route.fulfill({ status: 503 }));
-  await page.route("**/api/v1/jobs/job_abcdefghijklmnop", route => route.fulfill({ json: completed }));
+  await page.route(/\/api\/v1\/jobs\/job_abcdefghijklmnop(?:\?.*)?$/, route => route.fulfill({ json: completed }));
   await page.route("**/api/v1/jobs/job_abcdefghijklmnop/result", route => route.fulfill({ json: result }));
   await page.goto(`/jobs/job_abcdefghijklmnop#secret=${secret}`);
   await expect(page.getByRole("heading", { name: "Analyse Tara terminée" })).toBeVisible();
@@ -25,10 +25,12 @@ test("resultat: recherche, accordions, navigation et fragment secret", async ({ 
     await page.setViewportSize(viewport);
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await expect(page.locator("button button, a button, button a")).toHaveCount(0);
-    await expect(page).toHaveScreenshot(`result-view-${viewport.width}.png`, {
-      fullPage: true,
-      animations: "disabled",
-      maxDiffPixelRatio: 0.01,
-    });
+    if (testInfo.project.name === "chromium") {
+      await expect(page).toHaveScreenshot(`result-view-${viewport.width}.png`, {
+        fullPage: true,
+        animations: "disabled",
+        maxDiffPixelRatio: 0.01,
+      });
+    }
   }
 });
