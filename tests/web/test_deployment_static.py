@@ -134,6 +134,9 @@ def test_image_context_entrypoint_proxy_and_config_are_production_shaped() -> No
     config = load_yaml(ROOT / "config/docker.example.yaml")["webinterface"]
     assert config["storage"]["sqlite_path"] == "/data/runtime/db/tara-web.sqlite3"
     assert config["public_url"].startswith("https://")
+    entrypoint = (ROOT / "docker/entrypoint.sh").read_text(encoding="utf-8")
+    assert "load_secret TARA_MODAL_PROXY_AUTH_KEY" in entrypoint
+    assert "load_secret TARA_MODAL_PROXY_AUTH_SECRET" in entrypoint
 
 
 def test_operator_scripts_are_local_bounded_and_executable() -> None:

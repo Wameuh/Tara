@@ -19,6 +19,8 @@ load_secret() {
 load_secret TARA_WEB_BACKUP_SIGNING_KEY
 load_secret MODAL_TOKEN_ID
 load_secret MODAL_TOKEN_SECRET
+load_secret TARA_MODAL_PROXY_AUTH_KEY
+load_secret TARA_MODAL_PROXY_AUTH_SECRET
 
 config="${TARA_WEB_CONFIG:-/config/webinterface.yaml}"
 python /app/scripts/docker_preflight.py --config "$config"

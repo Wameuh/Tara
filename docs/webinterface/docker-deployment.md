@@ -27,6 +27,8 @@ secrets/tls.key
 secrets/backup-signing-key
 secrets/modal-token-id
 secrets/modal-token-secret
+secrets/modal-proxy-auth-key
+secrets/modal-proxy-auth-secret
 ```
 
 Copier ensuite la surcharge sans y placer de valeur secrète :
@@ -36,13 +38,16 @@ cp compose.override.yaml.example compose.override.yaml
 chmod 700 secrets
 sudo chgrp 101 secrets/tls.crt secrets/tls.key
 sudo chgrp 10001 secrets/backup-signing-key \
-  secrets/modal-token-id secrets/modal-token-secret
+  secrets/modal-token-id secrets/modal-token-secret \
+  secrets/modal-proxy-auth-key secrets/modal-proxy-auth-secret
 chmod 640 secrets/*
 export TARA_WEB_TLS_CERTIFICATE_FILE="$PWD/secrets/tls.crt"
 export TARA_WEB_TLS_PRIVATE_KEY_FILE="$PWD/secrets/tls.key"
 export TARA_WEB_BACKUP_KEY_FILE="$PWD/secrets/backup-signing-key"
 export MODAL_TOKEN_ID_FILE="$PWD/secrets/modal-token-id"
 export MODAL_TOKEN_SECRET_FILE="$PWD/secrets/modal-token-secret"
+export TARA_MODAL_PROXY_AUTH_KEY_FILE="$PWD/secrets/modal-proxy-auth-key"
+export TARA_MODAL_PROXY_AUTH_SECRET_FILE="$PWD/secrets/modal-proxy-auth-secret"
 ```
 
 Compose monte les secrets locaux comme des fichiers liés et conserve leurs

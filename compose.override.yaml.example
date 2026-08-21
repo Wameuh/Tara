@@ -9,10 +9,14 @@ services:
       TARA_WEB_BACKUP_SIGNING_KEY_FILE: /run/secrets/backup_signing_key
       MODAL_TOKEN_ID_FILE: /run/secrets/modal_token_id
       MODAL_TOKEN_SECRET_FILE: /run/secrets/modal_token_secret
+      TARA_MODAL_PROXY_AUTH_KEY_FILE: /run/secrets/modal_proxy_auth_key
+      TARA_MODAL_PROXY_AUTH_SECRET_FILE: /run/secrets/modal_proxy_auth_secret
     secrets:
       - backup_signing_key
       - modal_token_id
       - modal_token_secret
+      - modal_proxy_auth_key
+      - modal_proxy_auth_secret
   tara-web-backup:
     secrets: [backup_signing_key]
     environment:
@@ -29,3 +33,7 @@ secrets:
     file: ${MODAL_TOKEN_ID_FILE:-./secrets/modal-token-id}
   modal_token_secret:
     file: ${MODAL_TOKEN_SECRET_FILE:-./secrets/modal-token-secret}
+  modal_proxy_auth_key:
+    file: ${TARA_MODAL_PROXY_AUTH_KEY_FILE:-./secrets/modal-proxy-auth-key}
+  modal_proxy_auth_secret:
+    file: ${TARA_MODAL_PROXY_AUTH_SECRET_FILE:-./secrets/modal-proxy-auth-secret}
