@@ -10,6 +10,7 @@ from tara.providers.events import UsageAttempt
 from tara.transcription import (
     InferenceServerClient,
     TranscriptionResponse,
+    _modal_proxy_cost_snapshot,
     transcribe_audio_directory,
 )
 
@@ -44,6 +45,31 @@ def test_http_transcription_emits_success_usage(
     assert [(item.status, item.provider, item.model) for item in attempts] == [
         ("success", "http", "parakeet:test")
     ]
+
+
+def test_modal_proxy_cost_uses_request_duration_and_configured_rate() -> None:
+    config = TaraConfig()
+    config.transcription.inference_auth_provider = "modal_proxy"
+    config.transcription.modal_usd_per_second = "0.000306"
+    config.analysis.llm.usd_to_eur_rate = "0.92"
+
+    cost = _modal_proxy_cost_snapshot(config, 0.5)
+
+    assert cost is not None
+    assert cost.native_cost_micros == 153
+    assert cost.cost_micro_eur == 141
+    assert cost.native_currency == "USD"
+    assert cost.conversion_rate == "0.92"
+    assert cost.source == "modal_duration_estimate"
+
+
+def test_non_modal_http_cost_remains_unavailable() -> None:
+    config = TaraConfig()
+    config.transcription.inference_auth_provider = "none"
+    config.transcription.modal_usd_per_second = "0.000306"
+    config.analysis.llm.usd_to_eur_rate = "0.92"
+
+    assert _modal_proxy_cost_snapshot(config, 10.0) is None
 
 
 @pytest.mark.parametrize(

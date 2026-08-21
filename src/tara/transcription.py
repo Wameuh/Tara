@@ -11,12 +11,14 @@ from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
 import requests
 
 from tara.config import TaraConfig
+from tara.providers.costing import CostSnapshot, convert_native_cost
 from tara.providers.events import UsageAttempt
 from tara.schemas.merged_transcription import (
     MergedTranscription,
@@ -36,6 +38,29 @@ TranscriptionProgressCallback = Callable[
 DirectoryProgressCallback = Callable[[int, int, float], None]
 CancellationCheck = Callable[[], None]
 UsageAttemptCallback = Callable[[UsageAttempt], None]
+
+
+def _modal_proxy_cost_snapshot(
+    config: TaraConfig,
+    duration_seconds: float,
+) -> CostSnapshot | None:
+    """Estimate a proxied Modal request from its measured request duration."""
+    if config.transcription.inference_auth_provider.strip().lower() != "modal_proxy":
+        return None
+    native_rate = config.transcription.modal_usd_per_second
+    eur_rate = config.analysis.llm.usd_to_eur_rate
+    if native_rate is None or eur_rate is None:
+        return None
+    try:
+        native_cost = Decimal(native_rate) * Decimal(str(max(0.0, duration_seconds)))
+    except InvalidOperation as exc:
+        raise ValueError("cost configuration is invalid") from exc
+    return convert_native_cost(
+        native_cost,
+        native_currency="USD",
+        eur_per_native=eur_rate,
+        source="modal_duration_estimate",
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -366,6 +391,11 @@ def _transcribe_audio_directory_via_http(
         finally:
             if usage_attempt_callback is not None:
                 finished = datetime.now(UTC)
+                duration_ms = max(
+                    0,
+                    int((time.monotonic() - attempt_monotonic) * 1_000),
+                )
+                cost = _modal_proxy_cost_snapshot(config, duration_ms / 1_000)
                 usage = UsageAttempt(
                     attempt_id="pa_" + secrets.token_urlsafe(18),
                     operation_family="transcription",
@@ -379,10 +409,12 @@ def _transcribe_audio_directory_via_http(
                     status=status,
                     started_at=attempt_started.isoformat().replace("+00:00", "Z"),
                     finished_at=finished.isoformat().replace("+00:00", "Z"),
-                    duration_ms=max(
-                        0,
-                        int((time.monotonic() - attempt_monotonic) * 1_000),
-                    ),
+                    duration_ms=duration_ms,
+                    cost_micro_eur=cost.cost_micro_eur if cost else None,
+                    cost_source=cost.source if cost else "unavailable",
+                    native_cost_micros=cost.native_cost_micros if cost else None,
+                    native_currency=cost.native_currency if cost else None,
+                    conversion_rate=cost.conversion_rate if cost else None,
                 )
                 try:
                     usage_attempt_callback(usage)
