@@ -1,0 +1,33 @@
+name: Release verification
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  compose-smoke:
+    name: Build and smoke-test the release image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Validate the Compose model
+        run: docker compose config --quiet
+      - name: Run the hardened Compose smoke test
+        env:
+          TARA_OCI_SOURCE: ${{ github.server_url }}/${{ github.repository }}
+          TARA_OCI_REVISION: ${{ github.sha }}
+          TARA_OCI_VERSION: ${{ github.ref_name }}
+        run: scripts/smoke-web-compose.sh

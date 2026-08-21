@@ -11,7 +11,7 @@ const actionsFor = (status: JobStatus) => ({
   cancelled: ["delete_job", "edit_and_relaunch", "regenerate_secret"], expired: [],
 }[status]);
 const job = (status: JobStatus, revision = 1, actions = actionsFor(status), attemptNumber = 1) => ({ job_id: id, status, revision, attempt_number: attemptNumber, language: "fr", allowed_actions: actions, identical_relaunch_available: status === "timed_out", inputs: [], warnings: [], expires_at: "2026-07-24T12:00:00Z", started_at: null, progress: { stage: "transcription", estimate_status: "available", estimate_seconds: 12, overall_ratio: .4, current_ratio: .5 }, stages: [{ code: "input_validation", status: "completed", progress: 1 }, { code: "transcription", status: status === "queued" ? "pending" : "active", progress: .5 }], ...(status === "failed" || status === "timed_out" ? { error: { code: status === "timed_out" ? "timeout" : "processing_failed", message_key: `errors.${status === "timed_out" ? "timeout" : "processing_failed"}`, parameters: {} } } : {}) });
-const result = { type: "tara_result_v1", status: "complete", expires_at: "2026-07-24T12:00:00Z", cost: { status: "complete", value_micro_eur: 0 }, sections: [{ id: "overview", title: "Vue", text: "Résultat restauré", order: 0, status: "available" }] };
+const result = { type: "tara_result_v1", status: "available", expires_at: "2026-07-24T12:00:00Z", cost: { status: "available", value_micro_eur: 0 }, sections: [{ id: "overview", section_type: "overview", title: "Vue", text: "Résultat restauré", blocks: [{ type: "paragraph", text: "Résultat restauré" }], order: 0, status: "available" }] };
 const session = (fileStatus = "created", offset = 0) => ({ session_id: sessionId, status: fileStatus === "ready" ? "ready" : "uploading", revision: 4, language: "fr", context_text: "contexte", previous_summaries_text: "resume", expires_at: "2026-07-24T12:00:00Z", allowed_actions: [], validations: [], files: [{ file_id: "file_abcdefghijklmnop", status: fileStatus, revision: 4, confirmed_offset: offset, total_size: 3, person: "Alice", display_name: "a.ogg", allowed_actions: [] }] });
 
 async function base(page: import("@playwright/test").Page, snapshots: () => object) {
@@ -39,17 +39,17 @@ test("scenario-02-upload-interrompu-repris-offset-finalize-ready", async ({ page
 });
 
 test("scenario-03-fifo-polling-progressions-transition-resultat", async ({ page }) => {
-  let gets = 0; await base(page, () => gets++ < 2 ? job("queued", 1) : gets++ < 4 ? job("running", 2) : job("completed", 3));
+  let gets = 0; const snapshots = [job("queued", 1), job("running", 2), job("completed", 3)]; await base(page, () => snapshots[Math.min(gets++, snapshots.length - 1)]);
   await page.route(`**/api/v1/jobs/${id}/events`, r => r.fulfill({ status: 503 })); await page.route(`**/api/v1/jobs/${id}/result`, r => r.fulfill({ json: result }));
-  await page.goto(`/jobs/${id}#secret=${secret}`); await expect(page.locator(".total-progress progress")).toHaveCount(2); await page.waitForTimeout(5200);
-  await expect(page.locator("h1")).toContainText(/Analyse Tara/); expect(gets).toBeGreaterThanOrEqual(3);
+  await page.goto(`/jobs/${id}#secret=${secret}`); await expect(page.locator(".total-progress progress")).toHaveCount(2);
+  await expect(page.getByRole("heading", { name: "Analyse Tara terminée" })).toBeVisible({ timeout: 16_000 }); expect(gets).toBeGreaterThanOrEqual(3);
 });
 
 test("scenario-04-nouveau-contexte-fragment-header-authentifie", async ({ browser }) => {
   const context = await browser.newContext(); const page = await context.newPage(); const headers: string[] = [];
   await base(page, () => job("completed", 2, [])); await page.route(`**/api/v1/jobs/${id}/events`, r => r.fulfill({ status: 503 })); await page.route(`**/api/v1/jobs/${id}/result`, r => r.fulfill({ json: result }));
   page.on("request", r => { if (r.url().includes(`/jobs/${id}`)) headers.push(r.headers()["x-tara-job-secret"] ?? ""); }); await page.goto(`/jobs/${id}#secret=${secret}`);
-  await expect(page.locator("h1")).toContainText(/Analyse Tara/); expect(headers).toContain(secret); expect(page.url()).toContain("#secret="); await context.close();
+  await expect(page.getByRole("heading", { name: "Analyse Tara terminée" })).toBeVisible(); expect(headers).toContain(secret); expect(page.url()).toContain("#secret="); await context.close();
 });
 
 test("scenario-05-mauvais-secret-indisponible-et-rotation-atomique", async ({ page }) => {
@@ -82,5 +82,5 @@ test("scenario-09-expiration-job-et-resultat-expire", async ({ page }) => {
 
 test("scenario-10-sse-echec-polling-revision-plus-recente", async ({ page }) => {
   let gets = 0; await base(page, () => gets++ ? job("completed", 2, []) : job("running", 1)); await page.route(`**/api/v1/jobs/${id}/events`, r => r.fulfill({ status: 503 })); await page.route(`**/api/v1/jobs/${id}/result`, r => r.fulfill({ json: result }));
-  await page.goto(`/jobs/${id}#secret=${secret}`); await page.waitForTimeout(5200); await expect(page.locator("h1")).toContainText(/Analyse Tara/); expect(gets).toBeGreaterThan(1);
+  await page.goto(`/jobs/${id}#secret=${secret}`); await expect(page.getByRole("heading", { name: "Analyse Tara terminée" })).toBeVisible({ timeout: 10_000 }); expect(gets).toBeGreaterThan(1);
 });
