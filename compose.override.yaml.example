@@ -11,12 +11,17 @@ services:
       MODAL_TOKEN_SECRET_FILE: /run/secrets/modal_token_secret
       TARA_MODAL_PROXY_AUTH_KEY_FILE: /run/secrets/modal_proxy_auth_key
       TARA_MODAL_PROXY_AUTH_SECRET_FILE: /run/secrets/modal_proxy_auth_secret
+      TARA_CURSOR_AUTH_FILE: /run/secrets/cursor_auth
+      PATH: /opt/cursor-agent:/app/.venv/bin:/usr/local/bin:/usr/bin:/bin
+    volumes:
+      - ${TARA_CURSOR_AGENT_DIR:-./cursor-agent}:/opt/cursor-agent:ro
     secrets:
       - backup_signing_key
       - modal_token_id
       - modal_token_secret
       - modal_proxy_auth_key
       - modal_proxy_auth_secret
+      - cursor_auth
   tara-web-backup:
     secrets: [backup_signing_key]
     environment:
@@ -37,3 +42,5 @@ secrets:
     file: ${TARA_MODAL_PROXY_AUTH_KEY_FILE:-./secrets/modal-proxy-auth-key}
   modal_proxy_auth_secret:
     file: ${TARA_MODAL_PROXY_AUTH_SECRET_FILE:-./secrets/modal-proxy-auth-secret}
+  cursor_auth:
+    file: ${TARA_CURSOR_AUTH_FILE:-./secrets/cursor-auth.json}

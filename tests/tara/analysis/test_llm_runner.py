@@ -384,7 +384,7 @@ def test_cursor_cli_backend_runs_agent_prompt() -> None:
     exe0, arg0, arg1 = commands[0][0:3]
     assert arg0 == "--trust"
     assert arg1 == "-p"
-    assert exe0 == "agent" or Path(exe0).name.lower() == "agent.cmd"
+    assert Path(exe0).name.lower() in {"agent", "agent.cmd"}
     assert "--output-format" in commands[0]
     assert "json" in commands[0]
     assert inputs and '"purpose": "unit-test"' in str(inputs[0])
@@ -595,10 +595,10 @@ def test_runner_retries_backend_and_records_telemetry() -> None:
     assert telemetry.events == [
         (
             "llm_runner.usage.recorded",
-                {
-                    "purpose": "unit-test",
-                    "stage": None,
-                    "backend": "api",
+            {
+                "purpose": "unit-test",
+                "stage": None,
+                "backend": "api",
                 "model": "gpt-test",
                 "input_tokens": 0,
                 "output_tokens": 0,
@@ -755,7 +755,12 @@ def test_cursor_cli_backend_fails_on_non_json_stdout() -> None:
     """Plain-text Cursor CLI stdout should fail fast instead of returning zero cost."""
 
     def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(command, 0, stdout="plain text only", stderr="")
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="plain text only",
+            stderr="",
+        )
 
     backend = CursorCLIBackend(
         LLMRunnerConfig(backend="cursor_cli"),
@@ -823,3 +828,37 @@ def test_cursor_cli_backend_strips_secret_environment_and_uses_sandbox(
     assert captured["command"][1] == "--trust"
     assert "--output-format" in captured["command"]
     assert "json" in captured["command"]
+
+
+def test_cursor_cli_default_environment_keeps_linux_auth_locations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HOME", "/tmp/cursor-home")
+    monkeypatch.setenv("XDG_CONFIG_HOME", "/tmp/cursor-home/.config")
+    monkeypatch.setenv("XDG_CACHE_HOME", "/tmp/cursor-home/.cache")
+    monkeypatch.setenv("AGENT_CLI_CREDENTIAL_STORE", "file")
+    captured: dict[str, Any] = {}
+
+    def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=_cursor_json_stdout("ok"),
+            stderr="",
+        )
+
+    backend = CursorCLIBackend(
+        LLMRunnerConfig(backend="cursor_cli"),
+        subprocess_run=fake_run,
+    )
+
+    assert backend.run(_request()).content == "ok"
+    environment = captured["env"]
+    for key in (
+        "HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_CACHE_HOME",
+        "AGENT_CLI_CREDENTIAL_STORE",
+    ):
+        assert environment[key] == os.environ[key]

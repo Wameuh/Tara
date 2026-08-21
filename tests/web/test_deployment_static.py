@@ -93,9 +93,7 @@ def test_compose_uses_dedicated_volumes_and_narrow_mounts() -> None:
     assert "tara_web_db:/data/runtime/db" in app_mounts
     assert "tara_web_backups:/data/backups" in app_mounts
     assert all(
-        mount.endswith(":ro")
-        for mount in app_mounts
-        if str(mount).startswith("./")
+        mount.endswith(":ro") for mount in app_mounts if str(mount).startswith("./")
     )
 
 
@@ -137,6 +135,14 @@ def test_image_context_entrypoint_proxy_and_config_are_production_shaped() -> No
     entrypoint = (ROOT / "docker/entrypoint.sh").read_text(encoding="utf-8")
     assert "load_secret TARA_MODAL_PROXY_AUTH_KEY" in entrypoint
     assert "load_secret TARA_MODAL_PROXY_AUTH_SECRET" in entrypoint
+    assert "prepare_cursor_auth" in entrypoint
+    assert 'chmod 600 "$cursor_config/auth.json"' in entrypoint
+    tara_config = load_yaml(ROOT / "config/tara-web.yaml")
+    assert tara_config["analysis"]["llm"]["backend"] == "cursor_cli"
+    assert tara_config["analysis"]["llm"]["cursor_command"] == "cursor-agent"
+    override = (ROOT / "compose.override.yaml.example").read_text(encoding="utf-8")
+    assert "TARA_CURSOR_AUTH_FILE: /run/secrets/cursor_auth" in override
+    assert ":/opt/cursor-agent:ro" in override
 
 
 def test_operator_scripts_are_local_bounded_and_executable() -> None:

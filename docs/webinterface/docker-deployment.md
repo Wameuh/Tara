@@ -29,6 +29,7 @@ secrets/modal-token-id
 secrets/modal-token-secret
 secrets/modal-proxy-auth-key
 secrets/modal-proxy-auth-secret
+secrets/cursor-auth.json
 ```
 
 Copier ensuite la surcharge sans y placer de valeur secrète :
@@ -39,7 +40,8 @@ chmod 700 secrets
 sudo chgrp 101 secrets/tls.crt secrets/tls.key
 sudo chgrp 10001 secrets/backup-signing-key \
   secrets/modal-token-id secrets/modal-token-secret \
-  secrets/modal-proxy-auth-key secrets/modal-proxy-auth-secret
+  secrets/modal-proxy-auth-key secrets/modal-proxy-auth-secret \
+  secrets/cursor-auth.json
 chmod 640 secrets/*
 export TARA_WEB_TLS_CERTIFICATE_FILE="$PWD/secrets/tls.crt"
 export TARA_WEB_TLS_PRIVATE_KEY_FILE="$PWD/secrets/tls.key"
@@ -48,7 +50,16 @@ export MODAL_TOKEN_ID_FILE="$PWD/secrets/modal-token-id"
 export MODAL_TOKEN_SECRET_FILE="$PWD/secrets/modal-token-secret"
 export TARA_MODAL_PROXY_AUTH_KEY_FILE="$PWD/secrets/modal-proxy-auth-key"
 export TARA_MODAL_PROXY_AUTH_SECRET_FILE="$PWD/secrets/modal-proxy-auth-secret"
+export TARA_CURSOR_AUTH_FILE="$PWD/secrets/cursor-auth.json"
+export TARA_CURSOR_AGENT_DIR="$HOME/.local/share/cursor-agent/versions/VERSION"
 ```
+
+`TARA_CURSOR_AGENT_DIR` doit désigner le répertoire de version Linux de Cursor
+Agent contenant `cursor-agent`, `node` et `index.js`. Copier le seul script
+`cursor-agent` ne suffit pas. Copier le fichier d'authentification Cursor dans
+`secrets/cursor-auth.json` sans en afficher le contenu ; l'entrypoint le
+matérialise avec des permissions privées dans le `tmpfs` du conteneur. Le
+pipeline web utilise Cursor CLI avec le modèle `Auto` par défaut.
 
 Compose monte les secrets locaux comme des fichiers liés et conserve leurs
 propriétaires et permissions hôte. Les GID `101` (Nginx) et `10001` (Tara)

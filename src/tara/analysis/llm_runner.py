@@ -47,6 +47,11 @@ DEFAULT_CURSOR_ENV_ALLOWLIST = (
     "HOMEPATH",
     "USERNAME",
     "USERDOMAIN",
+    # Linux Cursor CLI resolves file-backed authentication below HOME/XDG.
+    "HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_CACHE_HOME",
+    "AGENT_CLI_CREDENTIAL_STORE",
 )
 CURSOR_ENV_DENYLIST_EXACT = {
     "TARA_MODAL_PROXY_AUTH_KEY",
