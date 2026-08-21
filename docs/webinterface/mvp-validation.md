@@ -77,10 +77,11 @@ Le premier smoke test Compose exerce TLS, santé, isolation, rootfs en lecture
 seule, UID non privilégié, `SIGTERM`, sauvegarde et restauration. Un second
 smoke provider-free démarre une inférence HTTP déterministe, envoie deux pistes
 MP3/OGG par l'interface réelle dans Chromium, attend le résultat Tara et vérifie
-l'attribution des personnes sans fuite de secret. La release génère ensuite un
-SBOM SPDX JSON et scanne l'image avec Trivy verrouillé par digest. Un scan
-absent, en erreur, ou une vulnérabilité corrigeable `HIGH`/`CRITICAL` bloquent
-la livraison.
+l'attribution des personnes sans fuite de secret. La release génère ensuite des
+SBOM SPDX JSON Python, npm et image, scanne les secrets et configurations des
+sources suivies, puis scanne l'image avec Trivy verrouillé par digest. Un
+rapport absent, un scan en erreur, ou une vulnérabilité corrigeable
+`HIGH`/`CRITICAL` bloque la livraison.
 
 ## Sécurité des dépendances
 

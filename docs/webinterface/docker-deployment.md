@@ -57,10 +57,13 @@ docker compose -f compose.yaml -f compose.override.yaml config --quiet
 docker compose -f compose.yaml -f compose.override.yaml build --pull
 ```
 
-L'image doit également être scannée et accompagnée d'un SBOM. La vérification
-de release utilise une image Trivy verrouillée par version et digest, produit un
-SBOM SPDX JSON et bloque les vulnérabilités corrigeables `HIGH` ou `CRITICAL`.
-Les rapports sont conservés comme artefacts CI pendant 14 jours. Les arguments
+L'image et les sources doivent également être scannées et accompagnées de
+SBOM. La vérification de release utilise une image Trivy verrouillée par version
+et digest. Elle produit trois SBOM SPDX JSON (lock Python, lock npm et image),
+scanne les secrets et configurations du seul contenu versionné, puis bloque les
+vulnérabilités d'image corrigeables `HIGH` ou `CRITICAL`. Les quatre rapports
+source portent un manifeste SHA-256. Tous les rapports sont conservés comme
+artefacts CI pendant 14 jours. Les arguments
 `TARA_OCI_SOURCE`, `TARA_OCI_REVISION` et `TARA_OCI_VERSION` alimentent les
 labels OCI sans introduire de secret dans l'image. Les bases Node, Python, uv et
 Nginx sont verrouillées par version et digest ; leur mise à jour doit être une
@@ -73,6 +76,13 @@ ses volumes. Pour un contrôle opérateur indépendant,
 local avec Syft. Sous Docker Desktop Windows, le script PowerShell délègue ce
 même scénario à Bash (WSL ou Git Bash) afin de conserver une seule procédure de
 référence.
+
+Pour reproduire localement les rapports de source sans inclure les fichiers non
+suivis du worktree :
+
+```bash
+scripts/source-security-reports.sh "$PWD/reports/source-security"
+```
 
 ## Démarrage et arrêt
 

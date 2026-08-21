@@ -75,9 +75,13 @@ def test_release_verifies_hardened_compose_without_publishing() -> None:
     assert "npm run test:e2e" in rendered
     assert "scripts/smoke-web-compose.sh" in rendered
     assert "scripts/smoke_real_audio_compose.py --playwright" in compose_commands
+    assert 'scripts/source-security-reports.sh "$PWD/reports"' in compose_commands
     assert "playwright install --with-deps chromium" in compose_commands
     assert "ghcr.io/aquasecurity/trivy:0.73.0@sha256:" in rendered
     assert "--format spdx-json" in rendered
+    assert "reports/python.spdx.json" in rendered
+    assert "reports/npm.spdx.json" in rendered
+    assert "reports/source-security.json" in rendered
     assert "--severity HIGH,CRITICAL --ignore-unfixed --exit-code 1" in rendered
     assert "docker push" not in rendered
 

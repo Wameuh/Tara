@@ -146,6 +146,7 @@ def test_operator_scripts_are_local_bounded_and_executable() -> None:
         "scripts/docker-restore.sh",
         "scripts/smoke-web-compose.sh",
         "scripts/docker-sbom.sh",
+        "scripts/source-security-reports.sh",
     }
     for relative in expected:
         path = ROOT / relative

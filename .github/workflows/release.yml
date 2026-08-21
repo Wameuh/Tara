@@ -125,6 +125,10 @@ jobs:
           TARA_OCI_REVISION: ${{ github.sha }}
           TARA_OCI_VERSION: ${{ github.ref_name }}
         run: python scripts/smoke_real_audio_compose.py --playwright
+      - name: Generate source SBOMs and scan tracked sources
+        id: source-security
+        continue-on-error: true
+        run: scripts/source-security-reports.sh "$PWD/reports"
       - name: Generate the release image SBOM
         id: image-sbom
         continue-on-error: true
@@ -146,21 +150,27 @@ jobs:
             --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
             --format json --output /reports/image-vulnerabilities.json \
             tara-web:local
-      - name: Upload image security reports
+      - name: Upload release security reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-image-security-reports
+          name: release-security-reports
           path: |
+            reports/python.spdx.json
+            reports/npm.spdx.json
+            reports/source-security.json
+            reports/source-security.sha256
             reports/image.spdx.json
             reports/image-vulnerabilities.json
           if-no-files-found: error
           retention-days: 14
-      - name: Enforce image security results
+      - name: Enforce release security results
         if: always()
         env:
+          SOURCE_SECURITY_OUTCOME: ${{ steps.source-security.outcome }}
           IMAGE_SBOM_OUTCOME: ${{ steps.image-sbom.outcome }}
           IMAGE_SCAN_OUTCOME: ${{ steps.image-scan.outcome }}
         run: |
+          test "$SOURCE_SECURITY_OUTCOME" = success
           test "$IMAGE_SBOM_OUTCOME" = success
           test "$IMAGE_SCAN_OUTCOME" = success
