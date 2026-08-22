@@ -75,3 +75,17 @@ scénario à Bash via WSL ou Git Bash. La matrice complète et les contrôles de
 livraison sont détaillés dans [Validation V1 web](mvp-validation.md). Pour une
 instance durable, utiliser le [runbook](runbook.md), le [guide API](api.md) et
 la [checklist de livraison](release-checklist.md).
+
+## Galerie des vues sans backend
+
+Les états principaux du frontend peuvent être inspectés avec des contenus
+Lorem Ipsum sans lancer Tara ni Docker :
+
+```bash
+python -m http.server 8090 --directory webinterface
+```
+
+Ouvrir ensuite <http://127.0.0.1:8090/view-examples/>. Cette galerie statique
+réutilise les styles de production mais ne fait partie d'aucun bundle livré. Sa
+couverture et ses limites sont documentées dans
+[`webinterface/view-examples/README.md`](../../webinterface/view-examples/README.md).

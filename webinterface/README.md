@@ -23,6 +23,25 @@ l'isolation principale puis verifie l'arret par `SIGTERM`. Il a ete valide avec
 Docker Desktop 29.6.1 lors de la livraison du socle et doit rester execute avant
 chaque livraison.
 
+## Parcours utilisateur V1
+
+La page de création accepte des pistes MP3/OGG, une transcription fusionnée
+YAML ou une archive ZIP. La sélection de pistes audio crée immédiatement une
+session et lance les transferts en arrière-plan : l'utilisateur peut continuer
+à remplir le contexte et les résumés antérieurs pendant l'upload. Un conflit
+d'offset recharge la position confirmée par le serveur et reprend le fichier de
+façon bornée.
+
+Les erreurs d'API affichent un `Code support` lorsqu'un `correlation_id` public
+est disponible. L'administrateur recherche exactement cette valeur dans les
+journaux d'accès expurgés. Le résultat terminé publie le contenu exact de
+`session_summary.md`, le rend en HTML Markdown sûr dans la page et conserve le
+téléchargement du fichier Markdown original.
+
+La [galerie statique des vues](view-examples/README.md) couvre les principaux
+états de l'interface avec des données Lorem Ipsum. Elle est réservée à la
+documentation et n'entre pas dans l'image de production.
+
 ## SQLite
 
 SQLite, son WAL et son fichier SHM vivent ensemble dans le volume `tara_web_data`,

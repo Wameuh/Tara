@@ -4,7 +4,15 @@ Le resultat public utilise `schema_name: tara.public_result` et `schema_version:
 
 Les types de section sont `overview`, `chronology`, `characters`, `quests`, `combat`, `locations`, `items`, `factions`, `uncertainties` et `generic`. Les blocs publics sont `paragraph`, `list`, `orderedList`, `keyValue`, `table` et `callout`.
 
-La publication part d'un resultat interne avec une liste positive de champs. Les chemins et identifiants internes ne font pas partie du schema public. Le Markdown interne est transforme en paragraphes ou listes types avant validation: les fences sont ignores, les titres et citations deviennent du texte, les liens et images gardent leur libelle sans URL, et emphase/code deviennent du texte simple. Une phrase narrative telle que «Le groupe suit une trace.» reste autorisee.
+La publication part d'un resultat interne avec une liste positive de champs. Les chemins et identifiants internes ne font pas partie du schema public. Le Markdown interne est transforme en paragraphes ou listes types pour alimenter les blocs structurés : les fences sont ignores, les titres et citations deviennent du texte, les liens et images gardent leur libelle sans URL, et emphase/code deviennent du texte simple. Une phrase narrative telle que «Le groupe suit une trace.» reste autorisee.
+
+Depuis la publication du résumé exact, `content.summary_markdown` peut aussi
+contenir la représentation bornée de `session_summary.md`. Ce champ est une
+source publique destinée à la lecture et au téléchargement ; il reste distinct
+des blocs structurés. L'API web le projette sous `summary_markdown`. Le frontend
+sert le texte original au téléchargement et utilise un parseur Markdown sûr
+uniquement pour l'affichage : pas de HTML brut, d'image distante ni de lien à
+protocole dangereux.
 
 Un document 26.0.1 forge est refuse s'il contient un chemin absolu ou du Markdown brut (fence, titre, citation, lien/image, emphase forte ou code inline) dans une valeur publique. Cette verification s'applique apres le chargement sur tous les titres et contenus de blocs.
 

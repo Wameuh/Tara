@@ -104,6 +104,7 @@ provider-free automated tests.
 - [Run the web interface](docs/webinterface/launching.md)
 - [Deploy with Docker Compose](docs/webinterface/docker-deployment.md)
 - [Validate the V1 release](docs/webinterface/mvp-validation.md)
+- [Browse the static Lorem Ipsum view examples](webinterface/view-examples/README.md)
 
 ### Cursor CLI pipeline probe (benchmarks)
 

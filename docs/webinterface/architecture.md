@@ -18,6 +18,10 @@ commande.
 ## Flux et recuperation
 
 1. Une session reserve de la capacite, puis recoit des fichiers reprenables.
+   Pour l'audio, la selection cree la session et demarre les transferts sans
+   bloquer la saisie du contexte et des resumes anterieurs. Un conflit de chunk
+   `409 upload_chunk_conflict` provoque une relecture de l'offset serveur et une
+   reprise automatique bornee.
 2. Chaque fichier est finalise et valide hors de la file Tara.
 3. Une session prete est revendiquee atomiquement et cree un job FIFO.
 4. Le runner declare uniquement evenements et artefacts; le processus principal
@@ -27,13 +31,18 @@ commande.
 6. Au redemarrage, les jobs actifs sans worker deviennent `failed` avec
    `server_interrupted`; les jobs en attente conservent leur ordre. Les uploads
    et artefacts sont reconcilies depuis leur etat persiste.
+7. Le resultat public contient la projection structuree et, lorsqu'il est
+   disponible, le texte exact de `session_summary.md`. Le frontend telecharge
+   ce texte sans transformation et le rend a l'ecran avec un parseur Markdown
+   charge a la demande. Le HTML brut, les images et les URL dangereuses ne sont
+   pas rendus.
 
 ## Classification et acces minimal
 
 | Classe | Exemples | Regle |
 |---|---|---|
-| public | statuts, codes, progression, expiration | schemas API et SSE uniquement |
-| interne | chemins relatifs, detail de retry, correlation | processus principal et logs expurges |
+| public | statuts, codes, progression, expiration, identifiant de correlation d'une reponse en erreur | schemas API et SSE uniquement |
+| interne | chemins relatifs, detail de retry, diagnostic technique | processus principal et logs expurges |
 | sensible | noms originaux, contenu utilisateur, artefacts | stockage gere et routes protegees |
 | secret | secret de lien, cles HMAC, credentials provider | jamais dans IPC, schemas publics ou logs |
 

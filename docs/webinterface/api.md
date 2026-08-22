@@ -42,7 +42,10 @@ REST avant de décider d'une nouvelle action.
 2. `POST /api/v1/uploads/sessions/{session_id}/files` déclare un fichier avec
    taille et SHA-256.
 3. `PATCH .../files/{file_id}/chunks` envoie un chunk séquentiel avec
-   `Upload-Offset` et `Upload-Checksum`. `GET .../offset` permet la reprise.
+   `Upload-Offset` et `Upload-Checksum`. `GET .../offset` permet la reprise. En
+   cas de `409 upload_chunk_conflict`, le client relit l'offset confirmé puis
+   réessaie de façon bornée ; l'état local du navigateur n'est jamais la source
+   de vérité.
 4. `POST .../files/{file_id}/finalize` déclenche la validation. Le snapshot de
    session expose son avancement et les erreurs publiques.
 5. `PATCH /api/v1/sessions/{session_id}/inputs` fixe langue, contexte et
@@ -52,7 +55,10 @@ REST avant de décider d'une nouvelle action.
    relancer à l'identique, créer une relance éditable ou régénérer le secret si
    l'action figure dans `allowed_actions`.
 7. `GET /api/v1/jobs/{job_id}/result` expose uniquement la projection publique
-   versionnée, jamais le YAML brut ni un chemin interne.
+   versionnée, jamais le YAML brut ni un chemin interne. Lorsque
+   `summary_markdown` est présent, il contient exactement le document
+   `session_summary.md` publié : le téléchargement le conserve tel quel et le
+   rendu HTML côté navigateur reste une présentation non canonique.
 
 Les endpoints de configuration et de santé sont
 `GET /api/v1/config/public`, `GET /api/v1/live` et `GET /api/v1/ready`.
@@ -76,9 +82,11 @@ Les sessions progressent notamment de `created` vers `uploading`,
 `completed`, `failed`, `cancelled`, `timed_out`, `expired` et `deleted`. Seuls
 le snapshot et `allowed_actions` autorisent une commande.
 
-Les erreurs utilisent `application/problem+json` avec un statut HTTP et un
-`code` stable. Aucun message technique, prompt, chemin ou contenu provider
-n'est public. Les codes métier et paramètres autorisés sont listés dans
+Les erreurs utilisent `application/problem+json` avec un statut HTTP, un
+`code` stable et un `correlation_id` opaque. Le frontend présente ce dernier
+comme `Code support` ; l'opérateur peut rechercher la même valeur dans les logs
+expurgés. Aucun message technique, prompt, chemin ou contenu provider n'est
+public. Les codes métier et paramètres autorisés sont listés dans
 [Vocabulaire public stable](error-codes.md). Les réponses `429` et `503`
 doivent respecter un délai borné ; une mutation n'est rejouée qu'avec sa même
 clé d'idempotence.

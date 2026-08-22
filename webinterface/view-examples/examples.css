@@ -1,0 +1,37 @@
+.examples-index { padding: 48px; background: #eef1f7; color: #151a28; font-family: ui-sans-serif, system-ui, sans-serif; }
+.examples-index main { max-width: 1500px; margin: 0 auto; }
+.examples-index h1 { font-size: 44px; margin: 0 0 12px; }
+.examples-index .lede { max-width: 760px; color: #626a7c; line-height: 1.6; }
+.examples-index .eyebrow { color: #3d5afe; font-weight: 700; margin: 0 0 8px; }
+.examples-gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 28px; margin-top: 36px; }
+.example-card { padding: 18px; border: 1px solid #dce2ee; border-radius: 12px; background: #fff; box-shadow: 0 12px 34px rgb(37 48 78 / 8%); }
+.example-card header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.example-card h2 { margin: 0 0 14px; font-size: 19px; }
+.example-card a { color: #3d5afe; }
+.example-card iframe { width: 100%; height: 560px; border: 1px solid #dce2ee; border-radius: 8px; background: #f6f8fc; }
+.example-view { min-height: 100vh; }
+.example-view .app-header button { display: flex; align-items: center; gap: 7px; }
+.example-view .loading { min-height: 100vh; }
+.example-view .demo-input { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--surface); color: var(--text); }
+.example-view .input-kind-options { display: flex; flex-wrap: wrap; gap: 14px; }
+.example-view .input-kind-options label { display: flex; align-items: center; gap: 8px; }
+.example-view .validation-details,.example-view .help-grid section { padding: 20px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.example-view .help-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-bottom: 26px; }
+.example-view .upload-list { list-style: none; margin: 20px 0; padding: 0; display: grid; gap: 14px; }
+.example-view .upload-list li { padding: 18px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.example-view .upload-file-heading { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.example-view .job-actions { display: grid; gap: 10px; }
+.example-view .job-actions p { line-height: 1.5; }
+.example-view .failed-panel { margin: 20px 0 30px; padding: 18px 22px; border-left: 4px solid var(--danger); background: #fff5f5; }
+.example-view .demo-phases { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 0; list-style: none; }
+.example-view .demo-phases li { padding: 10px; border-bottom: 3px solid var(--border); }
+.example-view .demo-phases li[aria-current="step"] { border-color: var(--primary); color: var(--primary); font-weight: 700; }
+.example-view .summary-document { margin-bottom: 60px; }
+@media (max-width: 700px) {
+  .examples-index { padding: 24px 12px; }
+  .examples-gallery { grid-template-columns: 1fr; }
+  .example-card { padding: 12px; }
+  .example-card iframe { height: 620px; }
+  .example-view .help-grid { grid-template-columns: 1fr; }
+  .example-view .demo-phases { grid-template-columns: 1fr 1fr; }
+}
