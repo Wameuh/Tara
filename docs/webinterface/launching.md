@@ -77,6 +77,8 @@ export TARA_WEB_BIND_ADDRESS=0.0.0.0
 
 git status --short
 git rev-parse --short HEAD
+df -h /
+sg docker -c 'docker system df'
 sg docker -c 'docker compose -f compose.yaml -f "$TARA_LIVE_OVERRIDE" config --quiet'
 export TARA_PREVIOUS_IMAGE="$(sg docker -c 'docker image inspect tara-web:local --format "{{.Id}}"')"
 TARA_OCI_REVISION="$(git rev-parse HEAD)" \
@@ -87,6 +89,23 @@ La construction exécute ESLint, Vitest, TypeScript, le build Vite, le budget du
 bundle ainsi que les contrôles OpenAPI et i18n. Elle ne modifie pas encore les
 conteneurs live. Si elle échoue, conserver l'ancienne instance et corriger le
 checkout avant toute bascule.
+
+Conserver au moins 6 Go libres avant une reconstruction complète : l'image
+contient notamment FFmpeg, Python, Node et les dépendances frontend. Si le
+cache de construction inutilisé occupe l'espace disponible, le nettoyer avant
+le build avec la commande suivante. Elle ne supprime ni image taguée, ni
+conteneur, ni volume persistant, mais le prochain build réutilisera moins de
+couches :
+
+```bash
+sg docker -c 'docker builder prune --all --force'
+df -h /
+```
+
+Un disque plein peut faire échouer SQLite avec `disk I/O error`. Dans ce cas,
+ne pas restaurer ni supprimer la base : libérer le cache Docker, vérifier que
+plusieurs gigaoctets sont de nouveau disponibles, puis relancer la sauvegarde
+et la pile.
 
 Après une construction réussie, arrêter proprement l'application, créer une
 sauvegarde authentifiée, appliquer automatiquement les migrations et démarrer
