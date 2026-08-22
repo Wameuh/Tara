@@ -1,7 +1,7 @@
 import { type ChangeEvent, useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { api, type PublicConfig, type SessionSnapshot } from "../api/client";
+import { api, ApiError, type PublicConfig, type SessionSnapshot } from "../api/client";
 import { clearPending, getPending, setPending, type PendingUpload } from "../features/upload/pending";
 import { hashFile } from "../features/upload/hashFile";
 import { runBounded } from "../features/upload/queue";
@@ -150,6 +150,7 @@ export function UploadSessionPage({
           const position = await api.fileOffset(sessionId, secret, fileId);
           let offset = position.confirmed_offset;
           fileRevision = position.revision;
+          let resyncAttempts = 0;
           patch(seed.key, { state: "uploading", confirmedOffset: offset, fileRevision });
           while (offset < seed.file.size) {
             if (activeController!.signal.aborted) throw new DOMException("Aborted", "AbortError");
@@ -157,17 +158,30 @@ export function UploadSessionPage({
               offset,
               Math.min(offset + config.recommended_chunk_bytes, seed.file.size),
             );
-            const uploaded = await api.uploadChunk(
-              sessionId,
-              fileId,
-              secret,
-              offset,
-              await chunkHash(chunk),
-              chunk,
-              activeController!.signal,
-            );
+            let uploaded;
+            try {
+              uploaded = await api.uploadChunk(
+                sessionId,
+                fileId,
+                secret,
+                offset,
+                await chunkHash(chunk),
+                chunk,
+                activeController!.signal,
+              );
+            } catch (reason) {
+              if (!(reason instanceof ApiError) || reason.status !== 409 || reason.code !== "upload_chunk_conflict" || resyncAttempts >= 3) throw reason;
+              const resynced = await api.fileOffset(sessionId, secret, fileId);
+              if (resynced.confirmed_offset < 0 || resynced.confirmed_offset > seed.file.size) throw reason;
+              offset = resynced.confirmed_offset;
+              fileRevision = resynced.revision;
+              resyncAttempts += 1;
+              patch(seed.key, { confirmedOffset: offset, fileRevision });
+              continue;
+            }
             offset = uploaded.confirmed_offset;
             fileRevision = uploaded.revision;
+            resyncAttempts = 0;
             patch(seed.key, { confirmedOffset: offset, fileRevision });
           }
 

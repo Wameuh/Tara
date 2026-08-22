@@ -6,7 +6,41 @@ export type JobSnapshot = components["schemas"]["JobSnapshot"];
 export type ResultSnapshot = components["schemas"]["ResultSnapshot"];
 type Inputs = { language: string; context_text: string; previous_summaries_text: string };
 const key = () => crypto.randomUUID();
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> { const response = await fetch(path, { ...init, cache: "no-store", headers: { Accept: "application/json", ...init.headers } }); if (!response.ok) throw new Error(`request_failed_${response.status}`); return response.json() as Promise<T>; }
+type ProblemDetails = components["schemas"]["ProblemDetails"];
+
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code?: string,
+    readonly correlationId?: string,
+  ) {
+    super(`request_failed_${status}`);
+    this.name = "ApiError";
+  }
+}
+
+function problemDetails(value: unknown): Partial<ProblemDetails> | null {
+  if (!value || typeof value !== "object") return null;
+  return value as Partial<ProblemDetails>;
+}
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await fetch(path, { ...init, cache: "no-store", headers: { Accept: "application/json", ...init.headers } });
+  if (!response.ok) {
+    let problem: Partial<ProblemDetails> | null = null;
+    try {
+      problem = problemDetails(await response.json());
+    } catch {
+      // Proxies and network edges do not always return a problem+json body.
+    }
+    const code = typeof problem?.code === "string" ? problem.code : undefined;
+    const correlationId = typeof problem?.correlation_id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(problem.correlation_id)
+      ? problem.correlation_id
+      : undefined;
+    throw new ApiError(response.status, code, correlationId);
+  }
+  return response.json() as Promise<T>;
+}
 const ownerHeaders = (secret: string, revision?: number, mutate = false, idempotencyKey?: string) => ({ "X-Tara-Job-Secret": secret, ...(revision === undefined ? {} : { "Expected-Revision": String(revision) }), ...(mutate ? { "Idempotency-Key": idempotencyKey ?? key() } : {}) });
 export async function fetchPublicConfig(): Promise<PublicConfig> { const value = await request<PublicConfig>("/api/v1/config/public", { signal: AbortSignal.timeout(5000) }); if (!isPublicConfig(value)) throw new Error("invalid_public_config"); return value; }
 export function isPublicConfig(value: unknown): value is PublicConfig { if (!value || typeof value !== "object") return false; const v = value as Record<string, unknown>; const langs = v.supported_languages; const modes = v.input_modes; const language = (item: unknown): item is string => typeof item === "string" && /^[a-z]{2,3}(?:-[A-Z]{2})?$/.test(item); const mode = (item: unknown): item is InputKind => item === "audio" || item === "merged_transcription" || item === "zip"; return language(v.language) && typeof v.locale === "string" && new RegExp(`^${v.language}-[A-Z]{2}$`).test(v.locale) && Array.isArray(langs) && langs.length > 0 && langs.every(language) && new Set(langs).size === langs.length && langs.includes(v.language) && Array.isArray(modes) && modes.length > 0 && modes.every(mode) && new Set(modes).size === modes.length && ["max_upload_bytes", "recommended_chunk_bytes", "max_chunk_bytes", "parallel_uploads"].every(item => Number.isInteger(v[item]) && Number(v[item]) > 0); }
