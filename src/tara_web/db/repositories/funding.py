@@ -51,7 +51,8 @@ class FundingRepository:
         try:
             donations = connection.execute(
                 "SELECT COALESCE(SUM(amount_micros),0) FROM kofi_payment_events "
-                "WHERE currency=? AND event_type IN ('Donation','Subscription') "
+                "WHERE currency=? "
+                "AND event_type IN ('Tip','Donation','Subscription') "
                 "AND occurred_at>=? AND occurred_at<?",
                 (currency, start_utc, end_utc),
             ).fetchone()

@@ -36,10 +36,12 @@ URL:
 
 `https://YOUR-TARA-HOST/api/v1/funding/kofi/webhook`
 
-Only donation and subscription payments in EUR contribute to the donation
-bar. Shop orders are excluded. Tara stores the Ko-fi message identifier,
-event type, amount, currency and timestamps only; supporter names, emails and
-messages are discarded. Duplicate webhook deliveries are counted once.
+One-off `Tip` events, legacy/test `Donation` events and `Subscription` payments
+in EUR contribute to the donation bar. Commissions and shop orders are
+excluded. Tara stores the Ko-fi message identifier, event type, amount,
+currency and timestamps only; supporter names, emails and messages are always
+discarded, including when `is_public` is false. Duplicate webhook deliveries
+are counted once and acknowledged with HTTP 200.
 
 `monthly_goal_micro_eur` is optional and sets the common scale of both bars
 (`50000000` means EUR 50). Without it, the interface scales both bars to the

@@ -111,6 +111,10 @@ scripts/source-security-reports.sh "$PWD/reports/source-security"
 
 ## Démarrage et arrêt
 
+La procédure pas à pas pour reconstruire et mettre à jour l'instance live de
+la machine de développement, avec sauvegarde, contrôles de santé et rollback,
+se trouve dans [Lancer l'interface web](launching.md#construire-et-mettre-à-jour-le-serveur-live-de-cette-machine).
+
 ```bash
 docker compose -f compose.yaml -f compose.override.yaml up -d
 docker compose -f compose.yaml -f compose.override.yaml ps

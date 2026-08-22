@@ -60,6 +60,79 @@ Arrêter la pile sans supprimer les volumes :
 docker compose -f compose.yaml -f compose.override.yaml down
 ```
 
+## Construire et mettre à jour le serveur live de cette machine
+
+L'instance actuellement exposée utilise la surcharge privée
+`$TARA_LIVE_OVERRIDE`. Elle monte les
+certificats, les credentials provider, l'authentification Cursor, le token
+Ko-fi et la configuration web locale sans placer leur contenu dans Git ni dans
+l'image. Les commandes suivantes sont à exécuter depuis la racine de
+`TaraRepo` dans le même terminal :
+
+```bash
+export TARA_LIVE_OVERRIDE="${TARA_LIVE_OVERRIDE:?set it to the private Compose override path}"
+TARA_LIVE_DIR="$(dirname -- "$TARA_LIVE_OVERRIDE")"
+
+export TARA_WEB_BIND_ADDRESS=0.0.0.0
+
+git status --short
+git rev-parse --short HEAD
+sg docker -c 'docker compose -f compose.yaml -f "$TARA_LIVE_OVERRIDE" config --quiet'
+export TARA_PREVIOUS_IMAGE="$(sg docker -c 'docker image inspect tara-web:local --format "{{.Id}}"')"
+TARA_OCI_REVISION="$(git rev-parse HEAD)" \
+  sg docker -c 'docker compose -f compose.yaml -f "$TARA_LIVE_OVERRIDE" build --pull tara-web-init'
+```
+
+La construction exécute ESLint, Vitest, TypeScript, le build Vite, le budget du
+bundle ainsi que les contrôles OpenAPI et i18n. Elle ne modifie pas encore les
+conteneurs live. Si elle échoue, conserver l'ancienne instance et corriger le
+checkout avant toute bascule.
+
+Après une construction réussie, arrêter proprement l'application, créer une
+sauvegarde authentifiée, appliquer automatiquement les migrations et démarrer
+la nouvelle image :
+
+```bash
+sg docker -c 'docker compose -f compose.yaml -f "$TARA_LIVE_OVERRIDE" stop tara-web'
+sg docker -c 'docker compose -f compose.yaml -f "$TARA_LIVE_OVERRIDE" --profile operations run --rm tara-web-backup'
+sg docker -c 'docker compose -f compose.yaml -f "$TARA_LIVE_OVERRIDE" up -d --no-build'
+sg docker -c 'docker compose -f compose.yaml -f "$TARA_LIVE_OVERRIDE" ps'
+```
+
+Valider ensuite TLS et les deux niveaux de santé, puis contrôler Ko-fi et les
+journaux récents. `--resolve` teste le certificat public contre le service
+local sans dépendre du routage NAT du réseau :
+
+```bash
+curl --fail --silent --show-error \
+  --cacert "$TARA_LIVE_DIR/secrets/tls.crt" \
+  --resolve tara-wameuh.duckdns.org:8443:127.0.0.1 \
+  https://tara-wameuh.duckdns.org:8443/api/v1/live
+curl --fail --silent --show-error \
+  --cacert "$TARA_LIVE_DIR/secrets/tls.crt" \
+  --resolve tara-wameuh.duckdns.org:8443:127.0.0.1 \
+  https://tara-wameuh.duckdns.org:8443/api/v1/ready
+curl --fail --silent --show-error \
+  --cacert "$TARA_LIVE_DIR/secrets/tls.crt" \
+  --resolve tara-wameuh.duckdns.org:8443:127.0.0.1 \
+  https://tara-wameuh.duckdns.org:8443/api/v1/funding/monthly
+sg docker -c 'docker compose -f compose.yaml -f "$TARA_LIVE_OVERRIDE" logs --tail 200 tara-web'
+```
+
+Si la nouvelle application ne devient pas saine et qu'aucune migration
+incompatible n'a été appliquée, remettre l'image précédente puis recréer les
+services :
+
+```bash
+sg docker -c 'docker image tag "$TARA_PREVIOUS_IMAGE" tara-web:local'
+sg docker -c 'docker compose -f compose.yaml -f "$TARA_LIVE_OVERRIDE" up -d --no-build'
+```
+
+Après une migration incompatible avec l'ancienne image, ne pas tenter de
+rétrograder SQLite en place : suivre la procédure de restauration dans un
+volume neuf décrite par le [runbook](runbook.md). Ne jamais utiliser `down -v`,
+qui supprimerait les volumes persistants.
+
 ## Vérification locale
 
 Le smoke test construit une pile éphémère, vérifie TLS, santé, isolation,

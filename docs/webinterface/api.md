@@ -63,6 +63,21 @@ REST avant de décider d'une nouvelle action.
 Les endpoints de configuration et de santé sont
 `GET /api/v1/config/public`, `GET /api/v1/live` et `GET /api/v1/ready`.
 
+## Webhook Ko-fi
+
+`POST /api/v1/funding/kofi/webhook` accepte le format Ko-fi
+`application/x-www-form-urlencoded` : le champ `data` contient le paiement en
+JSON. Le token est comparé en temps constant au secret monté dans le conteneur.
+Une livraison valide, y compris un doublon de `message_id`, reçoit `200` afin
+d'arrêter les nouvelles tentatives Ko-fi.
+
+La jauge additionne en EUR les événements `Tip`, `Subscription` et l'ancien
+libellé `Donation` encore utilisé par certains tests Ko-fi. `Commission` et
+`Shop Order` sont acceptés mais ne contribuent pas à la jauge. Tara ne conserve
+et n'affiche jamais `from_name`, `email`, `message`, `tier_name`, `shop_items`
+ou les détails d'expédition. Le message reste donc privé indépendamment de
+`is_public` ; seuls des totaux mensuels agrégés sont publics.
+
 ## SSE et repli REST
 
 `GET /api/v1/jobs/{job_id}/events` répond en `text/event-stream`. Chaque

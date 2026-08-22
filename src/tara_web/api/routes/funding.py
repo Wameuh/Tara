@@ -19,7 +19,9 @@ from tara_web.db.repositories.funding import FundingRepository
 router = APIRouter(prefix="/funding", tags=["funding"])
 _MESSAGE_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _CURRENCY = re.compile(r"^[A-Z]{3}$")
-_COUNTED_TYPES = {"Donation", "Subscription"}
+# Ko-fi currently emits ``Tip`` for one-off support. ``Donation`` is retained
+# for compatibility with older deliveries and the dashboard test sender.
+_COUNTED_TYPES = {"Tip", "Donation", "Subscription"}
 _MAX_BODY_BYTES = 65_536
 
 

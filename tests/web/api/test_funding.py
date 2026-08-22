@@ -44,7 +44,8 @@ def _webhook_payload(**changes: object) -> dict[str, object]:
         "verification_token": TOKEN,
         "message_id": "payment_abcdefghijklmnop",
         "timestamp": datetime.now(UTC).isoformat(),
-        "type": "Donation",
+        "type": "Tip",
+        "is_public": False,
         "amount": "4.50",
         "currency": "EUR",
         "from_name": "Private supporter",
@@ -125,6 +126,30 @@ def test_webhook_rejects_wrong_token_and_excludes_shop_and_other_currency(
         assert (
             client.get("/api/v1/funding/monthly").json()["donations_micro_eur"]
             == 0
+        )
+
+
+def test_webhook_counts_subscription_and_legacy_donation(tmp_path: Path) -> None:
+    with TestClient(create_app(_config(tmp_path))) as client:
+        assert _post_webhook(
+            client,
+            _webhook_payload(
+                message_id="subscription_abcdefghijkl",
+                type="Subscription",
+                amount="5.00",
+            ),
+        ).status_code == 200
+        assert _post_webhook(
+            client,
+            _webhook_payload(
+                message_id="donation_abcdefghijklmnop",
+                type="Donation",
+                amount="2.50",
+            ),
+        ).status_code == 200
+        assert (
+            client.get("/api/v1/funding/monthly").json()["donations_micro_eur"]
+            == 7_500_000
         )
 
 
