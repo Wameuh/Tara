@@ -173,7 +173,7 @@ export function NewJobPage({ config, go }: { config: PublicConfig; go: (path: st
   const transferFailed = audioPending.some((item) => item.state === "failed");
   const audioReady = Boolean(audioSession && audioSnapshot?.allowed_actions.includes("launch") && !transferActive && !transferFailed);
 
-  return <main className="page form-page"><header className="page-header"><p className="eyebrow">{t("new.eyebrow")}</p><h1>{t("new.title")}</h1><p className="lede">{t("new.lede")}</p></header><MonthlyFundingPanel /><form className="analysis-form" onSubmit={submit}>
+  return <main className="page form-page"><header className="page-header"><p className="eyebrow">{t("new.eyebrow")}</p><h1>{t("new.title")}</h1><p className="lede">{t("new.lede")}</p></header><form className="analysis-form" onSubmit={submit}>
     <fieldset className="input-kind" aria-describedby="input-kind-hint"><legend>{t("new.input_kind")}</legend><p id="input-kind-hint" className="muted">{t("new.input_kind_hint")}</p><div className="input-kind-options">
       {config.input_modes.includes("audio") && <label><input type="radio" name="input-kind" value="audio" checked={inputKind === "audio"} disabled={Boolean(audioSession)} onChange={() => { setInputKind("audio"); setError(null); }} />{t("new.audio")}</label>}
       {config.input_modes.includes("merged_transcription") && <label><input type="radio" name="input-kind" value="merged_transcription" checked={inputKind === "merged_transcription"} disabled={Boolean(audioSession)} onChange={() => { setInputKind("merged_transcription"); setError(null); }} />{t("new.merged_transcription")}</label>}
@@ -194,5 +194,5 @@ export function NewJobPage({ config, go }: { config: PublicConfig; go: (path: st
       <label className="file-text">{t("new.load_summaries")}<input type="file" multiple accept=".txt,.md,text/plain,text/markdown" onChange={(event) => void importText(event, summaries, 2_000_000, setSummaries)} /></label>
       <button className="primary" disabled={busy || (inputKind === "audio" && Boolean(audioSession) && !audioReady)}>{t(busy ? "new.preparing" : inputKind === "audio" && audioSession && !audioReady ? "new.uploading" : "new.submit")}</button></div>
     {error && <p className="error" role="alert">{error}</p>}
-  </form></main>;
+  </form><MonthlyFundingPanel /></main>;
 }

@@ -36,7 +36,6 @@ export function MonthlyFundingPanel() {
   const consumption = snapshot.estimated_consumption_micro_eur / 1_000_000;
   const goal = snapshot.monthly_goal_micro_eur === null ? null : snapshot.monthly_goal_micro_eur / 1_000_000;
   const scale = Math.max(goal ?? 0, donations, consumption, 1);
-  const balance = donations - consumption;
   const period = month.format(new Date(`${snapshot.month}-01T12:00:00Z`));
 
   return <section className="funding-panel" aria-labelledby="funding-title">
@@ -57,7 +56,6 @@ export function MonthlyFundingPanel() {
     </div>
     <footer className="funding-footer">
       <span>{goal === null ? t("funding.shared_scale") : t("funding.goal", { value: money.format(goal) })}</span>
-      <strong className={balance < 0 ? "funding-negative" : ""}>{balance < 0 ? t("funding.to_cover", { value: money.format(Math.abs(balance)) }) : t("funding.covered", { value: money.format(balance) })}</strong>
     </footer>
   </section>;
 }

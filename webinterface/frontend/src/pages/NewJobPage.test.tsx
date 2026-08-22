@@ -66,12 +66,15 @@ describe("NewJobPage audio selection", () => {
       return new Response("{}", { status: 404 });
     }));
 
-    render(<NewJobPage config={config} go={() => undefined} />);
+    const { container } = render(<NewJobPage config={config} go={() => undefined} />);
 
-    expect(await screen.findByRole("heading", { name: "Soutien Ko-fi et estimations Tara" })).toBeVisible();
+    const fundingHeading = await screen.findByRole("heading", { name: "Soutien Ko-fi et estimations Tara" });
+    expect(fundingHeading).toBeVisible();
     expect(screen.getByText("Dons reçus")).toBeVisible();
     expect(screen.getByText("Consommation estimée")).toBeVisible();
     expect(screen.getByRole("link", { name: "Soutenir Tara sur Ko-fi" })).toHaveAttribute("href", "https://ko-fi.com/tara");
     expect(screen.getAllByRole("progressbar")).toHaveLength(2);
+    expect(container.querySelector("form")?.nextElementSibling).toBe(fundingHeading.closest("section"));
+    expect(screen.queryByText(/Reste à couvrir|Marge estimée/)).not.toBeInTheDocument();
   });
 });

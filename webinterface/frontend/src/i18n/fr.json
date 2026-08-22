@@ -203,8 +203,6 @@
     "funding.partial": "cumul partiel",
     "funding.goal": "Objectif mensuel : {{value}}",
     "funding.shared_scale": "Échelle ajustée aux valeurs du mois",
-    "funding.to_cover": "Reste à couvrir : {{value}}",
-    "funding.covered": "Marge estimée : {{value}}",
     "funding.donations_progress": "Dons reçus ce mois-ci : {{value}}",
     "funding.consumption_progress": "Consommation estimée ce mois-ci : {{value}}"
 }

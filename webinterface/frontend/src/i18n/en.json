@@ -203,8 +203,6 @@
     "funding.partial": "partial total",
     "funding.goal": "Monthly goal: {{value}}",
     "funding.shared_scale": "Scale adjusted to this month's values",
-    "funding.to_cover": "Still to cover: {{value}}",
-    "funding.covered": "Estimated margin: {{value}}",
     "funding.donations_progress": "Donations received this month: {{value}}",
     "funding.consumption_progress": "Estimated consumption this month: {{value}}"
 }

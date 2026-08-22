@@ -151,7 +151,7 @@ h3 { font-family: var(--serif); font-weight: 550; }
 
 /* Form composition */
 .funding-panel {
-  margin: calc(-1 * clamp(12px, 2vw, 24px)) 0 clamp(34px, 5vw, 58px);
+  margin: clamp(42px, 6vw, 72px) 0 0;
   padding: clamp(24px, 3vw, 34px);
   border: 1px solid var(--border);
   border-top: 3px solid var(--primary);
@@ -173,8 +173,6 @@ h3 { font-family: var(--serif); font-weight: 550; }
 .consumption-progress::-webkit-progress-value { background: linear-gradient(90deg, #d89438, #b85c47); }
 .consumption-progress::-moz-progress-bar { background: linear-gradient(90deg, #d89438, #b85c47); }
 .funding-footer { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
-.funding-footer strong { color: var(--primary-dark); }
-.funding-footer .funding-negative { color: var(--danger); }
 .analysis-form { display: grid; gap: 28px; }
 .input-kind {
   margin: 0;
