@@ -3,6 +3,7 @@
     "app.loading":  "Loading Tara",
     "app.ready":  "Tara is available.",
     "errors.generic":  "An error occurred.",
+    "errors.support_code": "Support code: {{code}}.",
     "errors.input_invalid":  "The supplied inputs are invalid.",
     "errors.input_too_large":  "The inputs exceed the allowed limit.",
     "errors.transcription_failed":  "The transcription engine is unavailable or encountered an error. Check its configuration before restarting the analysis.",

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { api, type ResultSnapshot } from "../api/client";
+import { api, publicErrorMessage, type ResultSnapshot } from "../api/client";
 import { ToastRegion } from "../components/ToastRegion";
 import { JobActions } from "../features/job/components/JobActions";
 import { DualProgress } from "../features/job/components/DualProgress";
@@ -21,6 +21,7 @@ import { withSecret } from "../routing/secret";
 
 export function JobPage({ jobId, secret, locale, go }: { jobId: string; secret?: string; locale: string; go: (path: string) => void }) {
   const { t } = useTranslation();
+  const apiError = (reason: unknown) => publicErrorMessage(reason, t("errors.generic"), (code) => t("errors.support_code", { code }));
   const [currentSecret, setCurrentSecret] = useState(secret);
   const { job, error, disconnected, refresh } = useJobSnapshot(jobId, currentSecret);
   const [result, setResult] = useState<ResultSnapshot | null>(null);
@@ -62,8 +63,8 @@ export function JobPage({ jobId, secret, locale, go }: { jobId: string; secret?:
     try {
       await action();
       await refresh();
-    } catch {
-      setToast(t("errors.generic"));
+    } catch (reason) {
+      setToast(apiError(reason));
     } finally {
       setCommand(false);
     }
@@ -80,8 +81,8 @@ export function JobPage({ jobId, secret, locale, go }: { jobId: string; secret?:
       setResult(null);
       setResultError(false);
       setToast(t("job.secret_rotated"));
-    } catch {
-      setToast(t("errors.generic"));
+    } catch (reason) {
+      setToast(apiError(reason));
     } finally {
       setCommand(false);
     }
@@ -94,8 +95,8 @@ export function JobPage({ jobId, secret, locale, go }: { jobId: string; secret?:
       const relaunched = await api.relaunchIdentical(jobId, currentSecret, job.revision);
       if (!relaunched.job_id) throw new Error("missing_relaunch_job");
       go(withSecret(`/jobs/${relaunched.job_id}`, currentSecret));
-    } catch {
-      setToast(t("errors.generic"));
+    } catch (reason) {
+      setToast(apiError(reason));
     } finally {
       setCommand(false);
     }

@@ -3,6 +3,7 @@
     "app.loading":  "Chargement de Tara",
     "app.ready":  "Tara est disponible.",
     "errors.generic":  "Une erreur est survenue.",
+    "errors.support_code": "Code support : {{code}}.",
     "errors.input_invalid":  "Les entrées fournies ne sont pas valides.",
     "errors.input_too_large":  "Les entrées dépassent la limite autorisée.",
     "errors.transcription_failed":  "Le moteur de transcription est indisponible ou a rencontré une erreur. Vérifiez sa configuration avant de relancer l’analyse.",

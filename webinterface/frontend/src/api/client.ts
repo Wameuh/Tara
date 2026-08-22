@@ -19,6 +19,16 @@ export class ApiError extends Error {
   }
 }
 
+export function publicErrorMessage(
+  reason: unknown,
+  fallback: string,
+  supportMessage: (correlationId: string) => string,
+): string {
+  return reason instanceof ApiError && reason.correlationId
+    ? `${fallback} ${supportMessage(reason.correlationId)}`
+    : fallback;
+}
+
 function problemDetails(value: unknown): Partial<ProblemDetails> | null {
   if (!value || typeof value !== "object") return null;
   return value as Partial<ProblemDetails>;

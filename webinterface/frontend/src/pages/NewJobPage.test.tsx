@@ -36,4 +36,15 @@ describe("NewJobPage audio selection", () => {
     await vi.waitFor(() => expect(getPending("session_audio")).toHaveLength(2));
     expect(fetcher.mock.calls.filter(([url]) => /\/uploads\/sessions\?input_type=audio$/.test(String(url)))).toHaveLength(1);
   });
+
+  it("shows the API correlation identifier as a support code", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      code: "internal_error",
+      correlation_id: "admin-log-42",
+    }), { status: 500, headers: { "Content-Type": "application/problem+json" } })));
+    const { container } = render(<NewJobPage config={config} go={() => undefined} />);
+    const input = container.querySelector<HTMLInputElement>('input[type="file"][multiple][accept^="audio/"]');
+    fireEvent.change(input!, { target: { files: [new File(["audio"], "Alice.mp3", { type: "audio/mpeg" })] } });
+    expect(await screen.findByRole("alert")).toHaveTextContent("Une erreur est survenue. Code support : admin-log-42.");
+  });
 });

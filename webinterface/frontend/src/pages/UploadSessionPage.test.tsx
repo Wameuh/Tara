@@ -28,6 +28,40 @@ describe("UploadSessionPage audio", () => {
     fireEvent.blur(person);
     await vi.waitFor(() => expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/person"))).toBe(true));
   });
+
+  it("resynchronizes the confirmed offset after a chunk conflict", async () => {
+    const file = new File(["abc"], "Alice.mp3");
+    const chunk = new Blob(["abc"]);
+    Object.defineProperty(chunk, "arrayBuffer", { value: async () => new Uint8Array([97, 98, 99]).buffer });
+    vi.spyOn(file, "slice").mockReturnValue(chunk);
+    setPending("audio-session", [{ key: "audio", file, inputKind: "audio", person: "Alice", state: "queued", hashingLoaded: 3, confirmedOffset: 0, idempotencyKey: "key", fileId: "audio-file", fileRevision: 1 }]);
+    vi.stubGlobal("crypto", { randomUUID: () => "test-id", subtle: { digest: async () => new Uint8Array(32).buffer } });
+    let offsetRequests = 0;
+    let chunkRequests = 0;
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/offset")) {
+        offsetRequests += 1;
+        return new Response(JSON.stringify({ confirmed_offset: offsetRequests === 1 ? 0 : 1, revision: offsetRequests === 1 ? 1 : 2 }));
+      }
+      if (url.endsWith("/chunks")) {
+        chunkRequests += 1;
+        if (chunkRequests === 1) return new Response(JSON.stringify({ code: "upload_chunk_conflict", correlation_id: "conflict-1" }), { status: 409 });
+        return new Response(JSON.stringify({ confirmed_offset: 3, revision: 3 }));
+      }
+      if (url.endsWith("/person")) return new Response(JSON.stringify({ revision: 4 }));
+      if (url.endsWith("/finalize")) return new Response(JSON.stringify({ accepted: true }), { status: 202 });
+      return new Response(JSON.stringify({
+        session_id: "audio-session", revision: 1, status: "uploading", expires_at: "2030-01-01T00:00:00Z", language: "fr", context_text: "", previous_summaries_text: "", validations: [], allowed_actions: ["cancel"], input_type: "audio",
+        files: [{ file_id: "audio-file", revision: 1, status: "uploading", confirmed_offset: 0, total_size: 3, display_name: "Alice.mp3", person: "Alice", allowed_actions: [] }],
+      }));
+    });
+    vi.stubGlobal("fetch", fetcher);
+    render(<UploadSessionPage sessionId="audio-session" secret="secret" config={{ ...config, max_upload_bytes: 10 }} go={() => undefined} autoLaunch={false} />);
+    await vi.waitFor(() => expect(chunkRequests).toBe(2));
+    expect(offsetRequests).toBeGreaterThanOrEqual(2);
+    expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/finalize"))).toBe(true);
+  });
 });
 
 describe("UploadSessionPage merged transcription", () => {

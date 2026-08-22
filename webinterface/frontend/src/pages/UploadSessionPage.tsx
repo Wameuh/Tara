@@ -1,7 +1,7 @@
 import { type ChangeEvent, useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { api, ApiError, type PublicConfig, type SessionSnapshot } from "../api/client";
+import { api, ApiError, publicErrorMessage, type PublicConfig, type SessionSnapshot } from "../api/client";
 import { clearPending, getPending, setPending, type PendingUpload } from "../features/upload/pending";
 import { hashFile } from "../features/upload/hashFile";
 import { runBounded } from "../features/upload/queue";
@@ -39,6 +39,7 @@ export function UploadSessionPage({
   onPendingChange?: (pending: PendingUpload[]) => void;
 }) {
   const { t } = useTranslation();
+  const apiError = (reason: unknown) => publicErrorMessage(reason, t("errors.generic"), (code) => t("errors.support_code", { code }));
   const initial = getPending(sessionId);
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
   const snapshotRef = useRef<SessionSnapshot | null>(null);
@@ -200,7 +201,7 @@ export function UploadSessionPage({
               state: "failed",
               error: reason instanceof Error && reason.message === "hashing_unavailable"
                 ? t("errors.input_invalid")
-                : t("errors.generic"),
+                : apiError(reason),
             });
           }
         }
@@ -269,8 +270,8 @@ export function UploadSessionPage({
     try {
       await action();
       await refresh();
-    } catch {
-      setActionError(t("errors.generic"));
+    } catch (reason) {
+      setActionError(apiError(reason));
     }
   };
 
@@ -290,8 +291,8 @@ export function UploadSessionPage({
       );
       patch(item.key, { state: "done", fileRevision: changed.revision });
       await refresh();
-    } catch {
-      patch(item.key, { state: "failed", error: t("errors.generic") });
+    } catch (reason) {
+      patch(item.key, { state: "failed", error: apiError(reason) });
       await refresh();
     }
   }
@@ -309,9 +310,9 @@ export function UploadSessionPage({
           clearPending(sessionId);
           go(withSecret(`/jobs/${job.job_id}`, secret));
         })
-        .catch(() => {
+        .catch((reason) => {
           launching.current = false;
-          setActionError(t("errors.generic"));
+          setActionError(apiError(reason));
         });
     }, 0);
     return () => clearTimeout(timer);
@@ -354,9 +355,9 @@ export function UploadSessionPage({
       const job = await api.launchJob(sessionId, secret, snapshot.revision);
       clearPending(sessionId);
       go(withSecret(`/jobs/${job.job_id}`, secret));
-    } catch {
+    } catch (reason) {
       launching.current = false;
-      setActionError(t("errors.generic"));
+      setActionError(apiError(reason));
       await refresh();
     }
   };
@@ -441,7 +442,7 @@ export function UploadSessionPage({
           setPendingState([]);
           await refresh();
         })
-        .catch(() => setActionError(t("errors.generic")));
+        .catch((reason) => setActionError(apiError(reason)));
     }}>{t("upload.cancel")}</button>}
   </Wrapper>;
 }

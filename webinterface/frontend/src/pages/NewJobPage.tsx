@@ -1,7 +1,7 @@
 import { type ChangeEvent, type FormEvent, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { api, type InputKind, type PublicConfig } from "../api/client";
+import { api, publicErrorMessage, type InputKind, type PublicConfig } from "../api/client";
 import { MergedTranscriptionInput } from "../features/upload/MergedTranscriptionInput";
 import { ZipInput } from "../features/upload/ZipInput";
 import { clearPending, getPending, setPending, type PendingUpload } from "../features/upload/pending";
@@ -27,6 +27,7 @@ async function appendTextFiles(event: ChangeEvent<HTMLInputElement>, current: st
 
 export function NewJobPage({ config, go }: { config: PublicConfig; go: (path: string) => void }) {
   const { t } = useTranslation();
+  const apiError = (reason: unknown) => publicErrorMessage(reason, t("errors.generic"), (code) => t("errors.support_code", { code }));
   const draft = loadDraft();
   const [inputKind, setInputKind] = useState<InputKind>(config.input_modes[0]);
   const [files, setFiles] = useState<SelectedAudio[]>([]);
@@ -81,8 +82,8 @@ export function NewJobPage({ config, go }: { config: PublicConfig; go: (path: st
       }) satisfies PendingUpload));
       clearDraft();
       go(withSecret(`/sessions/${created.session_id}`, created.secret));
-    } catch {
-      setError(t("errors.generic"));
+    } catch (reason) {
+      setError(apiError(reason));
       setBusy(false);
     }
   };
@@ -109,8 +110,8 @@ export function NewJobPage({ config, go }: { config: PublicConfig; go: (path: st
       setAudioPending(pending);
       setAudioSession({ sessionId: created.session_id, secret: created.secret });
       setBusy(false);
-    } catch {
-      setError(t("errors.generic"));
+    } catch (reason) {
+      setError(apiError(reason));
       setBusy(false);
     }
   };
@@ -161,8 +162,8 @@ export function NewJobPage({ config, go }: { config: PublicConfig; go: (path: st
       clearPending(audioSession.sessionId);
       clearDraft();
       go(withSecret(`/jobs/${job.job_id}`, audioSession.secret));
-    } catch {
-      setError(t("errors.generic"));
+    } catch (reason) {
+      setError(apiError(reason));
       setBusy(false);
     }
   };
