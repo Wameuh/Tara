@@ -1,8 +1,9 @@
 services:
   tara-web-migrate:
-    secrets: [backup_signing_key]
+    secrets: [backup_signing_key, kofi_verification_token]
     environment:
       TARA_WEB_BACKUP_SIGNING_KEY_FILE: /run/secrets/backup_signing_key
+      TARA_KOFI_VERIFICATION_TOKEN_FILE: /run/secrets/kofi_verification_token
   tara-web:
     environment:
       TARA_INFERENCE_ENDPOINT: ${TARA_INFERENCE_ENDPOINT:-http://host.docker.internal:8000}
@@ -11,6 +12,7 @@ services:
       MODAL_TOKEN_SECRET_FILE: /run/secrets/modal_token_secret
       TARA_MODAL_PROXY_AUTH_KEY_FILE: /run/secrets/modal_proxy_auth_key
       TARA_MODAL_PROXY_AUTH_SECRET_FILE: /run/secrets/modal_proxy_auth_secret
+      TARA_KOFI_VERIFICATION_TOKEN_FILE: /run/secrets/kofi_verification_token
       TARA_CURSOR_AUTH_FILE: /run/secrets/cursor_auth
       PATH: /opt/cursor-agent:/app/.venv/bin:/usr/local/bin:/usr/bin:/bin
     volumes:
@@ -21,11 +23,13 @@ services:
       - modal_token_secret
       - modal_proxy_auth_key
       - modal_proxy_auth_secret
+      - kofi_verification_token
       - cursor_auth
   tara-web-backup:
-    secrets: [backup_signing_key]
+    secrets: [backup_signing_key, kofi_verification_token]
     environment:
       TARA_WEB_BACKUP_SIGNING_KEY_FILE: /run/secrets/backup_signing_key
+      TARA_KOFI_VERIFICATION_TOKEN_FILE: /run/secrets/kofi_verification_token
   tara-web-restore:
     secrets: [backup_signing_key]
     environment:
@@ -42,5 +46,7 @@ secrets:
     file: ${TARA_MODAL_PROXY_AUTH_KEY_FILE:-./secrets/modal-proxy-auth-key}
   modal_proxy_auth_secret:
     file: ${TARA_MODAL_PROXY_AUTH_SECRET_FILE:-./secrets/modal-proxy-auth-secret}
+  kofi_verification_token:
+    file: ${TARA_KOFI_VERIFICATION_TOKEN_FILE:-./secrets/kofi-verification-token}
   cursor_auth:
     file: ${TARA_CURSOR_AUTH_FILE:-./secrets/cursor-auth.json}

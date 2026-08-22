@@ -21,6 +21,7 @@ load_secret MODAL_TOKEN_ID
 load_secret MODAL_TOKEN_SECRET
 load_secret TARA_MODAL_PROXY_AUTH_KEY
 load_secret TARA_MODAL_PROXY_AUTH_SECRET
+load_secret TARA_KOFI_VERIFICATION_TOKEN
 
 prepare_cursor_auth() {
   auth_file="${TARA_CURSOR_AUTH_FILE:-}"

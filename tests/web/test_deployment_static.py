@@ -135,14 +135,23 @@ def test_image_context_entrypoint_proxy_and_config_are_production_shaped() -> No
     entrypoint = (ROOT / "docker/entrypoint.sh").read_text(encoding="utf-8")
     assert "load_secret TARA_MODAL_PROXY_AUTH_KEY" in entrypoint
     assert "load_secret TARA_MODAL_PROXY_AUTH_SECRET" in entrypoint
+    assert "load_secret TARA_KOFI_VERIFICATION_TOKEN" in entrypoint
     assert "prepare_cursor_auth" in entrypoint
     assert 'chmod 600 "$cursor_config/auth.json"' in entrypoint
     tara_config = load_yaml(ROOT / "config/tara-web.yaml")
     assert tara_config["analysis"]["llm"]["backend"] == "cursor_cli"
     assert tara_config["analysis"]["llm"]["cursor_command"] == "cursor-agent"
     override = (ROOT / "compose.override.yaml.example").read_text(encoding="utf-8")
+    assert (
+        "TARA_KOFI_VERIFICATION_TOKEN_FILE: "
+        "/run/secrets/kofi_verification_token"
+    ) in override
     assert "TARA_CURSOR_AUTH_FILE: /run/secrets/cursor_auth" in override
     assert ":/opt/cursor-agent:ro" in override
+    for script_name in ("docker-migrate.sh", "docker-backup.sh"):
+        script = (ROOT / "scripts" / script_name).read_text(encoding="utf-8")
+        assert "TARA_KOFI_VERIFICATION_TOKEN_FILE" in script
+        assert "TARA_KOFI_VERIFICATION_TOKEN" in script
 
 
 def test_operator_scripts_are_local_bounded_and_executable() -> None:

@@ -29,6 +29,7 @@ secrets/modal-token-id
 secrets/modal-token-secret
 secrets/modal-proxy-auth-key
 secrets/modal-proxy-auth-secret
+secrets/kofi-verification-token
 secrets/cursor-auth.json
 ```
 
@@ -41,6 +42,7 @@ sudo chgrp 101 secrets/tls.crt secrets/tls.key
 sudo chgrp 10001 secrets/backup-signing-key \
   secrets/modal-token-id secrets/modal-token-secret \
   secrets/modal-proxy-auth-key secrets/modal-proxy-auth-secret \
+  secrets/kofi-verification-token \
   secrets/cursor-auth.json
 chmod 640 secrets/*
 export TARA_WEB_TLS_CERTIFICATE_FILE="$PWD/secrets/tls.crt"
@@ -50,6 +52,7 @@ export MODAL_TOKEN_ID_FILE="$PWD/secrets/modal-token-id"
 export MODAL_TOKEN_SECRET_FILE="$PWD/secrets/modal-token-secret"
 export TARA_MODAL_PROXY_AUTH_KEY_FILE="$PWD/secrets/modal-proxy-auth-key"
 export TARA_MODAL_PROXY_AUTH_SECRET_FILE="$PWD/secrets/modal-proxy-auth-secret"
+export TARA_KOFI_VERIFICATION_TOKEN_FILE="$PWD/secrets/kofi-verification-token"
 export TARA_CURSOR_AUTH_FILE="$PWD/secrets/cursor-auth.json"
 export TARA_CURSOR_AGENT_DIR="$HOME/.local/share/cursor-agent/versions/VERSION"
 ```
