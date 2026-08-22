@@ -10,6 +10,11 @@ from types import SimpleNamespace
 import pytest
 
 from tara.config import TaraConfig
+from tara.prompt_security import (
+    PromptSecurityRejected,
+    PromptSecurityReport,
+    PromptSecurityUnavailable,
+)
 from tara.schemas.merged_transcription import (
     TranscriptionSegment,
     new_merged_transcription,
@@ -152,6 +157,46 @@ def test_real_runner_rejects_token_overflow_without_truncation(
     assert result.status is RunnerStatus.FAILED
     assert result.error_code is ErrorCode.INPUT_INVALID
     assert not (workspace / "work" / "final.yaml").exists()
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_code"),
+    [
+        (
+            PromptSecurityRejected(
+                PromptSecurityReport(
+                    enabled=True,
+                    minimum_required=80,
+                    minimum_score=10,
+                    safe=False,
+                    flagged_document="general context",
+                )
+            ),
+            ErrorCode.PROMPT_INJECTION_DETECTED,
+        ),
+        (
+            PromptSecurityUnavailable("Cursor unavailable"),
+            ErrorCode.PROMPT_SECURITY_CHECK_FAILED,
+        ),
+    ],
+)
+def test_web_runner_exposes_specific_prompt_security_error_codes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: Exception,
+    expected_code: ErrorCode,
+) -> None:
+    workspace, job_id = _workspace(tmp_path)
+    monkeypatch.chdir(workspace)
+
+    def fail_security(*args: object, **kwargs: object) -> None:
+        raise failure
+
+    monkeypatch.setattr("tara.web_runner.TaraControlAgent.run", fail_security)
+    result = TaraWebRunner(TaraConfig()).run(_request(job_id), Sink(), Token())
+
+    assert result.status is RunnerStatus.FAILED
+    assert result.error_code is expected_code
 
 
 def test_bounded_text_read_normalizes_universal_newlines(tmp_path: Path) -> None:

@@ -4,6 +4,7 @@ export type InputKind = components["schemas"]["SessionSnapshot"]["input_type"];
 export type SessionSnapshot = components["schemas"]["SessionSnapshot"];
 export type JobSnapshot = components["schemas"]["JobSnapshot"];
 export type ResultSnapshot = components["schemas"]["ResultSnapshot"];
+export type MonthlyFundingSnapshot = components["schemas"]["MonthlyFundingSnapshot"];
 type Inputs = { language: string; context_text: string; previous_summaries_text: string };
 const key = () => crypto.randomUUID();
 type ProblemDetails = components["schemas"]["ProblemDetails"];
@@ -55,6 +56,7 @@ const ownerHeaders = (secret: string, revision?: number, mutate = false, idempot
 export async function fetchPublicConfig(): Promise<PublicConfig> { const value = await request<PublicConfig>("/api/v1/config/public", { signal: AbortSignal.timeout(5000) }); if (!isPublicConfig(value)) throw new Error("invalid_public_config"); return value; }
 export function isPublicConfig(value: unknown): value is PublicConfig { if (!value || typeof value !== "object") return false; const v = value as Record<string, unknown>; const langs = v.supported_languages; const modes = v.input_modes; const language = (item: unknown): item is string => typeof item === "string" && /^[a-z]{2,3}(?:-[A-Z]{2})?$/.test(item); const mode = (item: unknown): item is InputKind => item === "audio" || item === "merged_transcription" || item === "zip"; return language(v.language) && typeof v.locale === "string" && new RegExp(`^${v.language}-[A-Z]{2}$`).test(v.locale) && Array.isArray(langs) && langs.length > 0 && langs.every(language) && new Set(langs).size === langs.length && langs.includes(v.language) && Array.isArray(modes) && modes.length > 0 && modes.every(mode) && new Set(modes).size === modes.length && ["max_upload_bytes", "recommended_chunk_bytes", "max_chunk_bytes", "parallel_uploads"].every(item => Number.isInteger(v[item]) && Number(v[item]) > 0); }
 export const api = {
+  getMonthlyFunding: () => request<MonthlyFundingSnapshot>("/api/v1/funding/monthly"),
   createUploadSession: (input_type: InputKind) => request<{ session_id: string; secret: string; revision: number }>(`/api/v1/uploads/sessions?input_type=${encodeURIComponent(input_type)}`, { method: "POST", headers: { "Idempotency-Key": key() } }),
   getSession: (id: string, secret: string) => request<SessionSnapshot>(`/api/v1/sessions/${id}`, { headers: ownerHeaders(secret) }),
   updateSessionInputs: (id: string, secret: string, revision: number, body: Inputs) => request<SessionSnapshot>(`/api/v1/sessions/${id}/inputs`, { method: "PATCH", headers: { ...ownerHeaders(secret, revision, true), "Content-Type": "application/json" }, body: JSON.stringify(body) }),

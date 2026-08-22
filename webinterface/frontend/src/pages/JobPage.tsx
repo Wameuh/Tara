@@ -120,18 +120,18 @@ export function JobPage({ jobId, secret, locale, go }: { jobId: string; secret?:
     ? t(job.error.message_key as never, { defaultValue: t(`errors.${job.error.code}` as never, { defaultValue: t("errors.generic") }), ...job.error.parameters })
     : null;
 
-  return <main className="page">
+  return <main className="page job-page">
     <ToastRegion message={toast ?? (disconnected ? t("warnings.reconnecting") : null)} />
-    <h1>{t(`job.${job.status}` as never, { defaultValue: job.status })}</h1>
+    <header className="page-header"><p className="eyebrow">{t("job.eyebrow")}</p><h1>{t(`job.${job.status}` as never, { defaultValue: job.status })}</h1></header>
     {errorMessage && <p className="error">{errorMessage}</p>}
     <div className="badges"><span>{t("job.attempt", { count: job.attempt_number })}</span><span>{t(`job.${job.status}` as never, { defaultValue: job.status })}</span></div>
     <DualProgress overall={job.progress?.overall_ratio} current={job.progress?.current_ratio} />
-    <div className="job-grid"><StageTimeline job={job} /><div><JobInfoPanel job={job} locale={locale} /><div aria-busy={command}>
+    <div className="job-grid"><StageTimeline job={job} /><aside className="job-sidebar"><JobInfoPanel job={job} locale={locale} /><div aria-busy={command}>
       <JobActions disabled={command} job={job} onCopy={() => void copy()} onRotate={() => void rotateSecret()}
         onCancel={() => void run(() => api.cancelJob(jobId, currentSecret, job.revision).then(() => setToast(t("toast.cancel_requested"))))}
         onRelaunch={() => void relaunchIdentical()}
         onEdit={() => void run(async () => { const session = await api.editAndRelaunch(jobId, currentSecret, job.revision); go(withSecret(`/sessions/${session.session_id}`, currentSecret)); })} />
-    </div></div></div>
+    </div></aside></div>
     {resultError && <button onClick={() => void loadResult()} disabled={loadingResult}>{t("upload.retry")}</button>}
   </main>;
 }

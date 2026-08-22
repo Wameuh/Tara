@@ -18,7 +18,7 @@ def _database(tmp_path: Path) -> ConnectionFactory:
     database = ConnectionFactory(root / "tara.sqlite3", root)
     connection = database.connect()
     try:
-        assert migrate(connection) == 16
+        assert migrate(connection) == 17
     finally:
         connection.close()
     return database

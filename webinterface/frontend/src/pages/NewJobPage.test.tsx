@@ -27,8 +27,10 @@ describe("NewJobPage audio selection", () => {
 
     await vi.waitFor(() => expect(getPending("session_audio")).toHaveLength(1));
     expect(go).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByLabelText("Contexte"), { target: { value: "Contexte ajouté pendant le transfert" } });
-    expect(screen.getByLabelText("Contexte")).toHaveValue("Contexte ajouté pendant le transfert");
+    const contextInput = container.querySelector<HTMLTextAreaElement>(".context-field textarea");
+    expect(contextInput).not.toBeNull();
+    fireEvent.change(contextInput!, { target: { value: "Contexte ajouté pendant le transfert" } });
+    expect(contextInput).toHaveValue("Contexte ajouté pendant le transfert");
     expect(getPending("session_audio")).toHaveLength(1);
     expect(getPending("session_audio")[0]).toMatchObject({ inputKind: "audio", person: "Alice" });
 
@@ -46,5 +48,30 @@ describe("NewJobPage audio selection", () => {
     const input = container.querySelector<HTMLInputElement>('input[type="file"][multiple][accept^="audio/"]');
     fireEvent.change(input!, { target: { files: [new File(["audio"], "Alice.mp3", { type: "audio/mpeg" })] } });
     expect(await screen.findByRole("alert")).toHaveTextContent("Une erreur est survenue. Code support : admin-log-42.");
+  });
+
+  it("shows monthly Ko-fi donations beside Tara's cumulative estimates", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/v1/funding/monthly") return new Response(JSON.stringify({
+        enabled: true,
+        month: "2026-08",
+        timezone: "Europe/Paris",
+        currency: "EUR",
+        donations_micro_eur: 12_500_000,
+        estimated_consumption_micro_eur: 8_250_000,
+        estimate_partial: false,
+        monthly_goal_micro_eur: 50_000_000,
+        kofi_page_url: "https://ko-fi.com/tara",
+      }));
+      return new Response("{}", { status: 404 });
+    }));
+
+    render(<NewJobPage config={config} go={() => undefined} />);
+
+    expect(await screen.findByRole("heading", { name: "Soutien Ko-fi et estimations Tara" })).toBeVisible();
+    expect(screen.getByText("Dons reçus")).toBeVisible();
+    expect(screen.getByText("Consommation estimée")).toBeVisible();
+    expect(screen.getByRole("link", { name: "Soutenir Tara sur Ko-fi" })).toHaveAttribute("href", "https://ko-fi.com/tara");
+    expect(screen.getAllByRole("progressbar")).toHaveLength(2);
   });
 });

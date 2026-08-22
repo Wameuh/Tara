@@ -1138,10 +1138,19 @@ def test_server_analysis_endpoint_runs_from_merged_transcription(
     """The FastAPI analysis endpoint orchestrates from merged transcription."""
     merged = tmp_path / "merged_transcription.yaml"
     merged.write_text(_merged_payload(), encoding="utf-8")
+    config = tmp_path / "deterministic.yaml"
+    config.write_text(
+        "analysis:\n  prompt_security:\n    enabled: false\n",
+        encoding="utf-8",
+    )
 
     response = TestClient(app).post(
         "/v1/analysis",
-        json={"merged_transcription": str(merged), "analysis_backend": "deterministic"},
+        json={
+            "merged_transcription": str(merged),
+            "analysis_backend": "deterministic",
+            "config": str(config),
+        },
     )
 
     assert response.status_code == 200
@@ -1218,10 +1227,19 @@ def test_server_runs_endpoint_accepts_merged_transcription(tmp_path: Path) -> No
     """The general run endpoint supports the merged-transcription path."""
     merged = tmp_path / "merged_transcription.yaml"
     merged.write_text(_merged_payload(), encoding="utf-8")
+    config = tmp_path / "deterministic.yaml"
+    config.write_text(
+        "analysis:\n  prompt_security:\n    enabled: false\n",
+        encoding="utf-8",
+    )
 
     response = TestClient(app).post(
         "/v1/runs",
-        json={"merged_transcription": str(merged), "analysis_backend": "deterministic"},
+        json={
+            "merged_transcription": str(merged),
+            "analysis_backend": "deterministic",
+            "config": str(config),
+        },
     )
 
     assert response.status_code == 200

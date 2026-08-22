@@ -54,6 +54,20 @@ class PublicModel(BaseModel):
         return self
 
 
+class MonthlyFundingSnapshot(PublicModel):
+    enabled: bool
+    month: Annotated[str, Field(pattern=r"^\d{4}-\d{2}$")]
+    timezone: Annotated[str, Field(min_length=1, max_length=64)]
+    currency: Literal["EUR"]
+    donations_micro_eur: Annotated[int, Field(ge=0, le=10**15)]
+    estimated_consumption_micro_eur: Annotated[
+        int, Field(ge=0, le=10**15)
+    ]
+    estimate_partial: bool
+    monthly_goal_micro_eur: Annotated[int | None, Field(ge=1, le=10**15)]
+    kofi_page_url: Annotated[str | None, Field(max_length=2_048)]
+
+
 class PublicError(PublicModel):
     code: ErrorCode
     message_key: Annotated[str, Field(pattern=r"^[a-z0-9_.-]+$", max_length=128)]

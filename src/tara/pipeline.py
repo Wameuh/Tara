@@ -38,6 +38,12 @@ from tara.context import (
     write_context_debug_file,
 )
 from tara.logging_config import apply_logging_config
+from tara.prompt_security import (
+    CursorPromptSecurityAnalyzer,
+    PromptSecurityRejected,
+    PromptSecurityReport,
+    TextSecurityDocument,
+)
 from tara.providers.events import UsageAttempt
 from tara.schemas.public_result import publish_internal_result
 from tara.transcription import (
@@ -212,12 +218,30 @@ class TaraControlAgent:
         if self._args.write_context_debug:
             write_context_debug_file(analysis_output_dir / "context_debug.md", context)
 
+        usage_report = UsageReport()
+        security_report = _run_prompt_security_gate(
+            transcription=transcription,
+            context=context,
+            config=self._config,
+            usage_report=usage_report,
+            cancellation_check=self._check_cancelled,
+            retry_callback=self._retry_scheduled,
+            usage_attempt_callback=(
+                self._usage_attempt_recorded if self._event_sink is not None else None
+            ),
+        )
+        if security_report.enabled:
+            write_yaml(
+                analysis_output_dir / "prompt_security_report.yaml",
+                security_report.to_dict(),
+            )
+        if not security_report.safe:
+            raise PromptSecurityRejected(security_report)
+
         if self._config.analysis.llm.backend == "deterministic":
             llm_runner = None
-            usage_report = UsageReport()
             probe_stats = _CursorCliProbeStats(calls=0, tokens=0, cost_usd=0.0)
         else:
-            usage_report = UsageReport()
             if self._event_sink is None and self._cancellation_token is None:
                 llm_runner = _build_llm_runner(
                     self._config,
@@ -289,6 +313,7 @@ class TaraControlAgent:
         self._check_cancelled()
         self._stage_completed(StageCode.NARRATIVE_ANALYSIS)
         self._stage_started(StageCode.SYNTHESIS)
+        result = _merge_prompt_security_usage_into_result(result, security_report)
         result = _merge_cursor_cli_probe_into_result(result, probe_stats)
         result = _merge_scene_usage_into_result(result, scene_result)
         _write_pipeline_debug_artifacts(
@@ -316,6 +341,7 @@ class TaraControlAgent:
                 self._config,
                 context,
                 scene_result,
+                security_report,
             ),
         )
         self._check_cancelled()
@@ -525,6 +551,7 @@ def _final_summary_payload(
     config: TaraConfig,
     context: AnalysisContext,
     scene_result: ScenePipelineResult,
+    security_report: PromptSecurityReport,
 ) -> dict[str, Any]:
     """Build the traceable `session_summary.yaml` payload."""
     acceptance = evaluate_acceptance(
@@ -537,6 +564,9 @@ def _final_summary_payload(
             "merged_transcription_path": str(merged_transcription_path),
             "context_path": context.general.path_str,
             "prior_context_path": context.prior.path_str,
+            "prompt_security_report_path": (
+                "prompt_security_report.yaml" if security_report.enabled else None
+            ),
             "scene_count": scene_result.scene_count,
             "scene_analysis_path": scene_result.scene_analysis_path,
             "scene_descriptions_path": scene_result.scene_descriptions_path,
@@ -556,12 +586,19 @@ def _final_summary_payload(
         "usage": {
             "llm_call_count": acceptance.llm_call_count,
             "probe_llm_call_count": acceptance.probe_llm_call_count,
+            "security_llm_call_count": acceptance.security_llm_call_count,
             "analysis_llm_call_count": acceptance.analysis_llm_call_count,
             "composition_llm_call_count": acceptance.composition_llm_call_count,
             "audit_llm_call_count": acceptance.audit_llm_call_count,
             "estimated_llm_tokens": acceptance.estimated_llm_tokens,
             "estimated_cost_usd": acceptance.estimated_cost_usd,
             "scene_llm_call_count": scene_result.scene_llm_call_count,
+            "prompt_security_score": (
+                security_report.minimum_score if security_report.enabled else None
+            ),
+            "prompt_security_minimum": (
+                security_report.minimum_required if security_report.enabled else None
+            ),
             "backend": _usage_backend_label(
                 configured_backend=config.analysis.llm.backend,
                 llm_call_count=acceptance.llm_call_count,
@@ -612,6 +649,72 @@ def _build_llm_runner(
         retry_callback=retry_callback,
         usage_attempt_callback=usage_attempt_callback,
     )
+
+
+def _build_prompt_security_runner(
+    config: TaraConfig,
+    *,
+    usage_report: UsageReport,
+    cancellation_check: Callable[[], None] | None = None,
+    retry_callback: Callable[[int], None] | None = None,
+    usage_attempt_callback: Callable[[UsageAttempt], None] | None = None,
+) -> LLMRunner:
+    """Build the dedicated Cursor CLI runner used by the input safety gate."""
+    raw_model = config.analysis.prompt_security.model
+    model = None if raw_model == "Auto" else raw_model
+    llm = config.analysis.llm
+    return LLMRunner(
+        LLMRunnerConfig(
+            backend="cursor_cli",
+            model=model,
+            cursor_command=llm.cursor_command,
+            cursor_args=tuple(llm.cursor_args),
+            timeout_seconds=llm.timeout_seconds,
+            max_retries=llm.retries,
+            pricing_by_model=build_pricing_by_model(llm),
+            usd_to_eur_rate=llm.usd_to_eur_rate,
+        ),
+        usage_report=usage_report,
+        cancellation_check=cancellation_check,
+        retry_callback=retry_callback,
+        usage_attempt_callback=usage_attempt_callback,
+    )
+
+
+def _run_prompt_security_gate(
+    *,
+    transcription: MergedTranscription,
+    context: AnalysisContext,
+    config: TaraConfig,
+    usage_report: UsageReport,
+    cancellation_check: Callable[[], None] | None = None,
+    retry_callback: Callable[[int], None] | None = None,
+    usage_attempt_callback: Callable[[UsageAttempt], None] | None = None,
+) -> PromptSecurityReport:
+    """Screen every text input that can reach a downstream model."""
+    security = config.analysis.prompt_security
+    if not security.enabled:
+        return PromptSecurityReport.disabled(security.minimum_score)
+    runner = _build_prompt_security_runner(
+        config,
+        usage_report=usage_report,
+        cancellation_check=cancellation_check,
+        retry_callback=retry_callback,
+        usage_attempt_callback=usage_attempt_callback,
+    )
+    transcript_text = "\n".join(
+        segment.text for segment in transcription.segments if segment.text.strip()
+    )
+    documents = [
+        TextSecurityDocument("general context", context.general.text or ""),
+        TextSecurityDocument("previous summaries", context.prior.text or ""),
+        TextSecurityDocument("merged transcription", transcript_text),
+    ]
+    return CursorPromptSecurityAnalyzer(
+        runner,
+        minimum_score=security.minimum_score,
+        max_chars_per_request=security.max_chars_per_request,
+    ).analyze(documents)
 
 
 def _cursor_cli_probe_env_enabled() -> bool:
@@ -682,6 +785,41 @@ def _merge_cursor_cli_probe_into_result(
             "llm_call_count": fs.llm_call_count + probe.calls,
             "estimated_llm_tokens": fs.estimated_llm_tokens + probe.tokens,
             "estimated_cost_usd": merged_cost if merged_cost > 0 else None,
+        },
+    )
+    return PipelineResult(
+        plan=result.plan,
+        answers=result.answers,
+        blackboard=result.blackboard,
+        decisions=result.decisions,
+        draft=result.draft,
+        findings=result.findings,
+        final_summary=new_summary,
+        attempts=result.attempts,
+    )
+
+
+def _merge_prompt_security_usage_into_result(
+    result: PipelineResult,
+    report: PromptSecurityReport,
+) -> PipelineResult:
+    """Add Cursor security-gate usage and score to final summary metrics."""
+    if report.calls <= 0:
+        return result
+    fs = result.final_summary
+    merged_cost = (fs.estimated_cost_usd or 0.0) + report.cost_usd
+    new_summary = fs.model_copy(
+        update={
+            "security_llm_call_count": fs.security_llm_call_count + report.calls,
+            "llm_call_count": fs.llm_call_count + report.calls,
+            "estimated_llm_tokens": fs.estimated_llm_tokens + report.tokens,
+            "estimated_cost_usd": merged_cost if merged_cost > 0 else None,
+            "metadata": {
+                **fs.metadata,
+                "prompt_security_score": report.minimum_score,
+                "prompt_security_minimum": report.minimum_required,
+                "prompt_security_llm_call_count": report.calls,
+            },
         },
     )
     return PipelineResult(

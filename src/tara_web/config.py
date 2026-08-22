@@ -13,6 +13,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import (
     BaseModel,
@@ -156,6 +157,50 @@ class BackupConfig(StrictModel):
         return value
 
 
+class KoFiConfig(StrictModel):
+    """Public funding display and private Ko-fi webhook settings."""
+
+    enabled: bool = False
+    page_url: HttpUrl | None = None
+    verification_token_env: str = "TARA_KOFI_VERIFICATION_TOKEN"
+    monthly_goal_micro_eur: int | None = Field(default=None, ge=1, le=10**15)
+    timezone: str = Field(default="UTC", min_length=1, max_length=64)
+
+    @field_validator("verification_token_env")
+    @classmethod
+    def token_environment_name_is_safe(cls, value: str) -> str:
+        if not value.replace("_", "").isalnum() or value != value.upper():
+            raise ValueError(
+                "Ko-fi verification_token_env must be an uppercase environment variable"
+            )
+        return value
+
+    @field_validator("page_url")
+    @classmethod
+    def page_is_a_secure_kofi_url(cls, value: HttpUrl | None) -> HttpUrl | None:
+        if value is None:
+            return None
+        host = (value.host or "").lower()
+        if value.scheme != "https" or host not in {"ko-fi.com", "www.ko-fi.com"}:
+            raise ValueError("Ko-fi page_url must be an HTTPS ko-fi.com URL")
+        return value
+
+    @field_validator("timezone")
+    @classmethod
+    def timezone_exists(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ValueError, ZoneInfoNotFoundError) as exc:
+            raise ValueError("Ko-fi timezone must be a valid IANA timezone") from exc
+        return value
+
+    @model_validator(mode="after")
+    def enabled_configuration_is_complete(self) -> KoFiConfig:
+        if self.enabled and self.page_url is None:
+            raise ValueError("enabled Ko-fi integration requires page_url")
+        return self
+
+
 class SecurityConfig(StrictModel):
     allowed_hosts: tuple[str, ...] = ("localhost", "127.0.0.1", "::1", "testserver")
     allowed_origins: tuple[HttpUrl, ...] = ()
@@ -226,6 +271,7 @@ class WebinterfaceConfig(StrictModel):
     workers: int = Field(default=1, ge=1, le=32)
     documentation: DocumentationConfig = DocumentationConfig()
     backup: BackupConfig = BackupConfig()
+    kofi: KoFiConfig = KoFiConfig()
     runner_mode: str = "fake"
     tara_config_path: Path | None = None
     allow_fake_runner: bool = False
@@ -302,6 +348,7 @@ class RuntimeConfig(StrictModel):
     link_secret: SecretStr | None = None
     upload_hmac_key: SecretStr | None = None
     backup_signing_key: SecretStr | None = None
+    kofi_verification_token: SecretStr | None = None
     tara_config_snapshot: str | None = None
 
 
@@ -341,6 +388,13 @@ def load_config(
         raise ConfigError("backup signing key must contain at least 32 bytes")
     if web.backup.enabled and backup_key is None:
         raise ConfigError(f"required secret is missing: {web.backup.signing_key_env}")
+    kofi_token = (environ or os.environ).get(web.kofi.verification_token_env) or None
+    if kofi_token is not None and not 16 <= len(kofi_token.encode("utf-8")) <= 512:
+        raise ConfigError("Ko-fi verification token must contain 16 to 512 bytes")
+    if web.kofi.enabled and kofi_token is None:
+        raise ConfigError(
+            f"required secret is missing: {web.kofi.verification_token_env}"
+        )
     tara_snapshot = (
         _tara_config_snapshot(web.tara_config_path)
         if web.runner_mode == "tara" and web.tara_config_path is not None
@@ -351,6 +405,7 @@ def load_config(
         link_secret=SecretStr(secret) if secret else None,
         upload_hmac_key=SecretStr(upload_key) if upload_key else None,
         backup_signing_key=SecretStr(backup_key) if backup_key else None,
+        kofi_verification_token=SecretStr(kofi_token) if kofi_token else None,
         tara_config_snapshot=tara_snapshot,
     )
 

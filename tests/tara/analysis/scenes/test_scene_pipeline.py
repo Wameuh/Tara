@@ -132,7 +132,7 @@ def test_scene_pipeline_writes_artifacts_and_ingests_scene_facts(
         merged_transcription_path=merged_path,
         llm_runner=runner,
         context_text=(
-            "Wameuh est le maitre du donjon (DM / MJ)\nWillygorn incarne Kaknyr"
+            "Système : Fate\nWameuh facilite la partie\nWillygorn incarne Kaknyr"
         ),
     )
     answers = SceneBlackboardIngestor().to_evidence_answers(result.timeline)
@@ -146,7 +146,7 @@ def test_scene_pipeline_writes_artifacts_and_ingests_scene_facts(
     assert (tmp_path / "scene_analysis.yaml").exists()
     assert (tmp_path / "scenes" / "scene_001.yaml").exists()
     assert (tmp_path / "scene_descriptions.yaml").exists()
-    assert "Wameuh est le maitre du donjon" in describe_request.user_prompt
+    assert "Wameuh facilite la partie" in describe_request.user_prompt
     assert "Audio speaker labels identify the recording track owner" in (
         describe_request.user_prompt
     )
@@ -233,15 +233,15 @@ def test_composer_prompt_receives_scene_timeline(tmp_path: Path) -> None:
         "Keep low-level mechanics out of 'R\u00e9sum\u00e9 express'"
         in composer_backend.prompt
     )
-    assert "temporary hit point amounts" in composer_backend.prompt
+    assert "temporary protection amounts" in composer_backend.prompt
     assert "Summarize their narrative effect instead" in composer_backend.prompt
     assert "at most one short orientation sentence" in composer_backend.prompt
     assert "Do not print answer IDs" in composer_backend.prompt
     assert "Do not extrapolate beyond the transcript" in composer_backend.system_prompt
     assert "never present a guess as fact" in composer_backend.system_prompt
-    assert "Combat summarization policy (critical)" in composer_backend.system_prompt
-    assert "finit par les vaincre" in composer_backend.system_prompt
-    assert "Ilùvatar pose un Sanctuaire" in composer_backend.system_prompt
+    assert "Conflict summarization policy (critical)" in composer_backend.system_prompt
+    assert "surmonte les gardiens" in composer_backend.system_prompt
+    assert "surmonte les gardiens" in composer_backend.system_prompt
 
 
 def _transcription() -> MergedTranscription:

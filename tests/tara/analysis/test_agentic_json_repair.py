@@ -224,8 +224,8 @@ def test_context_is_injected_into_primary_prompts_but_not_json_repair() -> None:
     )
 
 
-def test_composer_receives_prior_then_general_context() -> None:
-    """Composer prompt receives prior context before general naming context."""
+def test_composer_receives_general_then_prior_context() -> None:
+    """Composer prompt receives stable general context before prior summaries."""
 
     class _ComposerBackend:
         backend_name = "api"
@@ -268,14 +268,14 @@ def test_composer_receives_prior_then_general_context() -> None:
         prior_context_text="Previous temple summary.",
     )
 
-    assert backend.system_prompt.index("Previous temple summary.") < (
-        backend.system_prompt.index("willygorn plays Karknyr.")
+    assert backend.system_prompt.index("willygorn plays Karknyr.") < (
+        backend.system_prompt.index("Previous temple summary.")
     )
-    assert "Use character names and MJ" in backend.prompt
+    assert "configured game-facilitator title" in backend.prompt
     assert "remind players what happened before the next session" in backend.prompt
-    assert "Combat summarization policy (critical)" in backend.system_prompt
-    assert "finit par les vaincre" in backend.system_prompt
-    assert "Do not include dice rolls, attack totals" in backend.prompt
+    assert "Conflict summarization policy (critical)" in backend.system_prompt
+    assert "surmonte les gardiens" in backend.system_prompt
+    assert "Do not include individual resolution results" in backend.prompt
     assert "Do not extrapolate beyond the transcript" in backend.system_prompt
     assert "never present a guess as fact" in backend.system_prompt
 
@@ -334,8 +334,8 @@ def test_audit_and_arbitration_receive_general_context() -> None:
     assert "over-focuses on low-impact mechanics" in backend.prompts[0]
     assert "'Résumé express' reads like a complete recap" in backend.prompts[0]
     assert "two compact sentences" in backend.prompts[0]
-    assert "temporary hit point amounts" in backend.prompts[0]
-    assert "turret/ballista mechanics" in backend.prompts[0]
+    assert "temporary protection amounts" in backend.prompts[0]
+    assert "vehicle or siege equipment mechanics" in backend.prompts[0]
     assert "first substantive content" in backend.prompts[0]
     assert "answer IDs, chunk IDs, scene IDs" in backend.prompts[0]
     assert all(

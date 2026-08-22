@@ -12,6 +12,12 @@ analysis:
   target_window_seconds: 90
   overlap_seconds: 20
   parallel: true
+  # Mandatory fail-closed scan of every text input before downstream analysis.
+  prompt_security:
+    enabled: true
+    minimum_score: 80
+    max_chars_per_request: 60000
+    model: Auto
   llm:
     backend: cursor_cli
     model: Auto

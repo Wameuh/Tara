@@ -23,6 +23,7 @@ from typing import Any
 from tara.cli import TaraArgs
 from tara.config import TaraConfig, load_config
 from tara.pipeline import TaraControlAgent, TaraPipelineError
+from tara.prompt_security import PromptSecurityRejected, PromptSecurityUnavailable
 from tara.schemas.registry import load_merged_transcription, load_public_result
 from tara.token_limits import require_token_limit
 from tara.web_contracts import (
@@ -120,6 +121,18 @@ class TaraWebRunner:
             return RunnerResult(CONTRACT_VERSION, RunnerStatus.CANCELLED)
         except _InputRejected:
             return _failed_result(sink, ErrorCode.INPUT_INVALID, started)
+        except PromptSecurityRejected:
+            return _failed_result(
+                sink,
+                ErrorCode.PROMPT_INJECTION_DETECTED,
+                started,
+            )
+        except PromptSecurityUnavailable:
+            return _failed_result(
+                sink,
+                ErrorCode.PROMPT_SECURITY_CHECK_FAILED,
+                started,
+            )
         except Exception:
             if cancellation_token.is_cancelled():
                 sink.emit(

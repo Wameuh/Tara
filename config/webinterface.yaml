@@ -52,3 +52,8 @@ webinterface:
   backup:
     enabled: false
     signing_key_env: TARA_WEB_BACKUP_SIGNING_KEY
+  kofi:
+    enabled: false
+    page_url: https://ko-fi.com/wameuh
+    verification_token_env: TARA_KOFI_VERIFICATION_TOKEN
+    timezone: Europe/Paris

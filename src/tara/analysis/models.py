@@ -342,6 +342,7 @@ class FinalSummary(TaraModel):
     findings: list[AuditFinding] = Field(default_factory=list)
     llm_call_count: int = Field(default=0, ge=0)
     probe_llm_call_count: int = Field(default=0, ge=0)
+    security_llm_call_count: int = Field(default=0, ge=0)
     analysis_llm_call_count: int = Field(default=0, ge=0)
     composition_llm_call_count: int = Field(default=0, ge=0)
     audit_llm_call_count: int = Field(default=0, ge=0)

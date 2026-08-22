@@ -5,17 +5,55 @@
   const shortLorem = "Lorem ipsum dolor sit amet, consectetur adipiscing elit.";
 
   const definitions = [
-    ["loading", "Chargement initial"],
-    ["new-audio", "Nouvelle analyse — audio"],
-    ["new-merged", "Nouvelle analyse — YAML fusionné"],
-    ["new-zip", "Nouvelle analyse — ZIP"],
-    ["help", "Aide intégrée"],
-    ["upload-audio", "Transfert audio"],
-    ["upload-merged", "Validation YAML"],
-    ["upload-zip", "Préparation ZIP"],
-    ["job-running", "Analyse en cours"],
-    ["job-failed", "Analyse interrompue"],
-    ["result-markdown", "Résultat Markdown"],
+    ["loading", "Chargement initial", "prepare", "Préparer"],
+    ["new-audio", "Nouvelle analyse — audio", "prepare", "Préparer"],
+    ["new-merged", "Nouvelle analyse — YAML fusionné", "prepare", "Préparer"],
+    ["new-zip", "Nouvelle analyse — ZIP", "prepare", "Préparer"],
+    ["help", "Aide intégrée", "follow", "Suivre"],
+    ["upload-audio", "Transfert audio", "transfer", "Transférer"],
+    ["upload-merged", "Validation YAML", "transfer", "Transférer"],
+    ["upload-zip", "Préparation ZIP", "transfer", "Transférer"],
+    ["job-running", "Analyse en cours", "follow", "Suivre"],
+    ["job-failed", "Analyse interrompue", "follow", "Suivre"],
+    ["result-markdown", "Résultat Markdown", "result", "Relire"],
+  ];
+
+  const concepts = [
+    {
+      key: "editorial",
+      number: "Direction 01",
+      title: "Édition Azur",
+      description: "Une double page littéraire avec colonne de lecture, notes marginales et rail de chapitre. Le sommaire devient une chronique contemporaine.",
+      tags: ["Éditorial", "Lumineux", "Intemporel"],
+    },
+    {
+      key: "nocturne",
+      number: "Direction 02",
+      title: "Tara Nocturne",
+      description: "Un cockpit nocturne avec rail de commande fixe, radar central et tour de statut. Le cyan et la menthe deviennent des signaux vivants.",
+      tags: ["Immersif", "Précis", "Cinématique"],
+    },
+    {
+      key: "studio",
+      number: "Direction 03",
+      title: "Studio Courant",
+      description: "Une table de travail en bento : blocs indépendants, poids physique et compositions asymétriques. Les actions sont franches et manipulables.",
+      tags: ["Tactile", "Accessible", "Modulaire"],
+    },
+    {
+      key: "atlas",
+      number: "Direction 04",
+      title: "Atlas narratif",
+      description: "Une carte systémique avec processus horizontal, coordonnées, index et bandes de données. La grille devient l’architecture de l’expérience.",
+      tags: ["Cartographique", "Dense", "Systémique"],
+    },
+    {
+      key: "prism",
+      number: "Direction 05",
+      title: "Prisme calme",
+      description: "Un monolithe central très aéré avec commandes dans un dock flottant inférieur. Les transparences cyan prolongent le prisme du logo.",
+      tags: ["Aérien", "Premium", "Serein"],
+    },
   ];
 
   const sourceOptions = (selected) => `
@@ -34,7 +72,7 @@
         ? `<label class="dropzone"><strong>Transcription fusionnée</strong><span>Un fichier YAML versionné</span><span class="demo-input">lorem_transcription.yaml</span></label>`
         : `<label class="dropzone"><strong>Archive ZIP audio</strong><span>Une archive contenant des pistes MP3 ou OGG</span><span class="demo-input">lorem-session.zip</span></label>`;
     return `<main class="page form-page"><p class="eyebrow">Nouvelle analyse</p><h1>Préparer une session Tara</h1><p class="lede">${lorem}</p><form>${sourceOptions(kind)}${source}
-      <div class="field-grid"><label>Contexte<textarea rows="5">${lorem}</textarea></label><label>Résumés antérieurs<textarea rows="5">${shortLorem}</textarea></label></div>
+      <div class="field-grid"><label>Contexte général <small>Système, personnages, meneur et campagne publique · 2 000 tokens maximum</small><textarea rows="5">${lorem}</textarea></label><label>Résumés antérieurs <small>Continuité de campagne · 50 000 tokens maximum</small><textarea rows="5">${shortLorem}</textarea></label></div>
       <div class="form-actions"><label>Langue<select><option>fr</option><option>en</option></select></label><button class="primary">Lancer l’analyse</button></div>
     </form></main>`;
   };
@@ -90,7 +128,34 @@
 
   const gallery = document.getElementById("examples-gallery");
   if (gallery) {
-    gallery.innerHTML = definitions.map(([key, title]) => `<article class="example-card"><header><h2>${title}</h2><a href="view.html?view=${key}">Ouvrir</a></header><iframe loading="lazy" title="${title}" src="view.html?view=${key}"></iframe></article>`).join("");
+    const conceptGallery = document.getElementById("concept-gallery");
+    conceptGallery.innerHTML = concepts.map((concept) => `<article class="concept-card">
+      <div class="concept-meta">
+        <span class="concept-number">${concept.number}</span>
+        <h3>${concept.title}</h3>
+        <p>${concept.description}</p>
+        <ul class="concept-tags">${concept.tags.map((tag) => `<li>${tag}</li>`).join("")}</ul>
+        <a class="concept-link" href="concept.html?theme=${concept.key}&view=progress"><span>Explorer le concept</span><span aria-hidden="true">↗</span></a>
+      </div>
+      <div class="browser-frame"><iframe loading="lazy" title="Aperçu — ${concept.title}" src="concept.html?theme=${concept.key}&view=progress"></iframe></div>
+    </article>`).join("");
+
+    gallery.innerHTML = definitions.map(([key, title, group, groupLabel]) => `<article class="example-card" data-group="${group}">
+      <header><h3>${title}</h3><a href="view.html?view=${key}" aria-label="Ouvrir ${title}">↗</a></header>
+      <div class="example-preview"><span class="example-type">${groupLabel}</span><iframe loading="lazy" tabindex="-1" aria-hidden="true" title="Aperçu — ${title}" src="view.html?view=${key}"></iframe></div>
+    </article>`).join("");
+
+    const filterButtons = [...document.querySelectorAll("[data-filter]")];
+    const cards = [...gallery.querySelectorAll("[data-group]")];
+    filterButtons.forEach((button) => button.addEventListener("click", () => {
+      const filter = button.dataset.filter;
+      filterButtons.forEach((candidate) => {
+        const active = candidate === button;
+        candidate.classList.toggle("is-active", active);
+        candidate.setAttribute("aria-pressed", String(active));
+      });
+      cards.forEach((card) => { card.hidden = filter !== "all" && card.dataset.group !== filter; });
+    }));
     return;
   }
 

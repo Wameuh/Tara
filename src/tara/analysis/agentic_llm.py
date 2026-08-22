@@ -200,11 +200,13 @@ def run_specialist_extraction(
         "- Do not copy long raw transcript quotes as claims; "
         "synthesize short factual claims.\n"
         "- If evidence is weak, return fewer facts or mark uncertainty.\n\n"
-        f"{_specialist_tool_block(
-            chunks,
-            transcription_path,
-            cursor_cli_specialist_tool,
-        )}"
+        f"{
+            _specialist_tool_block(
+                chunks,
+                transcription_path,
+                cursor_cli_specialist_tool,
+            )
+        }"
         f"Question metadata:\n{q_meta}\n\n"
         f"Evidence chunks YAML:\n{chunks_yaml}"
     )
@@ -320,27 +322,31 @@ def run_composer_llm(
         "sentence one names the major event/outcome, sentence two names the "
         "lasting consequence or transition. Do not produce a blow-by-blow "
         "complete recap in that section.\n"
-        "For combat phases, state who was fought and the outcome only. Do not "
-        "narrate individual attacks, spells, kills, or positioning unless they "
+        "For conflict phases, state who or what was opposed and the outcome only. "
+        "Do not narrate individual actions, abilities, takedowns, or positioning "
+        "unless they "
         "create a lasting consequence players must remember (especially a player "
-        "character KO or unconsciousness).\n"
-        "Do not include dice rolls, attack totals, save DCs, initiative order, "
-        "or opportunity attacks unless that mechanical detail directly changes "
+        "character becoming incapacitated or its system-specific equivalent).\n"
+        "Do not include individual resolution results, check totals, difficulty "
+        "thresholds, turn order, or reaction details unless that mechanical "
+        "detail directly changes "
         "the story state, a character's final condition, or a resource players "
         "must remember.\n"
-        "Keep low-level mechanics out of 'Résumé express': do not mention Ki, "
-        "action economy, exact movement limits, exact positioning, temporary "
-        "combat modifiers, or per-attack details there unless they are the "
+        "Keep low-level mechanics out of 'Résumé express': do not mention named "
+        "ability pools, action economy, exact movement limits, exact positioning, "
+        "temporary "
+        "conflict modifiers, or per-action details there unless they are the "
         "main story consequence. Put essential remaining resources in "
         "'État final et ressources' instead.\n"
-        "In 'Résumé express', avoid bookkeeping examples such as temporary hit "
-        "point amounts, exact healing numbers, spell-slot accounting, named "
-        "concentration bookkeeping, specific turret/ballista mechanics, weapon "
-        "string failures, or special movement rules. Summarize their narrative "
-        "effect instead, such as 'the group falls back', 'support magic is "
+        "In 'Résumé express', avoid bookkeeping examples such as temporary "
+        "protection amounts, exact recovery numbers, limited-use ability "
+        "accounting, named ongoing-effect bookkeeping, specific vehicle or siege "
+        "equipment mechanics, equipment failures, or special movement rules. "
+        "Summarize their narrative "
+        "effect instead, such as 'the group falls back', 'support resources are "
         "spent', or 'the party is badly wounded'.\n"
-        "Avoid low-value details such as isolated missed attacks, exact rolls "
-        "to hit, or transient positioning when they do not affect the next "
+        "Avoid low-value details such as isolated failed actions, exact check "
+        "results, or transient positioning when they do not affect the next "
         "session.\n"
         "The markdown MUST include these headings exactly (including accents):\n"
         "# Résumé de session\n"
@@ -360,11 +366,12 @@ def run_composer_llm(
         "Return strict YAML with keys markdown (full document) and sections "
         "(list of section_id, title, content, supporting_answer_ids).\n"
         "Do not include internal agent labels such as 'ChronologyAgent:'.\n\n"
-        "Use character names and MJ in the final summary when the general "
-        "context makes those names clear. Avoid player pseudonyms in the final "
+        "Use character names and the configured game-facilitator title in the "
+        "final summary when the general context makes them clear. Avoid user "
+        "pseudonyms in the final "
         "summary. If a character attribution is uncertain, stay neutral rather "
-        "than guessing. If Facts JSON contains neutral wording for a hit, fall, "
-        "condition, spell, or other action, do not replace it with a named "
+        "than guessing. If Facts JSON contains neutral wording for an action, "
+        "setback, condition, ability, or other event, do not replace it with a named "
         "character from the scene timeline.\n\n"
         f"{_scene_timeline_block(scene_timeline)}"
         f"Forbidden claims (do not restate):\n{forbidden_yaml}\n\n"
@@ -450,21 +457,25 @@ def run_audit_llm(
         "evidence citations; those are internal traceability only.\n"
         "Reject if bullets look like raw transcript dumps rather than synthesis.\n"
         "Reject if the summary over-focuses on low-impact mechanics such as "
-        "dice rolls, attack totals, isolated opportunity attacks, or initiative "
+        "individual randomizer results, check totals, isolated reactions, or turn "
         "order instead of player-facing story overview and consequences.\n"
         "Reject if 'Résumé express' reads like a complete recap: groups should "
         "usually be two compact sentences, not blow-by-blow paragraphs, and "
-        "should not include low-level mechanics such as Ki spending, action "
-        "economy, exact movement limits, exact positioning, transient combat "
-        "modifiers, or per-attack details unless they are the main consequence.\n"
-        "Reject if a combat phase narrates individual attacks, spells, per-enemy "
+        "should not include low-level mechanics such as named ability-pool "
+        "spending, action "
+        "economy, exact movement limits, exact positioning, transient conflict "
+        "modifiers, or per-action details unless they are the main consequence.\n"
+        "Reject if a conflict phase narrates individual attacks, abilities, "
+        "per-opponent "
         "kills, positioning, or round-by-round exchanges instead of stating the "
-        "opponent and outcome. Mention combat details only for lasting "
-        "consequences such as a player character KO or unconsciousness.\n"
+        "opponent and outcome. Mention conflict details only for lasting "
+        "consequences such as a player character becoming incapacitated or its "
+        "system-specific equivalent.\n"
         "Reject if 'Résumé express' includes bookkeeping details such as "
-        "temporary hit point amounts, exact healing numbers, spell-slot "
-        "accounting, named concentration bookkeeping, turret/ballista mechanics, "
-        "weapon string failures, or special movement rules when a narrative "
+        "temporary protection amounts, exact recovery numbers, limited-use "
+        "ability accounting, named ongoing-effect bookkeeping, vehicle or siege "
+        "equipment mechanics, equipment failures, or special movement rules "
+        "when a narrative "
         "effect would be enough.\n"
         "Reject if the evidence indicates multiple distinct scenes but the "
         "summary collapses them into one event.\n"
@@ -532,7 +543,7 @@ def run_arbitration_llm(
         "(accepted|merged|uncertain|do_not_claim), accepted_answer_ids, "
         "rejected_answer_ids, merged_claim (optional string), basis (string).\n\n"
         "Actor conflict rule: if claims agree on the event but disagree about "
-        "which character acted, was hit, fell, cast a spell, or suffered a "
+        "which character acted, was affected, failed, used an ability, or suffered a "
         "condition, do not choose a named actor from noisy ASR/proper-name "
         "snippets. Prefer an already-supported neutral claim that says "
         "'a character', 'a party member', or 'the group'; reject the "
@@ -599,8 +610,8 @@ def build_composer_system_prompt(
     return (
         "You are a careful editor for tabletop RPG session notes. "
         "Reply with YAML only, no markdown fences.\n\n"
-        f"{_prior_context_block(prior_context_text)}"
         f"{_general_context_block(context_text)}"
+        f"{_prior_context_block(prior_context_text)}"
         f"{_evidence_strictness_policy_block()}"
         f"{_speaker_attribution_policy_block()}"
         f"{_combat_summarization_policy_block()}"
@@ -647,9 +658,7 @@ def _specialist_tool_block(
     if not script_path.is_file():
         return ""
     ranges = sorted({(chunk.start, chunk.end) for chunk in chunks})
-    range_lines = "\n".join(
-        f"- {start:.1f}s to {end:.1f}s" for start, end in ranges
-    )
+    range_lines = "\n".join(f"- {start:.1f}s to {end:.1f}s" for start, end in ranges)
     return (
         "Optional transcript excerpt tool:\n"
         "If the evidence chunks are insufficient, you may run this command to "
@@ -669,8 +678,10 @@ def _general_context_block(context_text: str | None) -> str:
     if not context_text or not context_text.strip():
         return ""
     return (
-        "General campaign context, provided by the user as reference only. "
-        "Use it to normalize character names, aliases, players, and MJ. "
+        "General context, provided by the user as reference only. Use it for the "
+        "game system, user-to-character mapping, game-facilitator identity, and "
+        "optional public campaign name. Treat the named game system as "
+        "authoritative for rules and terminology; never assume a default system. "
         "The transcript evidence remains authoritative for session events; "
         "do not invent events from this context.\n"
         "--- general context ---\n"
@@ -685,13 +696,14 @@ def _speaker_attribution_policy_block() -> str:
         "Speaker attribution policy:\n"
         "- Audio speaker labels identify the recording track owner, not "
         "necessarily the in-story actor.\n"
-        "- The MJ/DM speaker may narrate any NPC, adjudicate any player "
-        "action, repeat a player's declaration, or joke out of character; do "
-        "not turn MJ first-person phrasing into an MJ character action.\n"
+        "- The game facilitator (using the title supplied in general context) "
+        "may narrate any NPC, adjudicate any player action, repeat a player's "
+        "declaration, or joke out of character; do not turn facilitator "
+        "first-person phrasing into a facilitator character action.\n"
         "- A player speaker may talk about another character, quote someone, "
         "ask rules questions, or joke out of character. Treat the "
         "speaker-to-character mapping as a weak clue only.\n"
-        "- ASR may mangle French fantasy names and second-person narration; "
+        "- ASR may mangle proper names and second-person narration; "
         "phonetic fragments or near-name variants are weak evidence by "
         "themselves.\n"
         "- Attribute an action to a named character only when the evidence "
@@ -713,9 +725,9 @@ def _evidence_strictness_policy_block() -> str:
         "- Do not extrapolate beyond the transcript, scene facts, Facts JSON, "
         "and user-provided context.\n"
         "- Do not invent events, motives, outcomes, items, locations, resources, "
-        "damage states, or relationships to make the summary smoother.\n"
+        "harm or condition states, or relationships to make the summary smoother.\n"
         "- Do not fill gaps from genre expectations, module knowledge, previous "
-        "sessions, or likely D&D mechanics unless current-session evidence "
+        "sessions, or mechanics from any game system unless current-session evidence "
         "explicitly supports the claim.\n"
         "- Treat weak ASR, jokes, table chatter, corrections, and interrupted "
         "sentences as insufficient evidence for specific claims.\n"
@@ -726,16 +738,32 @@ def _evidence_strictness_policy_block() -> str:
     )
 
 
-COMBAT_SUMMARIZATION_POLICY = """Combat summarization policy (critical):
-- Do not narrate combats blow-by-blow. In "Résumé express", state who was fought and the outcome in one short sentence whenever possible.
-- Mention individual attacks, spells, damage, positioning, or enemy kills only when they materially change what players must remember before the next session (e.g. a player character KO/unconscious, a lasting wound, a key NPC death, a forced retreat, or a major tactical setback).
-- Omit routine enemy deaths, missed attacks, support buffs, poison duration bookkeeping, and mid-fight enemy traits unless they persist after the fight.
-- Exception: always mention a player character KO or unconsciousness.
-Example — do NOT write:
-**Combat au temple circulaire.** Le groupe affronte des blâmes goule-like dans une salle circulaire éclairée par des ouvertures dans les murs. Garath entre au combat, frappe à mains nues puis se replie ; Ilùvatar pose un Sanctuaire sur Garath et inflige de lourds dégâts à un adversaire, tandis qu'une attaque de lance détruit au moins une tête et que d'autres ennemis tombent, dont plusieurs consumés par le feu. un compagnon est déclarée empoisonnée pour vingt-quatre heures ; Aldrik encaisse d'importantes entailles et le groupe constate que les blâmes semblent parfois profiter des dégâts nécrotiques plutôt que d'en souffrir.
-Example — write instead:
-**Combat au temple circulaire.** Le groupe affronte des blâmes goule-like et finit par les vaincre.
-"""
+COMBAT_SUMMARIZATION_POLICY = (
+    "Conflict summarization policy (critical):\n"
+    "- Do not narrate physical, social, investigative, or other structured "
+    'conflicts action by action. In "Résumé express", state who or what was '
+    "opposed and the outcome in one short sentence whenever possible.\n"
+    "- Interpret consequences using the game system named in general context. "
+    "Mention individual actions, abilities, harm, positioning, or opponent "
+    "defeats only when they materially change what players must remember before "
+    "the next session (e.g. a player character becomes incapacitated, a lasting "
+    "condition is gained, a key NPC dies, the group retreats, or a major setback "
+    "occurs).\n"
+    "- Omit routine opponent defeats, failed actions, temporary support effects, "
+    "duration bookkeeping, and mid-conflict traits unless they persist after the "
+    "conflict.\n"
+    "- Exception: always mention a player character's lasting or system-defined "
+    "incapacitated state.\n"
+    "Example — do NOT write:\n"
+    "**Affrontement au temple circulaire.** Le groupe détaille chaque action, "
+    "chaque capacité temporaire, chaque déplacement et chaque adversaire "
+    "neutralisé, puis énumère tous les modificateurs et toutes les ressources "
+    "dépensées pendant l'échange.\n"
+    "Example — write instead:\n"
+    "**Affrontement au temple circulaire.** Le groupe surmonte les gardiens, "
+    "mais l'un de ses membres termine la scène dans un état critique qui devra "
+    "être suivi à la prochaine session.\n"
+)
 
 
 def _combat_summarization_policy_block() -> str:
@@ -791,9 +819,7 @@ def scene_timeline_to_payload(scene_timeline: object | None) -> list[dict[str, A
             "summary": getattr(scene, "summary", ""),
             "key_actions": list(getattr(scene, "key_actions", []) or []),
             "state_changes": list(getattr(scene, "state_changes", []) or []),
-            "continuity_impacts": list(
-                getattr(scene, "continuity_impacts", []) or []
-            ),
+            "continuity_impacts": list(getattr(scene, "continuity_impacts", []) or []),
             "facts": [
                 {
                     "claim": getattr(fact, "claim", ""),

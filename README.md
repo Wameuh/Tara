@@ -122,6 +122,22 @@ context to LLM analysis prompts, and `--prior-context FILE` attaches
 previous-session context to the summary composer. Both accept `.md` or `.txt`;
 relative config paths are resolved from the config file directory.
 
+The general context should contain stable references only: the game system,
+user-to-character mapping, game-facilitator identity, and the public campaign
+name when applicable. Previous-session summaries belong in `--prior-context`.
+Prompts use the named game system and do not assume a default ruleset.
+
+### Prompt-injection safety gate
+
+`analysis.prompt_security.enabled` runs a dedicated Cursor CLI classification
+before scene extraction or blackboard analysis. It screens general context,
+previous summaries, and merged-transcription text in bounded chunks. Cursor
+returns a 0-100 security score and injection categories; any explicit detection
+or score below `minimum_score` refuses the job. Missing Cursor, timeouts, and
+invalid verdicts also stop the job (fail closed). The content-free result is
+written to `prompt_security_report.yaml`, and its minimum score and usage are
+included in `session_summary.yaml` for successful jobs.
+
 ### Scene-driven blackboard enrichment
 
 Scene enrichment is configured under `analysis.scenes` and is enabled by

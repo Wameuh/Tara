@@ -9,7 +9,7 @@ describe("MergedTranscriptionInput", () => {
   it("accepts only one YAML/YML file at the client boundary", () => {
     const change = vi.fn();
     render(<MergedTranscriptionInput file={null} onChange={change} />);
-    const input = screen.getByLabelText("Transcription fusionnee");
+    const input = screen.getByLabelText("Transcription fusionnée");
     fireEvent.change(input, { target: { files: [new File(["schema_name: tara.merged_transcription"], "merged.yml", { type: "application/yaml" })] } });
     expect(change).toHaveBeenLastCalledWith(expect.objectContaining({ name: "merged.yml" }));
     fireEvent.change(input, { target: { files: [new File(["no"], "notes.txt", { type: "text/plain" })] } });

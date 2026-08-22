@@ -6,6 +6,7 @@ from .health import router as health_router
 from .problem_details import problem_responses
 from .public_config import router as public_config_router
 from .routes.events import router as events_router
+from .routes.funding import router as funding_router
 from .routes.jobs import router as jobs_router
 from .routes.results import router as results_router
 from .routes.sessions import router as sessions_router
@@ -17,6 +18,7 @@ router = APIRouter(
 )
 router.include_router(health_router)
 router.include_router(public_config_router)
+router.include_router(funding_router)
 router.include_router(uploads_router)
 router.include_router(sessions_router)
 router.include_router(jobs_router)

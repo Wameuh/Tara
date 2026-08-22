@@ -3,16 +3,70 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Galerie des vues Tara</title>
+    <meta name="description" content="Laboratoire visuel de Tara : cinq directions d’interface inspirées du logo définitif et le référentiel des états produit.">
+    <title>Tara — Laboratoire visuel</title>
     <link rel="stylesheet" href="examples.css">
   </head>
   <body class="examples-index">
+    <header class="gallery-header">
+      <a class="gallery-brand" href="index.html" aria-label="Accueil du laboratoire visuel Tara">
+        <img src="../frontend/src/assets/brand/tara-logo-black.png" alt="Tara">
+        <span>Laboratoire visuel</span>
+      </a>
+      <a class="audit-link" href="DESIGN-AUDIT.md">Lire l’audit <span aria-hidden="true">↗</span></a>
+    </header>
+
     <main>
-      <p class="eyebrow">Documentation visuelle</p>
-      <h1>Galerie des vues Tara</h1>
-      <p class="lede">Onze exemples autonomes utilisant uniquement des données Lorem Ipsum. Chaque vue peut être ouverte séparément.</p>
-      <div id="examples-gallery" class="examples-gallery"></div>
+      <section class="gallery-hero" aria-labelledby="gallery-title">
+        <div class="hero-copy">
+          <p class="gallery-kicker">Design study · 2026</p>
+          <h1 id="gallery-title">Donner une voix visuelle aux <em>chroniques</em> de Tara.</h1>
+          <p class="gallery-lede">Cinq directions graphiques complètes, toutes construites avec le bleu nuit, le cyan et la menthe du logo définitif de Tara.</p>
+        </div>
+        <div class="hero-note" aria-label="Principes directeurs">
+          <span>01</span>
+          <p><strong>Lisible pendant des heures.</strong> L’interface accompagne des contenus longs sans rivaliser avec eux.</p>
+          <span>02</span>
+          <p><strong>Vivante, jamais fébrile.</strong> Le mouvement explique un état et respecte les préférences d’accessibilité.</p>
+          <span>03</span>
+          <p><strong>Évocatrice, pas costumée.</strong> L’univers du jeu de rôle reste présent sans clichés médiévaux.</p>
+        </div>
+      </section>
+
+      <section class="concept-section" aria-labelledby="concept-title">
+        <div class="section-heading">
+          <div>
+            <p class="gallery-kicker">Cinq territoires · une identité</p>
+            <h2 id="concept-title">Directions proposées</h2>
+          </div>
+          <p>Chaque prototype est interactif. Utilisez ses trois onglets pour comparer les mêmes états produit, sans changer de palette de marque.</p>
+        </div>
+        <div id="concept-gallery" class="concept-gallery"></div>
+      </section>
+
+      <section class="state-library" aria-labelledby="library-title">
+        <div class="section-heading library-heading">
+          <div>
+            <p class="gallery-kicker">Référentiel fonctionnel</p>
+            <h2 id="library-title">Les 11 états de l’application</h2>
+          </div>
+          <p>Une base neutre pour vérifier la couverture du produit, indépendamment de la direction choisie.</p>
+        </div>
+        <div class="filter-bar" role="toolbar" aria-label="Filtrer les états">
+          <button type="button" class="filter-button is-active" data-filter="all" aria-pressed="true">Tous <span>11</span></button>
+          <button type="button" class="filter-button" data-filter="prepare" aria-pressed="false">Préparer <span>4</span></button>
+          <button type="button" class="filter-button" data-filter="transfer" aria-pressed="false">Transférer <span>3</span></button>
+          <button type="button" class="filter-button" data-filter="follow" aria-pressed="false">Suivre <span>3</span></button>
+          <button type="button" class="filter-button" data-filter="result" aria-pressed="false">Relire <span>1</span></button>
+        </div>
+        <div id="examples-gallery" class="examples-gallery"></div>
+      </section>
     </main>
+
+    <footer class="gallery-footer">
+      <p>Tara · documentation visuelle locale</p>
+      <a href="#gallery-title">Revenir en haut ↑</a>
+    </footer>
     <script src="examples.js"></script>
   </body>
 </html>

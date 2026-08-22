@@ -33,6 +33,7 @@ class AcceptanceReport:
     affirmed_unresolved_critical_conflict_count: int
     llm_call_count: int
     probe_llm_call_count: int
+    security_llm_call_count: int
     analysis_llm_call_count: int
     composition_llm_call_count: int
     audit_llm_call_count: int
@@ -68,6 +69,7 @@ class AcceptanceReport:
             ),
             "llm_call_count": self.llm_call_count,
             "probe_llm_call_count": self.probe_llm_call_count,
+            "security_llm_call_count": self.security_llm_call_count,
             "analysis_llm_call_count": self.analysis_llm_call_count,
             "composition_llm_call_count": self.composition_llm_call_count,
             "audit_llm_call_count": self.audit_llm_call_count,
@@ -175,6 +177,7 @@ def evaluate_acceptance(
         affirmed_unresolved_critical_conflict_count=affirmed_conflicts,
         llm_call_count=fs.llm_call_count,
         probe_llm_call_count=fs.probe_llm_call_count,
+        security_llm_call_count=fs.security_llm_call_count,
         analysis_llm_call_count=fs.analysis_llm_call_count,
         composition_llm_call_count=fs.composition_llm_call_count,
         audit_llm_call_count=fs.audit_llm_call_count,

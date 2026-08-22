@@ -14,7 +14,7 @@ BOUNDARY_SYSTEM_PROMPT = (
 BOUNDARY_USER_PROMPT = """Identify the narrative scenes in this tabletop RPG session.
 
 Scene rules:
-- A scene is a coherent narrative phase, location, objective, or combat phase.
+- A scene is a coherent narrative phase, location, objective, or conflict phase.
 - Prefer meaningful narrative boundaries over tiny turn-by-turn fragments.
 - Do not force a fixed number of scenes.
 - Timestamps must use the supplied segment times.
@@ -36,11 +36,11 @@ Transcript:
 EVIDENCE_STRICTNESS_POLICY = """Evidence strictness policy:
 - Do not extrapolate beyond the transcript, supplied scene metadata, and
   user-provided context.
-- Do not invent events, motives, outcomes, items, locations, resources, damage
-  states, or relationships to make the description smoother.
-- Do not fill gaps from genre expectations, module knowledge, previous sessions,
-  or likely D&D mechanics unless current-scene evidence explicitly supports the
-  claim.
+- Do not invent events, motives, outcomes, items, locations, resources, harm or
+  condition states, or relationships to make the description smoother.
+- Do not fill gaps from genre expectations, published scenario knowledge,
+  previous sessions, or mechanics from any game system unless current-scene
+  evidence explicitly supports the claim.
 - Treat weak ASR, jokes, table chatter, corrections, and interrupted sentences
   as insufficient evidence for specific claims.
 - If you are not sure that something happened, either omit it or state the
@@ -51,13 +51,14 @@ EVIDENCE_STRICTNESS_POLICY = """Evidence strictness policy:
 SPEAKER_ATTRIBUTION_POLICY = """Speaker attribution policy:
 - Audio speaker labels identify the recording track owner, not necessarily the
   in-story actor.
-- The MJ/DM speaker may narrate any NPC, adjudicate any player action, repeat a
-  player's declaration, or joke out of character; do not turn MJ first-person
-  phrasing into an MJ character action.
+- The game facilitator (using the title supplied in general context) may narrate
+  any NPC, adjudicate any player action, repeat a player's declaration, or joke
+  out of character; do not turn facilitator first-person phrasing into a
+  facilitator character action.
 - A player speaker may talk about another character, quote someone, ask rules
   questions, or joke out of character. Treat player-to-character mapping as a
   weak clue only.
-- ASR may mangle French fantasy names and second-person narration; phonetic
+- ASR may mangle proper names and second-person narration; phonetic
   fragments or near-name variants are weak evidence by themselves.
 - Attribute an action to a named character only when the evidence explicitly
   names that character or the declaration is unambiguous in context. If
@@ -100,8 +101,10 @@ Style and content rules:
 - Do not quote transcript lines.
 - Prioritize stakes, consequences, key actions, state changes, resources, and
   next-session continuity.
-- Mention D&D mechanics only when they change story state, danger, resources, or
-  continuity.
+- Interpret rules and terminology according to the game system named in general
+  context. Never assume a default system.
+- Mention system mechanics only when they change story state, danger, resources,
+  or continuity.
 - Extract adaptive facts: enough to preserve important details, not an inventory.
 - Every fact must be supported by segment ids from this scene.
 - Importance 3 is default. Use importance 4 for key actions, final states,
@@ -116,7 +119,8 @@ summary: short summary
 description: long scene description
 facts:
   - claim: short factual claim
-    claim_type: chronology|combat_outcome|character_state|quest_continuity|resource_state|final_state
+    claim_type: chronology|combat_outcome|character_state|quest_continuity|
+      resource_state|final_state
     confidence: high|medium|low
     importance: 3
     is_critical: false
@@ -198,8 +202,7 @@ def boundary_user_prompt(transcription: MergedTranscription) -> str:
 def boundary_merge_user_prompt(boundaries: list[list[SceneBoundary]]) -> str:
     """Build the prompt that merges block-level boundaries."""
     payload = [
-        [scene.to_dict() for scene in block_scenes]
-        for block_scenes in boundaries
+        [scene.to_dict() for scene in block_scenes] for block_scenes in boundaries
     ]
     return BOUNDARY_MERGE_USER_PROMPT.format(
         block_scenes=to_yaml(payload),
@@ -280,8 +283,10 @@ def _context_block(context_text: str | None) -> str:
     if not context_text or not context_text.strip():
         return ""
     return (
-        "General campaign context for names, aliases, player-character mapping, "
-        "and MJ identity. Use transcript evidence for events.\n"
+        "General context for the game system, names, aliases, user-to-character "
+        "mapping, game-facilitator identity, and optional public campaign name. "
+        "Use the named system's terminology and rules; never assume another "
+        "system. Use transcript evidence for events.\n"
         "--- general context ---\n"
         f"{context_text.strip()}\n"
         "--- end general context ---\n\n"

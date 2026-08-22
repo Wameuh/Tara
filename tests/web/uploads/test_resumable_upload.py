@@ -35,7 +35,7 @@ def stack(tmp_path: Path, *, max_files: int = 10, max_chunk: int = 1024) -> Uplo
     factory = ConnectionFactory(root / "tara.sqlite3", root)
     connection = factory.connect()
     try:
-        assert migrate(connection) == 16
+        assert migrate(connection) == 17
     finally:
         connection.close()
     repository = AudioUploadRepository(factory)
@@ -466,7 +466,7 @@ def test_migration_0006_adds_upload_validation_schema(tmp_path: Path) -> None:
     factory, _, _, _, _ = stack(tmp_path)
     connection = factory.connect()
     try:
-        assert schema_version(connection) == 16
+        assert schema_version(connection) == 17
         assert connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' "
             "AND name='upload_validations'"

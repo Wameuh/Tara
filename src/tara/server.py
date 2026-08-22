@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from tara.cli import TaraArgs
 from tara.pipeline import TaraControlAgent, TaraPipelineError
+from tara.prompt_security import PromptSecurityRejected, PromptSecurityUnavailable
 
 app = FastAPI(title="Tara", version="0.1.0")
 
@@ -152,6 +153,10 @@ def _raise_http_error(exc: Exception) -> None:
         ) from exc
     if isinstance(exc, ValidationError):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if isinstance(exc, PromptSecurityRejected):
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if isinstance(exc, PromptSecurityUnavailable):
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     if isinstance(exc, FileNotFoundError | OSError | TaraPipelineError | ValueError):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     raise exc

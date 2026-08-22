@@ -62,6 +62,8 @@ class WarningCode(StrEnum):
 class ErrorCode(StrEnum):
     INPUT_INVALID = "input_invalid"
     INPUT_TOO_LARGE = "input_too_large"
+    PROMPT_INJECTION_DETECTED = "prompt_injection_detected"
+    PROMPT_SECURITY_CHECK_FAILED = "prompt_security_check_failed"
     TRANSCRIPTION_FAILED = "transcription_failed"
     PROCESSING_FAILED = "processing_failed"
     TIMEOUT = "timeout"

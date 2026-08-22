@@ -345,6 +345,37 @@ class AnalysisScenesConfig:
 
 
 @dataclass(slots=True)
+class PromptSecurityConfig:
+    """Fail-closed Cursor CLI screening for untrusted text inputs."""
+
+    enabled: bool = False
+    minimum_score: int = 80
+    max_chars_per_request: int = 60_000
+    model: str = "Auto"
+
+    @classmethod
+    def from_mapping(cls, data: Mapping[str, Any]) -> Self:
+        """Create prompt-security configuration from a raw mapping."""
+        defaults = cls()
+        minimum_score = int(data.get("minimum_score", defaults.minimum_score))
+        max_chars = int(
+            data.get("max_chars_per_request", defaults.max_chars_per_request)
+        )
+        if not 0 <= minimum_score <= 100:
+            raise ValueError("analysis.prompt_security.minimum_score must be 0..100")
+        if max_chars < 4_000:
+            raise ValueError(
+                "analysis.prompt_security.max_chars_per_request must be at least 4000"
+            )
+        return cls(
+            enabled=bool(data.get("enabled", defaults.enabled)),
+            minimum_score=minimum_score,
+            max_chars_per_request=max_chars,
+            model=str(data.get("model", defaults.model)),
+        )
+
+
+@dataclass(slots=True)
 class AnalysisConfig:
     """Configuration for blackboard analysis output and loop behavior."""
 
@@ -360,6 +391,7 @@ class AnalysisConfig:
     overlap_seconds: float = 20.0
     parallel: bool = True
     scenes: AnalysisScenesConfig = field(default_factory=AnalysisScenesConfig)
+    prompt_security: PromptSecurityConfig = field(default_factory=PromptSecurityConfig)
     llm: AnalysisLLMConfig = field(default_factory=AnalysisLLMConfig)
 
     @classmethod
@@ -374,6 +406,9 @@ class AnalysisConfig:
         scenes_data = data.get("scenes", {})
         if not isinstance(scenes_data, Mapping):
             scenes_data = {}
+        prompt_security_data = data.get("prompt_security", {})
+        if not isinstance(prompt_security_data, Mapping):
+            prompt_security_data = {}
         parallel_raw = data.get("parallel", defaults.parallel)
         if apply_environment:
             parallel_raw = os.environ.get("TARA_ANALYSIS_PARALLEL", parallel_raw)
@@ -404,6 +439,7 @@ class AnalysisConfig:
             ),
             parallel=parallel,
             scenes=AnalysisScenesConfig.from_mapping(scenes_data),
+            prompt_security=PromptSecurityConfig.from_mapping(prompt_security_data),
             llm=AnalysisLLMConfig.from_mapping(llm_data),
         )
 

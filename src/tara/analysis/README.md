@@ -73,9 +73,9 @@ analysis steps run only when `cursor_cli_probe` is true (or `TARA_CURSOR_CLI_PRO
 is set) so a probe-only configuration still avoids transcript analysis via CLI.
 
 Usage counters on `FinalSummary` and `session_summary.yaml` split
-`probe_llm_call_count`, `analysis_llm_call_count`, `composition_llm_call_count`,
-and `audit_llm_call_count`; the legacy `llm_call_count` is the total across those
-roles plus any merged probe totals.
+`probe_llm_call_count`, `security_llm_call_count`, `analysis_llm_call_count`,
+`composition_llm_call_count`, and `audit_llm_call_count`; the legacy
+`llm_call_count` is the total across those roles.
 
 ## Core Models
 

@@ -239,6 +239,14 @@ L'objectif initial est de definir une interface web simple, robuste et orientee 
 
 ### Concepts de reference pour l'interface
 
+#### Theme visuel retenu : Edition Azur
+
+- Decision: Edition Azur devient le theme visuel de production de l'interface Tara.
+- Decision: la palette du logo structure le systeme de design avec le bleu nuit pour la hierarchie, le bleu pour les actions et le duo cyan-menthe pour la progression et les confirmations.
+- Decision: les titres editoriaux utilisent une famille serif de lecture et l'interface fonctionnelle une famille sans serif; aucune police distante n'est requise.
+- Decision: le contexte supplementaire (2k tokens) et les resumes anterieurs (50k tokens) restent deux memoires clairement separees dans la composition, les libelles et les aides.
+- Decision: `webinterface/view-examples/DESIGN-AUDIT.md` documente la critique, les alternatives et les raisons du choix; la source React et ses styles restent la reference d'implementation.
+
 - Decision: `webinterface/concept_design_1.html` devient la reference fonctionnelle et de composition pour la page de suivi d'un job en attente ou en cours.
 - Decision: `webinterface/concept_design_2.html` devient la reference fonctionnelle et de composition pour la page de resultat termine.
 - Decision: `webinterface/implementation-plan/07a-specifications-visuelles-concepts.md` est la specification visuelle mesurable de traduction des deux concepts tant qu'un nouveau theme n'est pas valide.
@@ -251,7 +259,7 @@ L'objectif initial est de definir une interface web simple, robuste et orientee 
 - Decision: aucun bouton de replay du logo n'est affiche dans l'application V1; il reste propre a la galerie de demonstration.
 - Decision: produire des derives web recadres/optimises avec dimensions explicites; ne pas charger la toile source 1586 x 992 dans l'en-tete lorsqu'un derive adapte existe.
 - Decision: `webinterface/implementation-plan/07b-logo-et-animation.md` est la specification d'implementation du logo, de son pipeline d'assets et de ses validations.
-- Decision: ces fichiers guident la hierarchie, la densite, les composants, le responsive et les interactions; ils ne sont pas du code de production a recopier et ne figent pas definitivement le theme visuel, qui reste un chantier separe.
+- Decision: ces fichiers guident la hierarchie, la densite, les composants, le responsive et les interactions; ils ne sont pas du code de production a recopier. Edition Azur tranche desormais le theme visuel.
 - Decision: les deux concepts partagent un shell Tara coherent avec en-tete compact, marque Tara, aide, largeur de lecture contrainte, retours par toast et comportement responsive.
 - Decision: le concept de suivi conserve son titre, les statuts de job/tentative, la progression principale, la chronologie verticale des etapes, le panneau d'informations, la copie du lien, l'annulation et le rappel que la page peut etre fermee.
 - Adaptation obligatoire: le concept de suivi ne montre visuellement qu'une progression principale; l'implementation doit afficher les deux progressions decidees, une pour l'operation courante et une pour le total, sans surcharger la page.

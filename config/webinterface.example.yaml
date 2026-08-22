@@ -74,3 +74,12 @@ webinterface:
   backup:
     enabled: false
     signing_key_env: TARA_WEB_BACKUP_SIGNING_KEY
+  # Ko-fi sends payment events to /api/v1/funding/kofi/webhook. Put the
+  # verification token shown by Ko-fi in TARA_KOFI_VERIFICATION_TOKEN.
+  kofi:
+    enabled: false
+    page_url: https://ko-fi.com/your-page
+    verification_token_env: TARA_KOFI_VERIFICATION_TOKEN
+    # Optional shared scale for both monthly bars; 50000000 = 50 EUR.
+    # monthly_goal_micro_eur: 50000000
+    timezone: Europe/Paris

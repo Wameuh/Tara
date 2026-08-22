@@ -2,6 +2,7 @@ import { type ChangeEvent, type FormEvent, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, publicErrorMessage, type InputKind, type PublicConfig } from "../api/client";
+import { MonthlyFundingPanel } from "../components/MonthlyFundingPanel";
 import { MergedTranscriptionInput } from "../features/upload/MergedTranscriptionInput";
 import { ZipInput } from "../features/upload/ZipInput";
 import { clearPending, getPending, setPending, type PendingUpload } from "../features/upload/pending";
@@ -172,7 +173,7 @@ export function NewJobPage({ config, go }: { config: PublicConfig; go: (path: st
   const transferFailed = audioPending.some((item) => item.state === "failed");
   const audioReady = Boolean(audioSession && audioSnapshot?.allowed_actions.includes("launch") && !transferActive && !transferFailed);
 
-  return <main className="page form-page"><p className="eyebrow">{t("new.eyebrow")}</p><h1>{t("new.title")}</h1><p className="lede">{t("new.lede")}</p><form onSubmit={submit}>
+  return <main className="page form-page"><header className="page-header"><p className="eyebrow">{t("new.eyebrow")}</p><h1>{t("new.title")}</h1><p className="lede">{t("new.lede")}</p></header><MonthlyFundingPanel /><form className="analysis-form" onSubmit={submit}>
     <fieldset className="input-kind" aria-describedby="input-kind-hint"><legend>{t("new.input_kind")}</legend><p id="input-kind-hint" className="muted">{t("new.input_kind_hint")}</p><div className="input-kind-options">
       {config.input_modes.includes("audio") && <label><input type="radio" name="input-kind" value="audio" checked={inputKind === "audio"} disabled={Boolean(audioSession)} onChange={() => { setInputKind("audio"); setError(null); }} />{t("new.audio")}</label>}
       {config.input_modes.includes("merged_transcription") && <label><input type="radio" name="input-kind" value="merged_transcription" checked={inputKind === "merged_transcription"} disabled={Boolean(audioSession)} onChange={() => { setInputKind("merged_transcription"); setError(null); }} />{t("new.merged_transcription")}</label>}
@@ -181,7 +182,13 @@ export function NewJobPage({ config, go }: { config: PublicConfig; go: (path: st
     {inputKind === "audio" ? <><label className="dropzone"><strong>{t("new.audio")}</strong><span>{t("new.audio_hint")}</span><input type="file" accept="audio/mpeg,audio/ogg,.mp3,.ogg" multiple disabled={busy} onChange={selectAudio} /></label>
       {!audioSession && files.length > 0 && <ul className="file-list">{files.map((item) => <li key={item.key}><strong>{item.file.name}</strong></li>)}</ul>}
       {audioSession && <UploadSessionPage sessionId={audioSession.sessionId} secret={audioSession.secret} config={config} go={go} embedded autoLaunch={false} pendingRevision={pendingRevision} onSnapshot={setAudioSnapshot} onPendingChange={setAudioPending} />}</> : inputKind === "zip" ? <ZipInput file={zipFile} onChange={(file) => { setZipFile(file); setError(file ? null : t("new.zip_invalid")); }} /> : <MergedTranscriptionInput file={mergedFile} onChange={(file) => { setMergedFile(file); setError(file ? null : t("new.merged_transcription_invalid")); }} />}
-    <div className="field-grid"><label>{t("new.context")}<textarea value={context} onChange={(event) => setContext(event.target.value)} rows={6} /></label><label>{t("new.summaries")}<textarea value={summaries} onChange={(event) => setSummaries(event.target.value)} rows={6} /></label></div>
+    <section className="memory-section" aria-labelledby="memory-title">
+      <header><p className="eyebrow">{t("new.memory_eyebrow")}</p><h2 id="memory-title">{t("new.memory_title")}</h2><p>{t("new.memory_hint")}</p></header>
+      <div className="field-grid">
+        <label className="context-field"><span>{t("new.context")}</span><small>{t("new.context_hint")}</small><textarea value={context} onChange={(event) => setContext(event.target.value)} rows={6} /></label>
+        <label className="context-field"><span>{t("new.summaries")}</span><small>{t("new.summaries_hint")}</small><textarea value={summaries} onChange={(event) => setSummaries(event.target.value)} rows={6} /></label>
+      </div>
+    </section>
     <div className="form-actions">{config.supported_languages.length > 1 && <label>{t("job.language")}<select value={language} onChange={(event) => setLanguage(event.target.value)}>{config.supported_languages.map((item) => <option key={item}>{item}</option>)}</select></label>}
       <label className="file-text">{t("new.load_context")}<input type="file" multiple accept=".txt,.md,text/plain,text/markdown" onChange={(event) => void importText(event, context, 200_000, setContext)} /></label>
       <label className="file-text">{t("new.load_summaries")}<input type="file" multiple accept=".txt,.md,text/plain,text/markdown" onChange={(event) => void importText(event, summaries, 2_000_000, setSummaries)} /></label>

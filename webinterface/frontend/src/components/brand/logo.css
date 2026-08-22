@@ -2,7 +2,7 @@
 .tara-logo--header { width: 132px; max-width: min(132px, 38vw); max-height: 44px; }
 .tara-logo--loading { width: min(300px, 72vw); aspect-ratio: 3 / 1; }
 .tara-logo--standalone { width: 264px; max-width: 100%; }
-.brand-link { display: block; width: fit-content; flex: 0 0 auto; }
+.brand-link { display: inline-flex; width: fit-content; flex: 0 0 auto; border-radius: 2px; }
 .tara-logo-animation { display: block; position: relative; height: auto; }
 .tara-logo-animation .tara-logo { width: 100%; }
 .tara-logo-animation__mask { position: absolute; z-index: 1; left: 10%; top: 7%; width: 19%; height: 70%; background: var(--page); }
