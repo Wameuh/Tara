@@ -81,7 +81,7 @@ def test_compose_topology_hardening_and_one_shot_services() -> None:
     ]
     assert proxy["networks"] == ["tara_internal", "tara_public"]
     assert compose["networks"]["tara_internal"]["internal"] is True
-    assert compose["networks"]["tara_admin"]["internal"] is True
+    assert compose["networks"]["tara_admin"]["driver"] == "bridge"
 
 
 def test_compose_uses_dedicated_volumes_and_narrow_mounts() -> None:

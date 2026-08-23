@@ -126,6 +126,8 @@ hôte et le certificat sont prêts. `tara-admin` publie aussi son interface HTTP
 sur `127.0.0.1:8765` uniquement ; cette adresse n'est pas configurable afin
 qu'une surcharge accidentelle ne l'expose pas au LAN ou à Internet. Le port
 hôte peut être changé avec `TARA_ADMIN_HOST_PORT`.
+Le réseau dédié de `tara-admin` n'est relié ni au proxy, ni au réseau provider ;
+la restriction d'accès repose sur la publication explicite en boucle locale.
 
 `tara-web-init` fixe les propriétaires des trois volumes. `tara-web-migrate`
 s'exécute une seule fois avant l'application. L'entrypoint applicatif impose un

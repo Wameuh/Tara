@@ -213,4 +213,4 @@ networks:
   tara_public:
   tara_provider:
   tara_admin:
-    internal: true
+    driver: bridge

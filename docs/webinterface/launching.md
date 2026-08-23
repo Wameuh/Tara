@@ -51,8 +51,8 @@ docker compose -f compose.yaml -f compose.override.yaml ps
 
 Le reverse proxy TLS publie `127.0.0.1:8443` par défaut. Le tableau de bord
 d'administration publie séparément `127.0.0.1:8765`, sans TLS, et n'est jamais
-routé par le proxy public. Les deux processus FastAPI restent isolés dans leurs
-réseaux respectifs. Les volumes séparés conservent SQLite, les jobs et les
+routé par le proxy public. Les deux processus FastAPI utilisent des réseaux
+Compose distincts. Les volumes séparés conservent SQLite, les jobs et les
 sauvegardes ; la configuration et les secrets sont montés en lecture seule.
 
 Ouvrir <http://127.0.0.1:8765> depuis la machine hôte pour consulter les vues
