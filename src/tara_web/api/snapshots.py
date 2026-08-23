@@ -10,12 +10,26 @@ from tara_web.domain.state_machines import (
     allowed_actions_for_job,
     allowed_actions_for_session,
 )
+from tara_web.services.audio_formats import AUDIO_FORMAT_LABEL
 
 
 def _file_error(item: object) -> dict[str, object] | None:
     code = item["validation_error_code"]
     if not code:
         return None
+    if code == "input_type_mismatch":
+        filename = str(item["display_name"] or "")
+        provided = filename.rsplit(".", 1)[-1].upper() if "." in filename else "?"
+        detected = str(item["detected_type"] or "?").upper()
+        return {
+            "code": ErrorCode.INPUT_INVALID,
+            "message_key": "upload.audio_format_mismatch",
+            "parameters": {
+                "expected": AUDIO_FORMAT_LABEL,
+                "provided": provided,
+                "detected": detected,
+            },
+        }
     try:
         public_code = ErrorCode(code)
     except ValueError:

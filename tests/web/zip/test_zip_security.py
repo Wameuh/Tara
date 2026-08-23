@@ -27,19 +27,32 @@ def test_safe_nested_archive_extracts_only_audio_under_generated_names(
 ) -> None:
     path = _archive(
         tmp_path / "safe.zip",
-        [("table/alice.mp3", b"mp3-data"), ("mj.ogg", b"ogg-data"), ("note.txt", b"x")],
+        [
+            ("table/alice.mp3", b"mp3-data"),
+            ("mj.ogg", b"ogg-data"),
+            ("guest.aac", b"aac-data"),
+            ("music.m4a", b"m4a-data"),
+            ("note.txt", b"x"),
+        ],
     )
     policy = ZipPolicy(max_compression_ratio=1_000)
     inspection = inspect_zip(path, policy)
     tracks = extract_audio(path, tmp_path / "out", inspection, policy)
 
-    assert [track.archive_name for track in tracks] == ["table/alice.mp3", "mj.ogg"]
+    assert [track.archive_name for track in tracks] == [
+        "table/alice.mp3",
+        "mj.ogg",
+        "guest.aac",
+        "music.m4a",
+    ]
     assert inspection.excluded_entries == 1
     assert all(track.physical_path.parent == tmp_path / "out" for track in tracks)
     assert all(track.physical_path.suffix == ".bin" for track in tracks)
     assert {track.physical_path.read_bytes() for track in tracks} == {
         b"mp3-data",
         b"ogg-data",
+        b"aac-data",
+        b"m4a-data",
     }
 
 

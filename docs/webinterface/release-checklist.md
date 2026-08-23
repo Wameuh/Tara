@@ -22,7 +22,7 @@ responsable désigné.
   i18n réussis.
 - [ ] Chromium, Firefox, WebKit et Chromium mobile réussis avec Axe ; la limite
   de la couverture automatisée WCAG AA est rappelée.
-- [ ] MP3/OGG multi-pistes, merged YAML et ZIP passent les parcours réels ou les
+- [ ] MP3/OGG/AAC/M4A multi-pistes, merged YAML et ZIP passent les parcours réels ou les
   doubles provider déterministes approuvés.
 - [ ] Charge 5 actifs + 25 en attente respecte les seuils p95, promotion,
   intégrité SQLite et disponibilité.

@@ -8,7 +8,7 @@ dans la [Checklist de livraison](release-checklist.md).
 ## Périmètre validé dans le dépôt
 
 - contrats API, OpenAPI, TypeScript, SQLite et YAML versionnés ;
-- entrées audio MP3/OGG, merged transcription YAML et ZIP ;
+- entrées audio MP3/OGG/AAC/M4A, merged transcription YAML et ZIP ;
 - upload reprenable, file 5+25, SSE avec repli polling, annulation, relance,
   coût, budget, expiration et rétention ;
 - runner Tara réel derrière doubles provider déterministes ;

@@ -12,6 +12,8 @@ from tara_web.services.idempotency import IdempotencyService, SecretHmac
 from tara_web.storage.layout import StorageLayout
 from tara_web.storage.uploads import unlink_upload
 
+from .audio_formats import AUDIO_EXTENSIONS, AUDIO_MIMES
+
 _HEX = re.compile(r"^[0-9a-f]{64}$")
 _BIDI = {chr(value) for value in range(0x202A, 0x202F)} | {
     chr(value) for value in range(0x2066, 0x206A)
@@ -139,7 +141,7 @@ class UploadSessionService:
         allowed_extensions = (
             {"yaml", "yml"}
             if input_type == "merged_transcription"
-            else ({"zip"} if input_type == "zip" else {"mp3", "ogg"})
+            else ({"zip"} if input_type == "zip" else AUDIO_EXTENSIONS)
         )
         if extension not in allowed_extensions:
             raise ValueError("upload type is invalid")
@@ -149,7 +151,7 @@ class UploadSessionService:
             else (
                 {None, "application/zip", "application/x-zip-compressed"}
                 if input_type == "zip"
-                else {None, "audio/mpeg", "audio/mp3", "audio/ogg", "application/ogg"}
+                else set().union(*AUDIO_MIMES.values())
             )
         )
         if mime not in allowed_mimes:

@@ -62,6 +62,17 @@ describe("UploadSessionPage audio", () => {
     expect(offsetRequests).toBeGreaterThanOrEqual(2);
     expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/finalize"))).toBe(true);
   });
+
+  it("shows expected, supplied and detected formats after server validation", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      session_id: "audio-session", revision: 2, status: "invalid", expires_at: "2030-01-01T00:00:00Z", language: "fr", context_text: "", previous_summaries_text: "", validations: [], allowed_actions: [], input_type: "audio",
+      files: [{ file_id: "audio-file", revision: 2, status: "invalid", confirmed_offset: 5, total_size: 5, display_name: "Alice.mp3", person: "Alice", allowed_actions: [], error: { code: "input_invalid", message_key: "upload.audio_format_mismatch", parameters: { expected: "MP3, OGG, AAC, M4A", provided: "MP3", detected: "OGG" } } }],
+    }))));
+
+    render(<UploadSessionPage sessionId="audio-session" secret="secret" config={config} go={() => undefined} autoLaunch={false} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Formats attendus : MP3, OGG, AAC, M4A");
+    expect(screen.getByRole("alert")).toHaveTextContent("Format fourni : MP3 ; format détecté : OGG");
+  });
 });
 
 describe("UploadSessionPage merged transcription", () => {

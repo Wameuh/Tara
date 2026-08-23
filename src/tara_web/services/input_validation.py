@@ -10,6 +10,7 @@ from pathlib import Path
 from tara_web.db.repositories.audio_uploads import AudioUploadRepository
 from tara_web.storage.layout import StorageLayout
 
+from .audio_formats import AUDIO_MIMES
 from .audio_probe import AudioProbeResult, probe_audio
 
 
@@ -62,6 +63,7 @@ class UploadValidationRunner:
         validation_id = str(row["validation_id"])
         if not self._repository.claim_validation(validation_id):
             return
+        detected_type: str | None = None
         try:
             path = self._layout.upload_path(str(row["storage_path"]))
             result = validate_audio(
@@ -72,19 +74,16 @@ class UploadValidationRunner:
                 ffmpeg_timeout=self._policy.ffmpeg_timeout,
             )
             extension = str(row["original_filename"]).rsplit(".", 1)[-1].lower()
-            if result.detected_type != extension:
+            detected_type = result.detected_type
+            if detected_type != extension:
                 raise ValueError("input_type_mismatch")
             mime = row["declared_mime"]
-            allowed_mimes = {
-                "mp3": {None, "audio/mpeg", "audio/mp3"},
-                "ogg": {None, "audio/ogg", "application/ogg"},
-            }
-            if mime not in allowed_mimes[result.detected_type]:
+            if mime not in AUDIO_MIMES[detected_type]:
                 raise ValueError("input_type_mismatch")
         except ValueError as exc:
             self._repository.finish_validation(
                 validation_id,
-                detected_type=None,
+                detected_type=detected_type,
                 duration_ms=None,
                 warning_code=None,
                 error_code=str(exc)

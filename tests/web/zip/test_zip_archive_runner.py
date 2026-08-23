@@ -22,7 +22,7 @@ def test_runner_replaces_archive_with_validated_track_rows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     storage = tmp_path / "storage"
-    storage.mkdir()
+    storage.mkdir(mode=0o700)
     database = ConnectionFactory(storage / "web.sqlite3", storage)
     connection = database.connect()
     try:
@@ -40,6 +40,8 @@ def test_runner_replaces_archive_with_validated_track_rows(
     with zipfile.ZipFile(archive_path, "w") as archive:
         archive.writestr("table/Alice.mp3", b"audio-a")
         archive.writestr("MJ.ogg", b"audio-b")
+        archive.writestr("Guest.aac", b"audio-c")
+        archive.writestr("Music.m4a", b"audio-d")
         archive.writestr("notes.txt", b"ignored")
     content = archive_path.read_bytes()
     managed = layout.upload_file(session_id, file_id)
@@ -67,7 +69,12 @@ def test_runner_replaces_archive_with_validated_track_rows(
     row = repository.queued_validations(limit=1)[0]
 
     def probe(path: Path, **_: object) -> AudioProbeResult:
-        kind = "mp3" if path.read_bytes() == b"audio-a" else "ogg"
+        kind = {
+            b"audio-a": "mp3",
+            b"audio-b": "ogg",
+            b"audio-c": "aac",
+            b"audio-d": "m4a",
+        }[path.read_bytes()]
         return AudioProbeResult(1_000, kind, None)
 
     monkeypatch.setattr(
@@ -88,11 +95,18 @@ def test_runner_replaces_archive_with_validated_track_rows(
     assert session is not None and session["status"] == "ready"
     assert session["archive_phase"] == "launch_preparation"
     assert session["archive_excluded_count"] == 1
-    assert {item["display_name"] for item in files} == {"Alice.mp3", "MJ.ogg"}
+    assert {item["display_name"] for item in files} == {
+        "Alice.mp3",
+        "MJ.ogg",
+        "Guest.aac",
+        "Music.m4a",
+    }
     assert {item["archive_entry_name"] for item in files} == {
         "table/Alice.mp3",
         "MJ.ogg",
+        "Guest.aac",
+        "Music.m4a",
     }
-    assert {item["person"] for item in files} == {"Alice", "MJ"}
+    assert {item["person"] for item in files} == {"Alice", "MJ", "Guest", "Music"}
     assert all(item["status"] == "ready" for item in files)
     assert not layout.upload_path(managed.relative_path).exists()

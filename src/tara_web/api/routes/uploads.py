@@ -1,4 +1,4 @@
-"""Strict HTTP surface for direct resumable MP3/OGG uploads."""
+"""Strict HTTP surface for direct resumable audio uploads."""
 
 from __future__ import annotations
 

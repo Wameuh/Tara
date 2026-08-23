@@ -50,6 +50,18 @@ describe("NewJobPage audio selection", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Une erreur est survenue. Code support : admin-log-42.");
   });
 
+  it("shows expected and supplied formats before uploading an invalid file", async () => {
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    const { container } = render(<NewJobPage config={config} go={() => undefined} />);
+    const input = container.querySelector<HTMLInputElement>('input[type="file"][multiple][accept^="audio/"]');
+    fireEvent.change(input!, { target: { files: [new File(["audio"], "Alice.wav", { type: "audio/wav" })] } });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Formats attendus : MP3, OGG, AAC, M4A");
+    expect(screen.getByRole("alert")).toHaveTextContent("Format fourni : WAV · audio/wav");
+    expect(fetcher.mock.calls.some(([url]) => /\/uploads\/sessions/.test(String(url)))).toBe(false);
+  });
+
   it("shows monthly Ko-fi donations beside Tara's cumulative estimates", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       if (String(input) === "/api/v1/funding/monthly") return new Response(JSON.stringify({

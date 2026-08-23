@@ -189,12 +189,14 @@ def _wait_for(
     pytest.fail(f"resource did not reach a terminal state: {last}")
 
 
-def test_real_mp3_ogg_job_runs_through_spawn_and_publishes_public_yaml(
+def test_real_supported_audio_job_runs_through_spawn_and_publishes_public_yaml(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     mp3 = _audio(tmp_path / "Alice.mp3", "libmp3lame")
     ogg = _audio(tmp_path / "MaitreDuJeu.ogg", "libvorbis")
+    aac = _audio(tmp_path / "Guest.aac", "aac")
+    m4a = _audio(tmp_path / "Music.m4a", "aac")
     server = ThreadingHTTPServer(("127.0.0.1", 0), _InferenceHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -220,6 +222,8 @@ def test_real_mp3_ogg_job_runs_through_spawn_and_publishes_public_yaml(
                 "audio/ogg",
                 ogg,
             )
+            _upload_track(client, session_id, secret, "Guest.aac", "audio/aac", aac)
+            _upload_track(client, session_id, secret, "Music.m4a", "audio/mp4", m4a)
             session = _wait_for(
                 client,
                 f"/api/v1/sessions/{session_id}",
@@ -256,10 +260,10 @@ def test_real_mp3_ogg_job_runs_through_spawn_and_publishes_public_yaml(
                     (job_id,),
                 ).fetchone()
             assert metric is not None
-            assert tuple(metric[:2]) == ("audio", 2)
+            assert tuple(metric[:2]) == ("audio", 4)
             # Lossy containers may report encoder padding differently between
             # FFmpeg builds, while still representing the same two 200 ms tracks.
-            assert 350 <= metric["audio_duration_ms"] <= 500
+            assert 700 <= metric["audio_duration_ms"] <= 1_000
             assert metric["duration_ms"] >= 0
             assert str(tmp_path) not in result.text
             assert "host.docker.internal" not in result.text
@@ -278,8 +282,8 @@ def test_real_mp3_ogg_job_runs_through_spawn_and_publishes_public_yaml(
             source_ids = {
                 segment.author.source_file for segment in merged.content.segments
             }
-            assert speakers == {"Alice", "MaitreDuJeu"}
-            assert len(source_ids) == 2
+            assert speakers == {"Alice", "MaitreDuJeu", "Guest", "Music"}
+            assert len(source_ids) == 4
             assert all(source_id.startswith("uf_") for source_id in source_ids)
     finally:
         server.shutdown()
@@ -293,12 +297,16 @@ def test_real_zip_job_extracts_tracks_then_runs_the_audio_pipeline(
 ) -> None:
     mp3 = _audio(tmp_path / "Alice.mp3", "libmp3lame")
     ogg = _audio(tmp_path / "MaitreDuJeu.ogg", "libvorbis")
+    aac = _audio(tmp_path / "Guest.aac", "aac")
+    m4a = _audio(tmp_path / "Music.m4a", "aac")
     archive_path = tmp_path / "session.zip"
     with zipfile.ZipFile(
         archive_path, "w", compression=zipfile.ZIP_DEFLATED
     ) as archive:
         archive.writestr("joueurs/Alice.mp3", mp3)
         archive.writestr("MaitreDuJeu.ogg", ogg)
+        archive.writestr("Guest.aac", aac)
+        archive.writestr("Music.m4a", m4a)
         archive.writestr("notes/readme.txt", b"ignored")
     archive_content = archive_path.read_bytes()
     server = ThreadingHTTPServer(("127.0.0.1", 0), _InferenceHandler)
@@ -338,6 +346,8 @@ def test_real_zip_job_extracts_tracks_then_runs_the_audio_pipeline(
             assert {item["archive_entry_name"] for item in session["files"]} == {
                 "joueurs/Alice.mp3",
                 "MaitreDuJeu.ogg",
+                "Guest.aac",
+                "Music.m4a",
             }
             assert not archive_path_for_session(client, session_id).exists()
             launched = client.post(

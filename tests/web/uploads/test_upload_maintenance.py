@@ -32,11 +32,11 @@ def upload_stack(
     ChunkUploadService,
 ]:
     root = tmp_path / "runtime"
-    root.mkdir()
+    root.mkdir(mode=0o700)
     factory = ConnectionFactory(root / "tara.sqlite3", root)
     connection = factory.connect()
     try:
-        assert migrate(connection) == 17
+        assert migrate(connection) == MIGRATIONS[-1].version
     finally:
         connection.close()
     repository = AudioUploadRepository(factory)
@@ -256,7 +256,7 @@ def test_periodic_maintenance_survives_one_failure(
 
 def test_upgrade_from_populated_v5_preserves_upload_data(tmp_path: Path) -> None:
     root = tmp_path / "runtime"
-    root.mkdir()
+    root.mkdir(mode=0o700)
     factory = ConnectionFactory(root / "tara.sqlite3", root)
     connection = factory.connect()
     try:
@@ -294,8 +294,8 @@ def test_upgrade_from_populated_v5_preserves_upload_data(tmp_path: Path) -> None
         )
         connection.commit()
 
-        assert migrate(connection) == 17
-        assert schema_version(connection) == 17
+        assert migrate(connection) == MIGRATIONS[-1].version
+        assert schema_version(connection) == MIGRATIONS[-1].version
         upgraded = connection.execute(
             "SELECT person,chunk_size,storage_cleaned_at FROM upload_files WHERE id=?",
             (file_id,),
@@ -329,7 +329,7 @@ def test_upgrade_from_populated_v5_preserves_upload_data(tmp_path: Path) -> None
 
 def test_generated_upload_hmac_key_is_stable_and_strict(tmp_path: Path) -> None:
     root = tmp_path / "runtime"
-    root.mkdir()
+    root.mkdir(mode=0o700)
     config = type("Config", (), {"upload_hmac_key": None})()
     first = application._load_upload_hmac_key(root, config)  # noqa: SLF001
     second = application._load_upload_hmac_key(root, config)  # noqa: SLF001

@@ -10,6 +10,8 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
+from .audio_formats import AUDIO_EXTENSIONS
+
 _WINDOWS_DEVICES = {"CON", "PRN", "AUX", "NUL"} | {
     f"{prefix}{number}" for prefix in ("COM", "LPT") for number in range(1, 10)
 }
@@ -81,7 +83,7 @@ def inspect_zip(path: Path, policy: ZipPolicy) -> ZipInspection:
         ratio = entry.file_size / max(entry.compress_size, 1)
         if ratio > policy.max_compression_ratio:
             raise ZipValidationError("input_too_large")
-        if PurePosixPath(name).suffix.lower() in {".mp3", ".ogg"}:
+        if PurePosixPath(name).suffix.lower()[1:] in AUDIO_EXTENSIONS:
             audio.append(entry)
         else:
             excluded += 1

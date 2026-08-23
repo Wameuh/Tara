@@ -94,7 +94,7 @@ each merge to `master`.
 
 ### Web V1
 
-The V1 web interface provides resumable uploads for MP3/OGG tracks, merged
+The V1 web interface provides resumable uploads for MP3/OGG/AAC/M4A tracks, merged
 transcription YAML, and ZIP archives, then runs the real Tara pipeline behind a
 protected result link. It includes public capability/help contracts, job
 recovery, authenticated backups, a TLS reverse proxy, and a hardened Docker

@@ -26,7 +26,7 @@ from tara_web.services.idempotency import (
     SecretHmac,
 )
 
-LATEST_VERSION = 17
+LATEST_VERSION = MIGRATIONS[-1].version
 
 
 def factory(tmp_path: Path) -> ConnectionFactory:
@@ -176,10 +176,63 @@ def test_migration_is_idempotent_and_rejects_future_version(tmp_path: Path) -> N
     connection = db.connect()
     try:
         assert migrate(connection) == LATEST_VERSION
-        connection.execute("UPDATE schema_version SET version = 18 WHERE id = 1")
+        connection.execute(
+            "UPDATE schema_version SET version = ? WHERE id = 1",
+            (LATEST_VERSION + 1,),
+        )
         connection.commit()
         with pytest.raises(DatabaseError, match="newer"):
             migrate(connection)
+    finally:
+        connection.close()
+
+
+def test_migration_0019_preserves_existing_types_and_accepts_aac_m4a(
+    tmp_path: Path,
+) -> None:
+    db = factory(tmp_path)
+    connection = db.connect()
+    try:
+        assert migrate(connection, registry=MIGRATIONS[:18]) == 18
+        now = utc_now()
+        connection.execute(
+            "INSERT INTO upload_sessions(public_id,secret_hmac,status,expires_at,"
+            "created_at,updated_at) VALUES (?,?, 'created', ?, ?, ?)",
+            (
+                "us_migration_0019",
+                "v1:" + "a" * 64,
+                "2100-01-01T00:00:00+00:00",
+                now,
+                now,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO upload_files(public_id,session_id,status,storage_path,"
+            "declared_bytes,detected_type,created_at,updated_at) "
+            "VALUES (?,1,'ready','input',0,'mp3',?,?)",
+            ("uf_migration_0019", now, now),
+        )
+        connection.commit()
+
+        assert migrate(connection) == LATEST_VERSION
+        assert connection.execute(
+            "SELECT detected_type FROM upload_files WHERE public_id=?",
+            ("uf_migration_0019",),
+        ).fetchone()[0] == "mp3"
+        for audio_type in ("aac", "m4a"):
+            connection.execute(
+                "UPDATE upload_files SET detected_type=? WHERE public_id=?",
+                (audio_type, "uf_migration_0019"),
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "UPDATE upload_files SET detected_type='wav' WHERE public_id=?",
+                ("uf_migration_0019",),
+            )
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(upload_files)")
+        }
+        assert "detected_type_legacy" not in columns
     finally:
         connection.close()
 

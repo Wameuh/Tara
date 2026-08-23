@@ -5,6 +5,7 @@ import { api, publicErrorMessage, type InputKind, type PublicConfig } from "../a
 import { MonthlyFundingPanel } from "../components/MonthlyFundingPanel";
 import { MergedTranscriptionInput } from "../features/upload/MergedTranscriptionInput";
 import { ZipInput } from "../features/upload/ZipInput";
+import { acceptsAudioFile, AUDIO_ACCEPT, AUDIO_FORMATS, suppliedAudioFormat } from "../features/upload/audioFormats";
 import { clearPending, getPending, setPending, type PendingUpload } from "../features/upload/pending";
 import { withSecret } from "../routing/secret";
 import { clearDraft, loadDraft, saveDraft } from "../storage/draft";
@@ -118,9 +119,19 @@ export function NewJobPage({ config, go }: { config: PublicConfig; go: (path: st
   };
 
   const selectAudio = (event: ChangeEvent<HTMLInputElement>) => {
-    const additions = Array.from(event.target.files ?? []).map((file) => ({ key: crypto.randomUUID(), file, person: personFor(file) }));
+    const supplied = Array.from(event.target.files ?? []);
     event.target.value = "";
+    const invalid = supplied.filter((file) => !acceptsAudioFile(file));
+    if (invalid.length) {
+      setError(t("upload.audio_format_invalid", {
+        expected: AUDIO_FORMATS,
+        provided: [...new Set(invalid.map(suppliedAudioFormat))].join(", "),
+      }));
+      return;
+    }
+    const additions = supplied.map((file) => ({ key: crypto.randomUUID(), file, person: personFor(file) }));
     if (!additions.length) return;
+    setError(null);
     const selected = [...files, ...additions];
     setFiles(selected);
     if (!audioSession) {
@@ -179,7 +190,7 @@ export function NewJobPage({ config, go }: { config: PublicConfig; go: (path: st
       {config.input_modes.includes("merged_transcription") && <label><input type="radio" name="input-kind" value="merged_transcription" checked={inputKind === "merged_transcription"} disabled={Boolean(audioSession)} onChange={() => { setInputKind("merged_transcription"); setError(null); }} />{t("new.merged_transcription")}</label>}
       {config.input_modes.includes("zip") && <label><input type="radio" name="input-kind" value="zip" checked={inputKind === "zip"} disabled={Boolean(audioSession)} onChange={() => { setInputKind("zip"); setError(null); }} />{t("new.zip")}</label>}
     </div></fieldset>
-    {inputKind === "audio" ? <><label className="dropzone"><strong>{t("new.audio")}</strong><span>{t("new.audio_hint")}</span><input type="file" accept="audio/mpeg,audio/ogg,.mp3,.ogg" multiple disabled={busy} onChange={selectAudio} /></label>
+    {inputKind === "audio" ? <><label className="dropzone"><strong>{t("new.audio")}</strong><span>{t("new.audio_hint")}</span><input type="file" accept={AUDIO_ACCEPT} multiple disabled={busy} onChange={selectAudio} /></label>
       {!audioSession && files.length > 0 && <ul className="file-list">{files.map((item) => <li key={item.key}><strong>{item.file.name}</strong></li>)}</ul>}
       {audioSession && <UploadSessionPage sessionId={audioSession.sessionId} secret={audioSession.secret} config={config} go={go} embedded autoLaunch={false} pendingRevision={pendingRevision} onSnapshot={setAudioSnapshot} onPendingChange={setAudioPending} />}</> : inputKind === "zip" ? <ZipInput file={zipFile} onChange={(file) => { setZipFile(file); setError(file ? null : t("new.zip_invalid")); }} /> : <MergedTranscriptionInput file={mergedFile} onChange={(file) => { setMergedFile(file); setError(file ? null : t("new.merged_transcription_invalid")); }} />}
     <section className="memory-section" aria-labelledby="memory-title">

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from tara_web.db.connection import ConnectionFactory, DatabaseConflict
-from tara_web.db.migrations import migrate
+from tara_web.db.migrations import MIGRATIONS, migrate
 from tara_web.services.budget import BudgetService
 from tara_web.services.circuit_breaker import CircuitBreaker
 
@@ -18,7 +18,7 @@ def _database(tmp_path: Path) -> ConnectionFactory:
     database = ConnectionFactory(root / "tara.sqlite3", root)
     connection = database.connect()
     try:
-        assert migrate(connection) == 17
+        assert migrate(connection) == MIGRATIONS[-1].version
     finally:
         connection.close()
     return database

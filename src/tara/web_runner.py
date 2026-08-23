@@ -57,7 +57,7 @@ _MANIFEST_FIELDS = {
     "sha256",
     "source_id",
 }
-_AUDIO_TYPES = {"mp3", "ogg"}
+_AUDIO_TYPES = {"mp3", "ogg", "aac", "m4a"}
 _SOURCE_ID = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
 
 

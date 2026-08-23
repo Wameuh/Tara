@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from tara_web.db.connection import ConnectionFactory, DatabaseConflict
-from tara_web.db.migrations import migrate, schema_version
+from tara_web.db.migrations import MIGRATIONS, migrate, schema_version
 from tara_web.db.repositories.audio_uploads import AudioUploadRepository
 from tara_web.services.chunk_upload import ChunkUploadService
 from tara_web.services.idempotency import IdempotencyService, SecretHmac
@@ -35,7 +35,7 @@ def stack(tmp_path: Path, *, max_files: int = 10, max_chunk: int = 1024) -> Uplo
     factory = ConnectionFactory(root / "tara.sqlite3", root)
     connection = factory.connect()
     try:
-        assert migrate(connection) == 17
+        assert migrate(connection) == MIGRATIONS[-1].version
     finally:
         connection.close()
     repository = AudioUploadRepository(factory)
@@ -462,11 +462,31 @@ def test_names_and_file_limits_are_enforced(tmp_path: Path) -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("filename", "mime"),
+    (("Alice.aac", "audio/aac"), ("Alice.m4a", "audio/mp4")),
+)
+def test_aac_and_m4a_declarations_are_accepted(
+    tmp_path: Path, filename: str, mime: str
+) -> None:
+    _, _, _, sessions, _ = stack(tmp_path)
+    created = sessions.create()
+    declared_file = sessions.declare_file(
+        created.session_id,
+        created.secret,
+        filename=filename,
+        size=4,
+        sha256_hex="a" * 64,
+        mime=mime,
+    )
+    assert declared_file["person"] == "Alice"
+
+
 def test_migration_0006_adds_upload_validation_schema(tmp_path: Path) -> None:
     factory, _, _, _, _ = stack(tmp_path)
     connection = factory.connect()
     try:
-        assert schema_version(connection) == 17
+        assert schema_version(connection) == MIGRATIONS[-1].version
         assert connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' "
             "AND name='upload_validations'"

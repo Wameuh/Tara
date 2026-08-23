@@ -8,7 +8,7 @@ opérateur à signer pour une release donnée.
 
 ## Contrats fonctionnels couverts
 
-- entrées audio MP3/OGG, transcription fusionnée YAML et archive ZIP ;
+- entrées audio MP3/OGG/AAC/M4A, transcription fusionnée YAML et archive ZIP ;
 - pipeline Tara réel en production, faux runner limité aux tests sans provider ;
 - upload reprenable, validation, file FIFO 5+25, progression SSE et polling ;
 - annulation, relance, expiration, reprise après crash et rotation du secret ;
@@ -92,7 +92,7 @@ de débordement horizontal.
 Le premier smoke test Compose exerce TLS, santé, isolation, rootfs en lecture
 seule, UID non privilégié, `SIGTERM`, sauvegarde et restauration. Un second
 smoke provider-free démarre une inférence HTTP déterministe, envoie deux pistes
-MP3/OGG par l'interface réelle dans Chromium, attend le résultat Tara et vérifie
+MP3/OGG/AAC/M4A par l'interface réelle dans Chromium, attend le résultat Tara et vérifie
 l'attribution des personnes sans fuite de secret. La release génère ensuite des
 SBOM SPDX JSON Python, npm et image, scanne les secrets et configurations des
 sources suivies, puis scanne l'image avec Trivy verrouillé par digest. Un
@@ -129,7 +129,7 @@ seul ajout de preuve documentaire :
 - Playwright : **60 passed, 4 skipped** en 4,6 min sur Chromium, Firefox,
   WebKit et Chromium mobile, contrôles Axe inclus ;
 - parcours Compose réel distinct : **1 passed** dans Chromium, puis smoke API
-  MP3/OGG rejoué avec succès sur l'image finale ;
+  MP3/OGG/AAC/M4A rejoué avec succès sur l'image finale ;
 - `pip-audit 2.10.1` : **0 vulnérabilité connue** ;
 - `npm audit --audit-level=high` : **0 vulnérabilité** sur 344 dépendances ;
 - Bandit 1.9.4 : **0 finding HIGH** ; le scan exhaustif non bloquant conserve

@@ -15,6 +15,7 @@ from tara_web.api.schemas import (
     UploadFileSnapshot,
     ValidationSnapshot,
 )
+from tara_web.api.snapshots import _file_error
 
 
 def job_payload() -> dict[str, object]:
@@ -35,6 +36,26 @@ def test_public_snapshot_is_strict_and_has_no_secret_field() -> None:
         JobSnapshot.model_validate(job_payload() | {"secret": "never-public"})
     with pytest.raises(ValidationError, match="server_path"):
         JobSnapshot.model_validate(job_payload() | {"server_path": "/srv/jobs/job_1"})
+
+
+def test_audio_type_mismatch_exposes_expected_supplied_and_detected_formats() -> None:
+    error = _file_error(
+        {
+            "validation_error_code": "input_type_mismatch",
+            "validation_error_path": None,
+            "display_name": "Alice.mp3",
+            "detected_type": "ogg",
+        }
+    )
+    assert error == {
+        "code": "input_invalid",
+        "message_key": "upload.audio_format_mismatch",
+        "parameters": {
+            "expected": "MP3, OGG, AAC, M4A",
+            "provided": "MP3",
+            "detected": "OGG",
+        },
+    }
 
 
 def test_snapshot_requires_consistent_status_and_actions() -> None:

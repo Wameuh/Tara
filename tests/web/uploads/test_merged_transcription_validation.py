@@ -21,7 +21,7 @@ def _validate(
     tmp_path: Path, content: bytes, *, max_tokens: int = 500_000
 ) -> dict[str, object]:
     storage = tmp_path / "storage"
-    storage.mkdir()
+    storage.mkdir(mode=0o700)
     database = ConnectionFactory(storage / "web.sqlite3", storage)
     connection = database.connect()
     try:

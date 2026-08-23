@@ -24,14 +24,20 @@ def _completed(
 
 
 @pytest.mark.parametrize(
-    ("prefix", "format_name", "kind"),
-    [(b"ID3x", "mp3", "mp3"), (b"OggSx", "ogg", "ogg")],
+    ("prefix", "format_name", "codec_name", "kind"),
+    [
+        (b"ID3x", "mp3", "mp3", "mp3"),
+        (b"OggSx", "ogg", "vorbis", "ogg"),
+        (b"\xff\xf1xx", "aac", "aac", "aac"),
+        (b"\x00\x00\x00\x18ftypM4A ", "mov,mp4,m4a", "aac", "m4a"),
+    ],
 )
 def test_probe_valid_media_is_bounded(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     prefix: bytes,
     format_name: str,
+    codec_name: str,
     kind: str,
 ) -> None:
     path = tmp_path / "audio"
@@ -43,7 +49,7 @@ def test_probe_valid_media_is_bounded(
         return _completed(
             {
                 "format": {"format_name": format_name, "duration": "1.0"},
-                "streams": [{"codec_type": "audio"}],
+                "streams": [{"codec_type": "audio", "codec_name": codec_name}],
             }
         )
 
@@ -83,6 +89,24 @@ def test_probe_rejects_polyglot_and_warns_at_four_thirty(
             {
                 "format": {"format_name": "wav", "duration": "16200"},
                 "streams": [{"codec_type": "audio"}],
+            }
+        ),
+    )
+    with pytest.raises(ValueError, match="input_type_mismatch"):
+        probe_audio(path, ffprobe_timeout=1, ffmpeg_timeout=1)
+
+
+def test_probe_rejects_non_aac_codec_in_m4a_container(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "a.m4a"
+    path.write_bytes(b"\x00\x00\x00\x18ftypM4A ")
+    monkeypatch.setattr(
+        "tara_web.services.audio_probe.subprocess.run",
+        lambda *a, **k: _completed(
+            {
+                "format": {"format_name": "mov,mp4,m4a", "duration": "1"},
+                "streams": [{"codec_type": "audio", "codec_name": "alac"}],
             }
         ),
     )
@@ -274,7 +298,13 @@ def test_runner_rejects_extension_and_mime_mismatch(
     reason="ffmpeg and ffprobe are required for real media validation",
 )
 @pytest.mark.parametrize(
-    ("suffix", "codec"), [("mp3", "libmp3lame"), ("ogg", "libvorbis")]
+    ("suffix", "codec"),
+    [
+        ("mp3", "libmp3lame"),
+        ("ogg", "libvorbis"),
+        ("aac", "aac"),
+        ("m4a", "aac"),
+    ],
 )
 def test_validate_real_generated_audio(tmp_path: Path, suffix: str, codec: str) -> None:
     path = tmp_path / f"sample.{suffix}"

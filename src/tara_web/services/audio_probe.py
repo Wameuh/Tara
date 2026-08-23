@@ -1,4 +1,4 @@
-"""Bounded local MP3/OGG probing without a shell."""
+"""Bounded local audio probing without a shell."""
 
 from __future__ import annotations
 
@@ -22,6 +22,10 @@ class AudioProbeResult:
 def detect_signature(prefix: bytes) -> str:
     if prefix.startswith(b"OggS"):
         return "ogg"
+    if len(prefix) >= 2 and prefix[0] == 0xFF and prefix[1] & 0xF6 == 0xF0:
+        return "aac"
+    if len(prefix) >= 12 and prefix[4:8] == b"ftyp":
+        return "m4a"
     if prefix.startswith(b"ID3") or (
         len(prefix) >= 4
         and prefix[0] == 0xFF
@@ -51,7 +55,7 @@ def probe_audio(
                 "-select_streams",
                 "a:0",
                 "-show_entries",
-                "format=format_name,duration:stream=codec_type",
+                "format=format_name,duration:stream=codec_type,codec_name",
                 "-of",
                 "json",
                 "-i",
@@ -76,9 +80,26 @@ def probe_audio(
         raise ValueError("input_invalid") from exc
     if not math.isfinite(duration) or duration <= 0 or not isinstance(streams, list):
         raise ValueError("input_invalid")
-    detected = "mp3" if "mp3" in formats else "ogg" if "ogg" in formats else None
-    if detected != signature or not any(
-        item.get("codec_type") == "audio" for item in streams if isinstance(item, dict)
+    detected = (
+        "mp3"
+        if "mp3" in formats
+        else "ogg"
+        if "ogg" in formats
+        else "aac"
+        if "aac" in formats
+        else "m4a"
+        if formats & {"mov", "mp4", "m4a", "3gp", "3g2", "mj2"}
+        else None
+    )
+    audio_streams = [
+        item
+        for item in streams
+        if isinstance(item, dict) and item.get("codec_type") == "audio"
+    ]
+    if detected != signature or not audio_streams:
+        raise ValueError("input_type_mismatch")
+    if detected in {"aac", "m4a"} and not any(
+        item.get("codec_name") == "aac" for item in audio_streams
     ):
         raise ValueError("input_type_mismatch")
     if duration > 18_000:

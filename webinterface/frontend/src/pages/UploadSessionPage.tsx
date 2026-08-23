@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { api, ApiError, publicErrorMessage, type PublicConfig, type SessionSnapshot } from "../api/client";
 import { clearPending, getPending, setPending, type PendingUpload } from "../features/upload/pending";
+import { acceptsAudioFile, AUDIO_ACCEPT, AUDIO_FORMATS, suppliedAudioFormat } from "../features/upload/audioFormats";
 import { hashFile } from "../features/upload/hashFile";
 import { runBounded } from "../features/upload/queue";
 import { withSecret } from "../routing/secret";
@@ -40,6 +41,17 @@ export function UploadSessionPage({
 }) {
   const { t } = useTranslation();
   const apiError = (reason: unknown) => publicErrorMessage(reason, t("errors.generic"), (code) => t("errors.support_code", { code }));
+  const uploadError = (reason: unknown, file: File) => (
+    !acceptsAudioFile(file)
+      ? t("upload.audio_format_invalid", { expected: AUDIO_FORMATS, provided: suppliedAudioFormat(file) })
+      : apiError(reason)
+  );
+  const validationError = (file: ServerFile) => file.error
+    ? t(file.error.message_key as never, {
+        ...file.error.parameters,
+        defaultValue: t("errors.input_invalid"),
+      })
+    : null;
   const initial = getPending(sessionId);
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
   const snapshotRef = useRef<SessionSnapshot | null>(null);
@@ -201,7 +213,7 @@ export function UploadSessionPage({
               state: "failed",
               error: reason instanceof Error && reason.message === "hashing_unavailable"
                 ? t("errors.input_invalid")
-                : apiError(reason),
+                : uploadError(reason, seed.file),
             });
           }
         }
@@ -386,6 +398,7 @@ export function UploadSessionPage({
         const server = snapshot?.files.find((file) => file.file_id === item.fileId);
         const state = server?.status ?? item.state;
         const confirmedOffset = server?.confirmed_offset ?? item.confirmedOffset;
+        const serverError = server && inputKind !== "merged_transcription" ? validationError(server) : null;
         return <li key={item.key}>
         <div className="upload-file-heading">
           <strong>{item.file.name}</strong>
@@ -403,6 +416,7 @@ export function UploadSessionPage({
         {item.state !== "hashing" && <progress value={confirmedOffset} max={Math.max(item.file.size, 1)} aria-label={t("upload.file_progress", { name: item.file.name })} />}
         <span>{Math.round(confirmedOffset / Math.max(item.file.size, 1) * 100)} %</span>
         {item.error && <p className="error">{item.error}</p>}
+        {serverError && <p className="error" role="alert">{serverError}</p>}
         {item.state === "failed" && <button type="button" onClick={() => retryLocal(item.key)}>{t("upload.retry")}</button>}
       </li>;
       })}
@@ -422,8 +436,9 @@ export function UploadSessionPage({
           </label>}
           <progress value={file.confirmed_offset} max={Math.max(file.total_size, 1)} aria-label={t("upload.file_progress", { name: file.display_name ?? file.file_id })} />
           <span>{Math.round(file.confirmed_offset / Math.max(file.total_size, 1) * 100)} %</span>
+          {validationError(file) && <p className="error" role="alert">{validationError(file)}</p>}
           {(canResume || canReplace) && <label className="file-text">{t(canReplace ? "upload.replace" : "upload.resume")}
-            <input type="file" accept={inputKind === "merged_transcription" ? ".yaml,.yml,application/yaml,text/yaml" : inputKind === "zip" ? ".zip,application/zip" : "audio/mpeg,audio/ogg,.mp3,.ogg"} onChange={(event) => reselect(file, event)} />
+            <input type="file" accept={inputKind === "merged_transcription" ? ".yaml,.yml,application/yaml,text/yaml" : inputKind === "zip" ? ".zip,application/zip" : AUDIO_ACCEPT} onChange={(event) => reselect(file, event)} />
           </label>}
           {file.allowed_actions.includes("retry_finalization") && <button type="button" onClick={() => void runServerAction(() => api.retryFile(sessionId, file.file_id, secret, file.revision ?? 1))}>{t("upload.retry")}</button>}
           {file.allowed_actions.includes("delete_file") && <button type="button" onClick={() => void runServerAction(() => api.deleteFile(sessionId, file.file_id, secret, file.revision ?? 1))}>{t("upload.delete")}</button>}

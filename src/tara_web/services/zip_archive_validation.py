@@ -13,6 +13,7 @@ from tara_web.db.repositories.audio_uploads import AudioUploadRepository
 from tara_web.storage.layout import StorageLayout
 from tara_web.storage.uploads import unlink_upload
 
+from .audio_formats import canonical_audio_mime
 from .input_validation import validate_audio
 from .upload_sessions import new_opaque_id, sanitize_display_name, sanitize_person
 from .zip_extraction import extract_audio
@@ -114,9 +115,7 @@ class ZipArchiveValidationRunner:
                             "person": sanitize_person(
                                 display_name.rsplit(".", 1)[0]
                             ),
-                            "mime": (
-                                "audio/mpeg" if extension == "mp3" else "audio/ogg"
-                            ),
+                            "mime": canonical_audio_mime(extension),
                             "size": track.size,
                             "sha256": track.sha256,
                             "detected_type": detected_type,
