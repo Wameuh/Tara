@@ -44,6 +44,7 @@ discarded, including when `is_public` is false. Duplicate webhook deliveries
 are counted once and acknowledged with HTTP 200.
 
 `monthly_goal_micro_eur` is optional and sets the common scale of both bars
-(`50000000` means EUR 50). Without it, the interface scales both bars to the
-largest value in the current month. Tracking starts when the webhook is
-enabled; Ko-fi does not provide a read API for importing earlier payments.
+(`50000000` means EUR 50). A value above that configured maximum fills the bar
+without changing its scale. Without it, the interface scales both bars to the
+largest value in the current month. Tracking starts when the webhook is enabled;
+Ko-fi does not provide a read API for importing earlier payments.

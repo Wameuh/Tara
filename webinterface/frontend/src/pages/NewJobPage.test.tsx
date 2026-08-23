@@ -69,10 +69,10 @@ describe("NewJobPage audio selection", () => {
         month: "2026-08",
         timezone: "Europe/Paris",
         currency: "EUR",
-        donations_micro_eur: 12_500_000,
+        donations_micro_eur: 32_500_000,
         estimated_consumption_micro_eur: 8_250_000,
         estimate_partial: false,
-        monthly_goal_micro_eur: 50_000_000,
+        monthly_goal_micro_eur: 30_000_000,
         kofi_page_url: "https://ko-fi.com/tara",
       }));
       return new Response("{}", { status: 404 });
@@ -85,7 +85,9 @@ describe("NewJobPage audio selection", () => {
     expect(screen.getByText("Dons reçus")).toBeVisible();
     expect(screen.getByText("Consommation estimée")).toBeVisible();
     expect(screen.getByRole("link", { name: "Soutenir Tara sur Ko-fi" })).toHaveAttribute("href", "https://ko-fi.com/tara");
-    expect(screen.getAllByRole("progressbar")).toHaveLength(2);
+    const fundingBars = screen.getAllByRole("progressbar");
+    expect(fundingBars).toHaveLength(2);
+    for (const bar of fundingBars) expect(bar).toHaveAttribute("max", "30");
     expect(container.querySelector("form")?.nextElementSibling).toBe(fundingHeading.closest("section"));
     expect(screen.queryByText(/Reste à couvrir|Marge estimée/)).not.toBeInTheDocument();
   });

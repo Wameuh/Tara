@@ -35,7 +35,7 @@ export function MonthlyFundingPanel() {
   const donations = snapshot.donations_micro_eur / 1_000_000;
   const consumption = snapshot.estimated_consumption_micro_eur / 1_000_000;
   const goal = snapshot.monthly_goal_micro_eur === null ? null : snapshot.monthly_goal_micro_eur / 1_000_000;
-  const scale = Math.max(goal ?? 0, donations, consumption, 1);
+  const scale = goal ?? Math.max(donations, consumption, 1);
   const period = month.format(new Date(`${snapshot.month}-01T12:00:00Z`));
 
   return <section className="funding-panel" aria-labelledby="funding-title">
