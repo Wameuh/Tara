@@ -56,8 +56,13 @@ Compose distincts. Les volumes séparés conservent SQLite, les jobs et les
 sauvegardes ; la configuration et les secrets sont montés en lecture seule.
 
 Ouvrir <http://127.0.0.1:8765> depuis la machine hôte pour consulter les vues
-agrégées, les états des analyses, les dernières réceptions Ko-fi et la
-consommation mensuelle. Le formulaire `+ Ajouter` / `− Retirer` crée une
+agrégées, les états des analyses, un extrait persistant du journal technique,
+les dernières réceptions Ko-fi et la consommation mensuelle. Le journal ne
+projette que les identifiants d'analyse, tentatives, étapes, types d'événement
+et codes autorisés ; il n'affiche ni contenu utilisateur, ni secret, ni message
+provider, ni chemin interne. Les heures utilisent par défaut le fuseau
+`Europe/Helsinki` et affichent `EET` ou `EEST` selon la saison. Le formulaire
+`+ Ajouter` / `− Retirer` crée une
 correction signée et auditée pour le mois courant. Le cumul public vaut
 `max(0, estimation provider + corrections du mois)`. Le port peut être changé
 avec `TARA_ADMIN_HOST_PORT`. L'adresse peut être changée avec

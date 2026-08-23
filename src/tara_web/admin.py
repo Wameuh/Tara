@@ -74,12 +74,17 @@ _ERROR_LABELS = {
     "artifact_write_failed": "Écriture du résultat impossible",
     "result_integrity_failed": "Vérification de l’intégrité du résultat impossible",
 }
+_EVENT_LABELS = {
+    "run_failed": "Échec du traitement",
+    "warning_raised": "Avertissement",
+    "retry_scheduled": "Nouvelle tentative planifiée",
+}
 
 
 def create_admin_app(
     database: ConnectionFactory,
     *,
-    timezone: str = "Europe/Paris",
+    timezone: str = "Europe/Helsinki",
     allowed_hosts: tuple[str, ...] = ("127.0.0.1", "localhost", "testserver"),
 ) -> FastAPI:
     zone = ZoneInfo(timezone)
@@ -216,6 +221,7 @@ def _dashboard_html(
     )
     statuses = analytics.job_status_counts()
     failed_jobs = analytics.recent_failed_jobs()
+    technical_logs = analytics.recent_technical_logs()
     adjustments = analytics.recent_adjustments()
     kofi = analytics.recent_kofi_events()
     kofi_total, kofi_tests = analytics.kofi_event_counts()
@@ -236,20 +242,28 @@ def _dashboard_html(
         for status, count in statuses.items()
     ) or '<tr><td colspan="2">Aucune analyse enregistrée.</td></tr>'
     failed_job_rows = "".join(
-        f'<tr><td>{_date(row.failed_at)}</td><td><code>{html.escape(row.public_id)}</code></td>'
+        f'<tr><td>{_date(row.failed_at, zone)}</td><td><code>{html.escape(row.public_id)}</code></td>'
         f'<td><span class="badge">{html.escape(_STATUS_LABELS.get(row.status, row.status))}</span></td>'
         f'<td>{html.escape(_STAGE_LABELS.get(row.stage, row.stage))}</td>'
         f'<td>{html.escape(_failure_label(row.error_code, row.stage))}<br>'
         f'<code>{html.escape(row.error_code or "cause_non_renseignee")}</code></td></tr>'
         for row in failed_jobs
     ) or '<tr><td colspan="5">Aucune analyse échouée.</td></tr>'
+    technical_log_rows = "".join(
+        f'<tr><td>{_date(row.created_at, zone)}</td>'
+        f'<td><code>{html.escape(row.public_id)}</code><br><small>Tentative {row.attempt_number}</small></td>'
+        f'<td>{html.escape(_EVENT_LABELS.get(row.event_type, row.event_type))}</td>'
+        f'<td>{html.escape(_STAGE_LABELS.get(row.stage, row.stage))}</td>'
+        f'<td><code>{html.escape(row.code)}</code></td></tr>'
+        for row in technical_logs
+    ) or '<tr><td colspan="5">Aucun événement technique enregistré.</td></tr>'
     adjustment_rows = "".join(
-        f"<tr><td>{_date(row.created_at)}</td><td class=\"money\">{_money(row.amount_micro_eur, signed=True)}</td>"
+        f"<tr><td>{_date(row.created_at, zone)}</td><td class=\"money\">{_money(row.amount_micro_eur, signed=True)}</td>"
         f"<td>{html.escape(row.note)}</td></tr>"
         for row in adjustments
     ) or '<tr><td colspan="3">Aucun ajustement manuel.</td></tr>'
     kofi_rows = "".join(
-        f"<tr><td>{_date(row.received_at)}</td><td>{html.escape(row.event_type)}</td>"
+        f"<tr><td>{_date(row.received_at, zone)}</td><td>{html.escape(row.event_type)}</td>"
         f"<td>{'Oui' if row.is_test_transaction else 'Non'}</td>"
         f"<td class=\"money\">{_money(row.amount_micros)} {html.escape(row.currency)}</td></tr>"
         for row in kofi
@@ -268,6 +282,8 @@ def _dashboard_html(
 <section><h2>Analyses par état</h2><table><tbody>{status_rows}</tbody></table></section>
 <section><h2>Dernières analyses échouées</h2><table><thead><tr><th>Date</th><th>Analyse</th><th>État</th><th>Étape</th><th>Raison</th></tr></thead><tbody>{failed_job_rows}</tbody></table>
 <p class="muted">Les codes techniques permettent de retrouver rapidement la catégorie d’erreur dans les journaux, sans afficher leur contenu sensible.</p></section>
+<section><h2>Journal technique</h2><table><thead><tr><th>Date</th><th>Analyse</th><th>Événement</th><th>Étape</th><th>Code</th></tr></thead><tbody>{technical_log_rows}</tbody></table>
+<p class="muted">Extrait structuré persistant en fuseau Europe/Helsinki (EET/EEST). Seuls les identifiants d’analyse, étapes, événements et codes autorisés sont affichés ; aucun contenu utilisateur, secret, message provider ou chemin interne n’est exposé.</p></section>
 <section><h2>Consommation affichée — {local_start:%B %Y}</h2><div class="cards funding">
 <article><span>Estimation réelle</span><strong>{_money(funding.raw_consumption_micro_eur)}</strong></article>
 <article><span>Ajustements</span><strong>{_money(funding.adjustment_micro_eur, signed=True)}</strong></article>
@@ -296,10 +312,10 @@ def _money(micros: int, *, signed: bool = False) -> str:
     return f"{prefix}{value:.2f} €".replace(".", ",")
 
 
-def _date(value: str) -> str:
+def _date(value: str, zone: ZoneInfo) -> str:
     try:
-        parsed = datetime.fromisoformat(value).astimezone(UTC)
-        return parsed.strftime("%Y-%m-%d %H:%M UTC")
+        parsed = datetime.fromisoformat(value).astimezone(zone)
+        return parsed.strftime("%Y-%m-%d %H:%M %Z")
     except ValueError:
         return "—"
 
@@ -330,7 +346,7 @@ def main() -> None:
         ),
     )
     parser.add_argument(
-        "--timezone", default=os.environ.get("TARA_ADMIN_TIMEZONE", "Europe/Paris")
+        "--timezone", default=os.environ.get("TARA_ADMIN_TIMEZONE", "Europe/Helsinki")
     )
     parser.add_argument(
         "--allowed-hosts",

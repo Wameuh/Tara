@@ -105,7 +105,7 @@ services:
     environment:
       TARA_WEB_STORAGE_ROOT: /data/runtime
       TARA_WEB_SQLITE_PATH: /data/runtime/db/tara-web.sqlite3
-      TARA_ADMIN_TIMEZONE: ${TARA_ADMIN_TIMEZONE:-Europe/Paris}
+      TARA_ADMIN_TIMEZONE: ${TARA_ADMIN_TIMEZONE:-Europe/Helsinki}
       TARA_ADMIN_ALLOWED_HOSTS: ${TARA_ADMIN_ALLOWED_HOSTS:-127.0.0.1,localhost}
     ports: ["${TARA_ADMIN_BIND_ADDRESS:-127.0.0.1}:${TARA_ADMIN_HOST_PORT:-8765}:8765"]
     volumes:

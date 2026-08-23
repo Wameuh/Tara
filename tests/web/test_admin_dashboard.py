@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -142,8 +143,29 @@ def test_dashboard_lists_recent_failures_with_stage_reason_and_code(
             "'transcription',?,?,?,?)",
             ("job_admin_failure_0001", "v1:" + "a" * 64, now, now, now, now),
         )
+        connection.execute(
+            "INSERT INTO job_run_events(job_id,attempt_number,event_revision,"
+            "event_type,payload_json,created_at) VALUES(1,1,1,'run_failed',?,?)",
+            (
+                json.dumps(
+                    {
+                        "code": "transcription_failed",
+                        "detail": "secret provider diagnostic",
+                    }
+                ),
+                "2026-01-15T12:34:00+00:00",
+            ),
+        )
+        connection.execute(
+            "INSERT INTO job_run_events(job_id,attempt_number,event_revision,"
+            "event_type,payload_json,created_at) VALUES(1,1,2,'warning_raised',?,?)",
+            (
+                json.dumps({"code": "secret code from provider"}),
+                "2026-01-15T12:35:00+00:00",
+            ),
+        )
 
-    with TestClient(create_admin_app(database, timezone="UTC")) as client:
+    with TestClient(create_admin_app(database, timezone="Europe/Helsinki")) as client:
         page = client.get("/")
 
     assert page.status_code == 200
@@ -153,3 +175,10 @@ def test_dashboard_lists_recent_failures_with_stage_reason_and_code(
     assert "Transcription" in page.text
     assert "Moteur de transcription indisponible ou en erreur" in page.text
     assert "<code>transcription_failed</code>" in page.text
+    assert "Journal technique" in page.text
+    assert "2026-01-15 14:34 EET" in page.text
+    assert "Tentative 1" in page.text
+    assert "Échec du traitement" in page.text
+    assert "secret provider diagnostic" not in page.text
+    assert "secret code from provider" not in page.text
+    assert "cause_non_renseignee" in page.text

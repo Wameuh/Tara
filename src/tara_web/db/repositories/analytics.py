@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
+from tara.web_contracts import ErrorCode, StageCode, WarningCode
 from tara_web.db.connection import ConnectionFactory
 
 PUBLIC_PAGES = frozenset({"new_job", "help", "upload_session", "job"})
+_PUBLIC_TECHNICAL_CODES = frozenset(ErrorCode) | frozenset(WarningCode)
+_PUBLIC_STAGES = frozenset(StageCode)
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +45,16 @@ class FailedJobRow:
     stage: str
     error_code: str | None
     failed_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class TechnicalLogRow:
+    public_id: str
+    attempt_number: int
+    event_type: str
+    stage: str
+    code: str
+    created_at: str
 
 
 class AnalyticsRepository:
@@ -180,3 +194,47 @@ class AnalyticsRepository:
             )
             for row in rows
         ]
+
+    def recent_technical_logs(self, *, limit: int = 50) -> list[TechnicalLogRow]:
+        """Return an allowlisted projection of persisted diagnostic events."""
+        if not 1 <= limit <= 100:
+            raise ValueError("invalid technical log limit")
+        connection = self._database.connect()
+        try:
+            rows = connection.execute(
+                "SELECT j.public_id,e.attempt_number,e.event_type,j.stage,"
+                "j.error_code,e.payload_json,e.created_at FROM job_run_events e "
+                "JOIN jobs j ON j.id=e.job_id WHERE e.event_type IN "
+                "('run_failed','warning_raised','retry_scheduled') "
+                "ORDER BY e.id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        finally:
+            connection.close()
+        projected: list[TechnicalLogRow] = []
+        for row in rows:
+            try:
+                payload = json.loads(str(row[5]))
+            except (TypeError, ValueError):
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
+            candidate_stage = str(payload.get("stage_code") or row[3] or "")
+            stage = candidate_stage if candidate_stage in _PUBLIC_STAGES else "unknown"
+            candidate_code = str(payload.get("code") or row[4] or "")
+            code = (
+                candidate_code
+                if candidate_code in _PUBLIC_TECHNICAL_CODES
+                else "cause_non_renseignee"
+            )
+            projected.append(
+                TechnicalLogRow(
+                    public_id=str(row[0]),
+                    attempt_number=int(row[1]),
+                    event_type=str(row[2]),
+                    stage=stage,
+                    code=code,
+                    created_at=str(row[6]),
+                )
+            )
+        return projected
