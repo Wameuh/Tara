@@ -118,4 +118,14 @@ describe("UploadSessionPage ZIP", () => {
     expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/person"))).toBe(true);
     expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/jobs"))).toBe(true);
   });
+
+  it("explains when an archive contains no supported audio", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      session_id: "zip-session", revision: 2, status: "invalid", expires_at: "2030-01-01T00:00:00Z", language: "fr", context_text: "", previous_summaries_text: "", validations: [], allowed_actions: [], input_type: "zip", archive_phase: "extraction",
+      files: [{ file_id: "archive", revision: 2, status: "invalid", confirmed_offset: 10, total_size: 10, display_name: "recordings.zip", person: null, allowed_actions: [], error: { code: "input_invalid", message_key: "upload.zip_no_supported_audio", parameters: {} } }],
+    }))));
+
+    render(<UploadSessionPage sessionId="zip-session" secret="secret" config={config} go={() => undefined} autoLaunch={false} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("L’archive ne contient aucune piste MP3, OGG, AAC ou M4A.");
+  });
 });

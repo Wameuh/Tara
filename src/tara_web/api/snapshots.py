@@ -10,15 +10,42 @@ from tara_web.domain.state_machines import (
     allowed_actions_for_job,
     allowed_actions_for_session,
 )
-from tara_web.services.audio_formats import AUDIO_FORMAT_LABEL
+from tara_web.services.audio_formats import AUDIO_EXTENSIONS, AUDIO_FORMAT_LABEL
+
+_VALIDATION_ERROR_MESSAGES = {
+    "input_invalid": "upload.audio_invalid",
+    "validation_unavailable": "upload.validation_unavailable",
+    "zip_archive_too_large": "upload.zip_archive_too_large",
+    "zip_compression_ratio_too_high": "upload.zip_compression_ratio_too_high",
+    "zip_corrupted": "upload.zip_corrupted",
+    "zip_duplicate_path": "upload.zip_duplicate_path",
+    "zip_empty": "upload.zip_empty",
+    "zip_encrypted": "upload.zip_encrypted",
+    "zip_integrity_failed": "upload.zip_integrity_failed",
+    "zip_invalid": "upload.zip_invalid",
+    "zip_invalid_metadata": "upload.zip_invalid",
+    "zip_no_supported_audio": "upload.zip_no_supported_audio",
+    "zip_non_regular_entry": "upload.zip_non_regular_entry",
+    "zip_timeout": "upload.zip_timeout",
+    "zip_too_many_entries": "upload.zip_too_many_entries",
+    "zip_uncompressed_too_large": "upload.zip_uncompressed_too_large",
+    "zip_unsafe_path": "upload.zip_unsafe_path",
+}
+
+_INPUT_TOO_LARGE_CODES = {
+    "input_too_large",
+    "zip_archive_too_large",
+    "zip_compression_ratio_too_high",
+    "zip_uncompressed_too_large",
+}
 
 
 def _file_error(item: object) -> dict[str, object] | None:
     code = item["validation_error_code"]
     if not code:
         return None
+    filename = str(item["display_name"] or "")
     if code == "input_type_mismatch":
-        filename = str(item["display_name"] or "")
         provided = filename.rsplit(".", 1)[-1].upper() if "." in filename else "?"
         detected = str(item["detected_type"] or "?").upper()
         return {
@@ -30,13 +57,30 @@ def _file_error(item: object) -> dict[str, object] | None:
                 "detected": detected,
             },
         }
-    try:
-        public_code = ErrorCode(code)
-    except ValueError:
-        public_code = ErrorCode.INPUT_INVALID
+    if code in _INPUT_TOO_LARGE_CODES:
+        public_code = ErrorCode.INPUT_TOO_LARGE
+    elif code == "zip_timeout":
+        public_code = ErrorCode.TIMEOUT
+    else:
+        try:
+            public_code = ErrorCode(code)
+        except ValueError:
+            public_code = ErrorCode.INPUT_INVALID
     return {
         "code": public_code,
-        "message_key": "upload.validation_failed",
+        "message_key": (
+            "upload.audio_duration_too_long"
+            if code == "input_too_large"
+            and filename.rsplit(".", 1)[-1].lower() in AUDIO_EXTENSIONS
+            else _VALIDATION_ERROR_MESSAGES.get(
+                str(code),
+                (
+                    "errors.input_too_large"
+                    if code == "input_too_large"
+                    else "upload.validation_failed"
+                ),
+            )
+        ),
         "parameters": (
             {"path": item["validation_error_path"]}
             if item["validation_error_path"]

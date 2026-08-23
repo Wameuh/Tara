@@ -17,7 +17,12 @@ from .audio_formats import canonical_audio_mime
 from .input_validation import validate_audio
 from .upload_sessions import new_opaque_id, sanitize_display_name, sanitize_person
 from .zip_extraction import extract_audio
-from .zip_validation import ZipPolicy, ZipValidationError, inspect_zip
+from .zip_validation import (
+    ZIP_ERROR_CODES,
+    ZipPolicy,
+    ZipValidationError,
+    inspect_zip,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,7 +157,13 @@ class ZipArchiveValidationRunner:
                 warning_code=None,
                 error_code=(
                     code
-                    if code in {"input_invalid", "input_too_large", "timeout"}
+                    if code
+                    in ZIP_ERROR_CODES
+                    | {
+                        "input_invalid",
+                        "input_too_large",
+                        "validation_unavailable",
+                    }
                     else "input_invalid"
                 ),
             )
@@ -168,4 +179,4 @@ def _integrity(path: Path, expected_size: int, expected_sha256: str) -> None:
     if size != expected_size or not hmac.compare_digest(
         digest.hexdigest(), expected_sha256
     ):
-        raise ZipValidationError("input_invalid")
+        raise ZipValidationError("zip_integrity_failed")

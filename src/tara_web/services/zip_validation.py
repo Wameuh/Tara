@@ -21,6 +21,27 @@ class ZipValidationError(ValueError):
     """Stable public-safe archive rejection."""
 
 
+ZIP_ERROR_CODES = frozenset(
+    {
+        "zip_archive_too_large",
+        "zip_compression_ratio_too_high",
+        "zip_corrupted",
+        "zip_duplicate_path",
+        "zip_empty",
+        "zip_encrypted",
+        "zip_integrity_failed",
+        "zip_invalid",
+        "zip_invalid_metadata",
+        "zip_no_supported_audio",
+        "zip_non_regular_entry",
+        "zip_timeout",
+        "zip_too_many_entries",
+        "zip_uncompressed_too_large",
+        "zip_unsafe_path",
+    }
+)
+
+
 @dataclass(frozen=True, slots=True)
 class ZipPolicy:
     max_archive_bytes: int = 1_073_741_824
@@ -45,19 +66,21 @@ def inspect_zip(path: Path, policy: ZipPolicy) -> ZipInspection:
     try:
         info = os.lstat(path)
     except OSError as exc:
-        raise ZipValidationError("input_invalid") from exc
+        raise ZipValidationError("zip_invalid") from exc
     if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
-        raise ZipValidationError("input_invalid")
+        raise ZipValidationError("zip_invalid")
     if not 1 <= info.st_size <= policy.max_archive_bytes:
-        raise ZipValidationError("input_too_large")
+        raise ZipValidationError("zip_archive_too_large")
 
     try:
         with zipfile.ZipFile(path) as archive:
             entries = archive.infolist()
     except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
-        raise ZipValidationError("input_invalid") from exc
-    if not entries or len(entries) > policy.max_entries:
-        raise ZipValidationError("input_invalid")
+        raise ZipValidationError("zip_invalid") from exc
+    if not entries:
+        raise ZipValidationError("zip_empty")
+    if len(entries) > policy.max_entries:
+        raise ZipValidationError("zip_too_many_entries")
 
     audio: list[zipfile.ZipInfo] = []
     excluded = 0
@@ -68,27 +91,27 @@ def inspect_zip(path: Path, policy: ZipPolicy) -> ZipInspection:
         name = _safe_name(entry, policy)
         collision_key = unicodedata.normalize("NFC", name).casefold()
         if collision_key in normalized_names:
-            raise ZipValidationError("input_invalid")
+            raise ZipValidationError("zip_duplicate_path")
         normalized_names.add(collision_key)
         if entry.is_dir():
             continue
         if entry.flag_bits & 0x1:
-            raise ZipValidationError("input_invalid")
+            raise ZipValidationError("zip_encrypted")
         _regular_entry(entry)
         if entry.file_size < 0 or entry.compress_size < 0:
-            raise ZipValidationError("input_invalid")
+            raise ZipValidationError("zip_invalid_metadata")
         total += entry.file_size
         if total > policy.max_uncompressed_bytes:
-            raise ZipValidationError("input_too_large")
+            raise ZipValidationError("zip_uncompressed_too_large")
         ratio = entry.file_size / max(entry.compress_size, 1)
         if ratio > policy.max_compression_ratio:
-            raise ZipValidationError("input_too_large")
+            raise ZipValidationError("zip_compression_ratio_too_high")
         if PurePosixPath(name).suffix.lower()[1:] in AUDIO_EXTENSIONS:
             audio.append(entry)
         else:
             excluded += 1
     if not audio:
-        raise ZipValidationError("input_invalid")
+        raise ZipValidationError("zip_no_supported_audio")
     return ZipInspection(tuple(audio), excluded, total)
 
 
@@ -110,7 +133,7 @@ def _safe_name(entry: zipfile.ZipInfo, policy: ZipPolicy) -> str:
         )
         or len(name.encode("utf-8")) > policy.max_name_bytes
     ):
-        raise ZipValidationError("input_invalid")
+        raise ZipValidationError("zip_unsafe_path")
     posix = PurePosixPath(name)
     windows = PureWindowsPath(name)
     if (
@@ -120,7 +143,7 @@ def _safe_name(entry: zipfile.ZipInfo, policy: ZipPolicy) -> str:
         or any(part in {"", ".", ".."} for part in posix.parts)
         or len(posix.parts) > policy.max_depth
     ):
-        raise ZipValidationError("input_invalid")
+        raise ZipValidationError("zip_unsafe_path")
     return name
 
 
@@ -128,9 +151,9 @@ def _regular_entry(entry: zipfile.ZipInfo) -> None:
     mode = (entry.external_attr >> 16) & 0xFFFF
     file_type = stat.S_IFMT(mode)
     if entry.create_system == 3 and file_type and not stat.S_ISREG(mode):
-        raise ZipValidationError("input_invalid")
+        raise ZipValidationError("zip_non_regular_entry")
 
 
 def _deadline(started: float, policy: ZipPolicy) -> None:
     if time.monotonic() - started > policy.timeout_seconds:
-        raise ZipValidationError("timeout")
+        raise ZipValidationError("zip_timeout")

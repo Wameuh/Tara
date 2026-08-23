@@ -58,6 +58,62 @@ def test_audio_type_mismatch_exposes_expected_supplied_and_detected_formats() ->
     }
 
 
+@pytest.mark.parametrize(
+    ("code", "public_code", "message_key"),
+    [
+        (
+            "input_too_large",
+            "input_too_large",
+            "upload.audio_duration_too_long",
+        ),
+        (
+            "zip_no_supported_audio",
+            "input_invalid",
+            "upload.zip_no_supported_audio",
+        ),
+        ("zip_encrypted", "input_invalid", "upload.zip_encrypted"),
+        (
+            "zip_uncompressed_too_large",
+            "input_too_large",
+            "upload.zip_uncompressed_too_large",
+        ),
+        ("zip_timeout", "timeout", "upload.zip_timeout"),
+    ],
+)
+def test_file_validation_reasons_are_exposed_safely(
+    code: str, public_code: str, message_key: str
+) -> None:
+    filename = "Alice.aac" if code == "input_too_large" else "archive.zip"
+    error = _file_error(
+        {
+            "validation_error_code": code,
+            "validation_error_path": None,
+            "display_name": filename,
+            "detected_type": None,
+        }
+    )
+
+    assert error == {
+        "code": public_code,
+        "message_key": message_key,
+        "parameters": {},
+    }
+
+
+def test_non_audio_size_rejection_is_not_described_as_audio_duration() -> None:
+    error = _file_error(
+        {
+            "validation_error_code": "input_too_large",
+            "validation_error_path": None,
+            "display_name": "transcription.yaml",
+            "detected_type": None,
+        }
+    )
+
+    assert error is not None
+    assert error["message_key"] == "errors.input_too_large"
+
+
 def test_snapshot_requires_consistent_status_and_actions() -> None:
     payload = job_payload() | {"status": "cancel_failed", "allowed_actions": []}
     with pytest.raises(ValidationError, match="public error"):

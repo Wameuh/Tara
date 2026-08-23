@@ -71,7 +71,7 @@ def test_safe_nested_archive_extracts_only_audio_under_generated_names(
 )
 def test_traversal_and_platform_paths_are_rejected(tmp_path: Path, name: str) -> None:
     path = _archive(tmp_path / "bad.zip", [(name, b"audio")])
-    with pytest.raises(ZipValidationError, match="input_invalid"):
+    with pytest.raises(ZipValidationError, match="zip_unsafe_path"):
         inspect_zip(path, ZipPolicy())
 
 
@@ -79,7 +79,7 @@ def test_casefold_collision_is_rejected(tmp_path: Path) -> None:
     path = _archive(
         tmp_path / "collision.zip", [("Alice.mp3", b"a"), ("alice.MP3", b"b")]
     )
-    with pytest.raises(ZipValidationError, match="input_invalid"):
+    with pytest.raises(ZipValidationError, match="zip_duplicate_path"):
         inspect_zip(path, ZipPolicy())
 
 
@@ -88,15 +88,15 @@ def test_symlink_entry_is_rejected(tmp_path: Path) -> None:
     link.create_system = 3
     link.external_attr = (stat.S_IFLNK | 0o777) << 16
     path = _archive(tmp_path / "link.zip", [(link, b"target")])
-    with pytest.raises(ZipValidationError, match="input_invalid"):
+    with pytest.raises(ZipValidationError, match="zip_non_regular_entry"):
         inspect_zip(path, ZipPolicy())
 
 
 def test_ratio_and_declared_size_limits_reject_bombs(tmp_path: Path) -> None:
     path = _archive(tmp_path / "bomb.zip", [("silence.mp3", b"0" * 100_000)])
-    with pytest.raises(ZipValidationError, match="input_too_large"):
+    with pytest.raises(ZipValidationError, match="zip_compression_ratio_too_high"):
         inspect_zip(path, ZipPolicy(max_compression_ratio=2))
-    with pytest.raises(ZipValidationError, match="input_too_large"):
+    with pytest.raises(ZipValidationError, match="zip_uncompressed_too_large"):
         inspect_zip(path, ZipPolicy(max_uncompressed_bytes=1024))
 
 
@@ -111,8 +111,29 @@ def test_encrypted_flag_is_rejected_without_extracting(tmp_path: Path) -> None:
         content[index + offset] |= 0x01
     path = tmp_path / "encrypted.zip"
     path.write_bytes(content)
-    with pytest.raises(ZipValidationError, match="input_invalid"):
+    with pytest.raises(ZipValidationError, match="zip_encrypted"):
         inspect_zip(path, ZipPolicy())
+
+
+def test_empty_invalid_and_audio_free_archives_have_distinct_reasons(
+    tmp_path: Path,
+) -> None:
+    empty = tmp_path / "empty.zip"
+    with zipfile.ZipFile(empty, "w"):
+        pass
+    invalid = tmp_path / "invalid.zip"
+    invalid.write_bytes(b"not-a-zip")
+    audio_free = _archive(
+        tmp_path / "audio-free.zip",
+        [("recording.flac", b"audio"), ("notes.txt", b"notes")],
+    )
+
+    with pytest.raises(ZipValidationError, match="zip_empty"):
+        inspect_zip(empty, ZipPolicy())
+    with pytest.raises(ZipValidationError, match="zip_invalid"):
+        inspect_zip(invalid, ZipPolicy())
+    with pytest.raises(ZipValidationError, match="zip_no_supported_audio"):
+        inspect_zip(audio_free, ZipPolicy())
 
 
 def test_cancelled_extraction_removes_every_partial_output(tmp_path: Path) -> None:

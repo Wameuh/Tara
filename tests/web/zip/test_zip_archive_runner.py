@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -16,6 +17,43 @@ from tara_web.services.zip_archive_validation import (
 )
 from tara_web.services.zip_validation import ZipPolicy
 from tara_web.storage.layout import StorageLayout
+
+
+def test_runner_preserves_precise_archive_rejection_reason(tmp_path: Path) -> None:
+    archive_path = tmp_path / "tracks.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("recording.flac", b"audio")
+        archive.writestr("notes.txt", b"notes")
+    content = archive_path.read_bytes()
+    finished: list[dict[str, object]] = []
+    repository = SimpleNamespace(
+        claim_validation=lambda _identifier: True,
+        set_archive_phase=lambda *_args: None,
+        finish_validation=lambda _identifier, **result: finished.append(result),
+    )
+    layout = SimpleNamespace(
+        root=tmp_path,
+        upload_path=lambda _relative: archive_path,
+    )
+
+    ZipArchiveValidationRunner(
+        repository,
+        layout,
+        ZipValidationPolicy(
+            archive=ZipPolicy(max_compression_ratio=1_000),
+            ffprobe_timeout=1,
+            ffmpeg_timeout=1,
+        ),
+    ).run(
+        {
+            "validation_id": "uv_zip_validation_000001",
+            "storage_path": "uploads/session/archive.part",
+            "declared_bytes": len(content),
+            "sha256_hex": hashlib.sha256(content).hexdigest(),
+        }
+    )
+
+    assert finished[0]["error_code"] == "zip_no_supported_audio"
 
 
 def test_runner_replaces_archive_with_validated_track_rows(

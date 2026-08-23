@@ -42,7 +42,7 @@ def extract_audio(
                 if cancelled and cancelled():
                     raise ZipValidationError("cancelled")
                 if time.monotonic() - started > policy.timeout_seconds:
-                    raise ZipValidationError("timeout")
+                    raise ZipValidationError("zip_timeout")
                 target = output_directory / f"{uuid.uuid4().hex}.bin"
                 descriptor = os.open(
                     target,
@@ -70,7 +70,7 @@ def extract_audio(
                                 written > entry.file_size
                                 or actual_total > policy.max_uncompressed_bytes
                             ):
-                                raise ZipValidationError("input_too_large")
+                                raise ZipValidationError("zip_uncompressed_too_large")
                             view = memoryview(chunk)
                             while view:
                                 count = os.write(descriptor, view)
@@ -79,7 +79,7 @@ def extract_audio(
                                 view = view[count:]
                             digest.update(chunk)
                     if written != entry.file_size:
-                        raise ZipValidationError("input_invalid")
+                        raise ZipValidationError("zip_corrupted")
                     os.fsync(descriptor)
                 finally:
                     os.close(descriptor)
@@ -88,7 +88,7 @@ def extract_audio(
                 )
     except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
         _cleanup(created_paths)
-        raise ZipValidationError("input_invalid") from exc
+        raise ZipValidationError("zip_corrupted") from exc
     except ZipValidationError:
         _cleanup(created_paths)
         raise
