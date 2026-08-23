@@ -116,3 +116,40 @@ def test_dashboard_accepts_only_configured_lan_host(tmp_path: Path) -> None:
         rejected = client.get("/health", headers={"host": "192.168.1.110"})
         assert accepted.status_code == 200
         assert rejected.status_code == 400
+
+
+def test_dashboard_lists_recent_failures_with_stage_reason_and_code(
+    tmp_path: Path,
+) -> None:
+    database = _database(tmp_path)
+    now = datetime.now(UTC).isoformat()
+    with database.transaction() as connection:
+        connection.execute(
+            "INSERT INTO upload_sessions(public_id,secret_hmac,status,expires_at,"
+            "created_at,updated_at) VALUES(?,?, 'consumed', ?, ?, ?)",
+            (
+                "us_admin_failure_0001",
+                "v1:" + "a" * 64,
+                now,
+                now,
+                now,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO jobs(public_id,upload_session_id,secret_hmac,status,"
+            "error_code,pipeline_version,stage,created_at,updated_at,finished_at,"
+            "expires_at) VALUES(?,1,?,'failed','transcription_failed','v1',"
+            "'transcription',?,?,?,?)",
+            ("job_admin_failure_0001", "v1:" + "a" * 64, now, now, now, now),
+        )
+
+    with TestClient(create_admin_app(database, timezone="UTC")) as client:
+        page = client.get("/")
+
+    assert page.status_code == 200
+    assert "Dernières analyses échouées" in page.text
+    assert "job_admin_failure_0001" in page.text
+    assert "Échouée" in page.text
+    assert "Transcription" in page.text
+    assert "Moteur de transcription indisponible ou en erreur" in page.text
+    assert "<code>transcription_failed</code>" in page.text

@@ -38,6 +38,42 @@ _PAGE_LABELS = {
     "upload_session": "Chargement",
     "job": "Suivi / résultat",
 }
+_STATUS_LABELS = {
+    "queued": "En attente",
+    "running": "En cours",
+    "cancel_requested": "Annulation demandée",
+    "stopping": "Arrêt en cours",
+    "completed": "Terminée",
+    "failed": "Échouée",
+    "timed_out": "Délai dépassé",
+    "cancelled": "Annulée",
+    "cancel_failed": "Échec de l’annulation",
+    "expired": "Expirée",
+    "deleted": "Supprimée",
+}
+_STAGE_LABELS = {
+    "queued": "En attente",
+    "input_validation": "Validation des entrées",
+    "transcription": "Transcription",
+    "session_preparation": "Préparation de la session",
+    "narrative_analysis": "Analyse narrative",
+    "synthesis": "Synthèse",
+    "verification": "Vérification",
+    "result_ready": "Résultat prêt",
+}
+_ERROR_LABELS = {
+    "input_invalid": "Entrées invalides",
+    "input_too_large": "Entrées trop volumineuses",
+    "prompt_injection_detected": "Instructions suspectes détectées dans un document",
+    "prompt_security_check_failed": "Vérification de sécurité indisponible",
+    "transcription_failed": "Moteur de transcription indisponible ou en erreur",
+    "processing_failed": "Traitement interrompu par une erreur",
+    "timeout": "Durée maximale de traitement dépassée",
+    "cancel_failed": "Annulation impossible",
+    "server_interrupted": "Traitement interrompu par le serveur",
+    "artifact_write_failed": "Écriture du résultat impossible",
+    "result_integrity_failed": "Vérification de l’intégrité du résultat impossible",
+}
 
 
 def create_admin_app(
@@ -179,6 +215,7 @@ def _dashboard_html(
         seven_days_ago=(now.date() - timedelta(days=6)).isoformat(),
     )
     statuses = analytics.job_status_counts()
+    failed_jobs = analytics.recent_failed_jobs()
     adjustments = analytics.recent_adjustments()
     kofi = analytics.recent_kofi_events()
     kofi_total, kofi_tests = analytics.kofi_event_counts()
@@ -195,9 +232,17 @@ def _dashboard_html(
         for row in views
     )
     status_rows = "".join(
-        f"<tr><th>{html.escape(status)}</th><td>{count}</td></tr>"
+        f"<tr><th>{html.escape(_STATUS_LABELS.get(status, status))}</th><td>{count}</td></tr>"
         for status, count in statuses.items()
     ) or '<tr><td colspan="2">Aucune analyse enregistrée.</td></tr>'
+    failed_job_rows = "".join(
+        f'<tr><td>{_date(row.failed_at)}</td><td><code>{html.escape(row.public_id)}</code></td>'
+        f'<td><span class="badge">{html.escape(_STATUS_LABELS.get(row.status, row.status))}</span></td>'
+        f'<td>{html.escape(_STAGE_LABELS.get(row.stage, row.stage))}</td>'
+        f'<td>{html.escape(_failure_label(row.error_code, row.stage))}<br>'
+        f'<code>{html.escape(row.error_code or "cause_non_renseignee")}</code></td></tr>'
+        for row in failed_jobs
+    ) or '<tr><td colspan="5">Aucune analyse échouée.</td></tr>'
     adjustment_rows = "".join(
         f"<tr><td>{_date(row.created_at)}</td><td class=\"money\">{_money(row.amount_micro_eur, signed=True)}</td>"
         f"<td>{html.escape(row.note)}</td></tr>"
@@ -221,6 +266,8 @@ def _dashboard_html(
 <section><h2>Pages affichées</h2><table><thead><tr><th>Vue</th><th>Aujourd'hui</th><th>7 jours</th><th>Total</th></tr></thead><tbody>{view_rows}</tbody></table>
 <p class="muted">Comptage agrégé sans adresse IP, cookie ni identifiant visiteur.</p></section>
 <section><h2>Analyses par état</h2><table><tbody>{status_rows}</tbody></table></section>
+<section><h2>Dernières analyses échouées</h2><table><thead><tr><th>Date</th><th>Analyse</th><th>État</th><th>Étape</th><th>Raison</th></tr></thead><tbody>{failed_job_rows}</tbody></table>
+<p class="muted">Les codes techniques permettent de retrouver rapidement la catégorie d’erreur dans les journaux, sans afficher leur contenu sensible.</p></section>
 <section><h2>Consommation affichée — {local_start:%B %Y}</h2><div class="cards funding">
 <article><span>Estimation réelle</span><strong>{_money(funding.raw_consumption_micro_eur)}</strong></article>
 <article><span>Ajustements</span><strong>{_money(funding.adjustment_micro_eur, signed=True)}</strong></article>
@@ -233,6 +280,14 @@ def _dashboard_html(
 <section><h2>Derniers webhooks Ko-fi</h2><table><thead><tr><th>Reçu</th><th>Type</th><th>Test</th><th>Montant</th></tr></thead><tbody>{kofi_rows}</tbody></table>
 <p class="muted">Les noms, e-mails, messages et détails de commande ne sont jamais conservés.</p></section>
 </main></body></html>"""
+
+
+def _failure_label(error_code: str | None, stage: str) -> str:
+    if error_code == "processing_failed" and stage == "transcription":
+        return "Échec pendant la transcription"
+    if error_code is None:
+        return "Cause non renseignée"
+    return _ERROR_LABELS.get(error_code, "Erreur non classée")
 
 
 def _money(micros: int, *, signed: bool = False) -> str:
@@ -253,7 +308,7 @@ _STYLE = """
 :root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#172019;background:#f3f1e9}*{box-sizing:border-box}
 body{margin:0}main{width:min(1100px,calc(100% - 32px));margin:48px auto 80px}header{margin-bottom:32px}h1{font-size:clamp(2rem,5vw,4rem);margin:.15em 0}h2{margin-top:0}h3{margin-top:28px}.eyebrow{text-transform:uppercase;letter-spacing:.14em;font-size:.75rem;font-weight:800;color:#56715c}
 section{background:#fff;border:1px solid #d9d7cc;border-radius:18px;padding:24px;margin:20px 0;box-shadow:0 8px 30px #2036240d}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;background:none;border:0;box-shadow:none;padding:0}.cards article{background:#183d29;color:#fff;border-radius:14px;padding:20px}.cards span{display:block;color:#c6d9ca}.cards strong{display:block;font-size:1.8rem;margin-top:8px}.cards small{display:block;margin-top:5px;color:#c6d9ca}.funding article:nth-child(2){background:#73582d}.funding article:nth-child(3){background:#265f3e}
-table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:11px;border-bottom:1px solid #e7e4da}thead th{font-size:.78rem;text-transform:uppercase;color:#647068}.money{font-variant-numeric:tabular-nums}.muted{color:#647068;font-size:.9rem}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:11px;border-bottom:1px solid #e7e4da;vertical-align:top}thead th{font-size:.78rem;text-transform:uppercase;color:#647068}.money{font-variant-numeric:tabular-nums}.muted{color:#647068;font-size:.9rem}code{font-size:.82rem;overflow-wrap:anywhere}.badge{display:inline-block;padding:3px 8px;border-radius:999px;background:#f7dddd;color:#7a2929;font-size:.82rem;font-weight:800}
 form{display:grid;grid-template-columns:1fr 2fr;gap:16px;margin:24px 0}label{font-weight:700}input{display:block;width:100%;margin-top:7px;padding:12px;border:1px solid #a8ada7;border-radius:9px;font:inherit}.actions{grid-column:1/-1;display:flex;gap:10px;justify-content:flex-end}button{border:1px solid #315940;border-radius:9px;padding:11px 16px;background:#fff;color:#24432e;font-weight:800;cursor:pointer}.primary{background:#315940;color:#fff}.notice{padding:13px 16px;border-radius:9px}.ok{background:#d9f2df}.error{background:#f7dddd}@media(max-width:650px){main{margin-top:24px}section{padding:16px;overflow-x:auto}form{grid-template-columns:1fr}.actions{justify-content:stretch}.actions button{flex:1}}
 """
 
