@@ -63,8 +63,7 @@ def test_compose_topology_hardening_and_one_shot_services() -> None:
     admin = services["tara-admin"]
     assert admin["user"] == "10001:10001"
     assert admin["ports"] == [
-        "${TARA_ADMIN_BIND_ADDRESS:-127.0.0.1}:"
-        "${TARA_ADMIN_HOST_PORT:-8765}:8765"
+        "${TARA_ADMIN_BIND_ADDRESS:-127.0.0.1}:${TARA_ADMIN_HOST_PORT:-8765}:8765"
     ]
     assert admin["networks"] == ["tara_admin"]
     assert admin["depends_on"]["tara-web-migrate"]["condition"] == (
@@ -120,12 +119,20 @@ def test_compose_override_preserves_external_inference_configuration() -> None:
         "TARA_INFERENCE_ENDPOINT: "
         "${TARA_INFERENCE_ENDPOINT:-http://host.docker.internal:8000}"
     ) in rendered
+    assert (
+        "TARA_INFERENCE_AUTH_PROVIDER: ${TARA_INFERENCE_AUTH_PROVIDER:-modal_proxy}"
+    ) in rendered
+    assert "MODAL_TOKEN_ID_FILE" not in rendered
+    assert "MODAL_TOKEN_SECRET_FILE" not in rendered
 
 
 def test_image_context_entrypoint_proxy_and_config_are_production_shaped() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
     proxy = (ROOT / "docker/reverse-proxy/nginx.conf").read_text(encoding="utf-8")
+    maintenance = (ROOT / "docker/reverse-proxy/maintenance.html").read_text(
+        encoding="utf-8"
+    )
     assert "node:22.23.2-bookworm-slim" in dockerfile
     assert dockerfile.count("@sha256:") == 4
     assert "uv sync --frozen --no-dev" in dockerfile
@@ -146,6 +153,11 @@ def test_image_context_entrypoint_proxy_and_config_are_production_shaped() -> No
     assert "proxy_buffering off" in proxy
     assert "X-Forwarded-For $remote_addr" in proxy
     assert "proxy_add_x_forwarded_for" not in proxy
+    assert "proxy_intercept_errors on" in proxy
+    assert "error_page 502 503 504 =503 /maintenance.html" in proxy
+    assert "if (-f /maintenance/enabled) { return 503; }" in proxy
+    assert "Maintenance en cours" in maintenance
+    assert "http://" not in maintenance and "https://" not in maintenance
     config = load_yaml(ROOT / "config/docker.example.yaml")["webinterface"]
     assert config["storage"]["sqlite_path"] == "/data/runtime/db/tara-web.sqlite3"
     assert config["public_url"].startswith("https://")
@@ -160,11 +172,13 @@ def test_image_context_entrypoint_proxy_and_config_are_production_shaped() -> No
     assert tara_config["analysis"]["llm"]["cursor_command"] == "cursor-agent"
     override = (ROOT / "compose.override.yaml.example").read_text(encoding="utf-8")
     assert (
-        "TARA_KOFI_VERIFICATION_TOKEN_FILE: "
-        "/run/secrets/kofi_verification_token"
+        "TARA_KOFI_VERIFICATION_TOKEN_FILE: /run/secrets/kofi_verification_token"
     ) in override
     assert "TARA_CURSOR_AUTH_FILE: /run/secrets/cursor_auth" in override
     assert ":/opt/cursor-agent:ro" in override
+    proxy_mounts = load_yaml(ROOT / "compose.yaml")["services"]["tara-proxy"]["volumes"]
+    assert any("maintenance.html:" in str(mount) for mount in proxy_mounts)
+    assert any(":/maintenance:ro" in str(mount) for mount in proxy_mounts)
     for script_name in ("docker-migrate.sh", "docker-backup.sh"):
         script = (ROOT / "scripts" / script_name).read_text(encoding="utf-8")
         assert "TARA_KOFI_VERIFICATION_TOKEN_FILE" in script
@@ -177,6 +191,7 @@ def test_operator_scripts_are_local_bounded_and_executable() -> None:
         "docker/healthcheck.py",
         "docker/admin_healthcheck.py",
         "scripts/docker_preflight.py",
+        "scripts/docker_deploy_check.py",
         "scripts/docker-migrate.sh",
         "scripts/docker-backup.sh",
         "scripts/docker-restore.sh",

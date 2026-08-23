@@ -19,14 +19,13 @@ sur NFS/SMB.
 
 ## Préparation
 
-Créer un répertoire `secrets/` non versionné avec des fichiers privés :
+Créer un répertoire `secrets/` non versionné avec des fichiers privés.
+Pour le mode HTTP `modal_proxy`, utilisé par l'instance live, préparer :
 
 ```text
 secrets/tls.crt
 secrets/tls.key
 secrets/backup-signing-key
-secrets/modal-token-id
-secrets/modal-token-secret
 secrets/modal-proxy-auth-key
 secrets/modal-proxy-auth-secret
 secrets/kofi-verification-token
@@ -40,7 +39,6 @@ cp compose.override.yaml.example compose.override.yaml
 chmod 700 secrets
 sudo chgrp 101 secrets/tls.crt secrets/tls.key
 sudo chgrp 10001 secrets/backup-signing-key \
-  secrets/modal-token-id secrets/modal-token-secret \
   secrets/modal-proxy-auth-key secrets/modal-proxy-auth-secret \
   secrets/kofi-verification-token \
   secrets/cursor-auth.json
@@ -48,14 +46,24 @@ chmod 640 secrets/*
 export TARA_WEB_TLS_CERTIFICATE_FILE="$PWD/secrets/tls.crt"
 export TARA_WEB_TLS_PRIVATE_KEY_FILE="$PWD/secrets/tls.key"
 export TARA_WEB_BACKUP_KEY_FILE="$PWD/secrets/backup-signing-key"
-export MODAL_TOKEN_ID_FILE="$PWD/secrets/modal-token-id"
-export MODAL_TOKEN_SECRET_FILE="$PWD/secrets/modal-token-secret"
 export TARA_MODAL_PROXY_AUTH_KEY_FILE="$PWD/secrets/modal-proxy-auth-key"
 export TARA_MODAL_PROXY_AUTH_SECRET_FILE="$PWD/secrets/modal-proxy-auth-secret"
 export TARA_KOFI_VERIFICATION_TOKEN_FILE="$PWD/secrets/kofi-verification-token"
 export TARA_CURSOR_AUTH_FILE="$PWD/secrets/cursor-auth.json"
 export TARA_CURSOR_AGENT_DIR="$HOME/.local/share/cursor-agent/versions/VERSION"
 ```
+
+Les deux familles de credentials Modal ne sont pas interchangeables :
+
+- `modal_proxy` exige une clé `wk-...` et un secret `ws-...` ;
+- `modal_map` exige un identifiant API `ak-...` et un secret API `as-...`.
+
+Ne monter que la paire correspondant à `TARA_INFERENCE_AUTH_PROVIDER`. Le
+préflight refuse désormais le démarrage si la paire manque ou utilise les
+mauvais préfixes. Pour `modal_map`, ajouter explicitement les fichiers
+`modal-token-id` et `modal-token-secret` ainsi que leurs montages depuis
+`compose.override.yaml.example` ; ne jamais les remplacer par des valeurs
+aléatoires.
 
 `TARA_CURSOR_AGENT_DIR` doit désigner le répertoire de version Linux de Cursor
 Agent contenant `cursor-agent`, `node` et `index.js`. Copier le seul script

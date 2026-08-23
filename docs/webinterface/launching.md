@@ -123,9 +123,30 @@ ne pas restaurer ni supprimer la base : libérer le cache Docker, vérifier que
 plusieurs gigaoctets sont de nouveau disponibles, puis relancer la sauvegarde
 et la pile.
 
-Après une construction réussie, arrêter proprement l'application, créer une
-sauvegarde authentifiée, appliquer automatiquement les migrations et démarrer
-la nouvelle image :
+Après une construction réussie, vérifier une première fois qu'aucun job n'est
+non terminal. Le contrôle bloque notamment les états `queued`, `running`,
+`cancel_requested` et `stopping` :
+
+```bash
+sg docker -c 'docker compose -f compose.yaml -f "$TARA_LIVE_OVERRIDE" exec -T tara-web python /app/scripts/docker_deploy_check.py'
+```
+
+Activer ensuite la page de maintenance. Nginx la sert immédiatement avec un
+statut HTTP 503 et empêche ainsi le lancement d'un nouveau job pendant la
+bascule. Effectuer un second contrôle après cette fermeture élimine la course
+entre la première vérification et l'arrêt :
+
+```bash
+mkdir -p "$TARA_LIVE_DIR/maintenance"
+touch "$TARA_LIVE_DIR/maintenance/enabled"
+sg docker -c 'docker compose -f compose.yaml -f "$TARA_LIVE_OVERRIDE" exec -T tara-web python /app/scripts/docker_deploy_check.py'
+```
+
+Si l'un des contrôles signale un job, ne pas déployer. Retirer le marqueur avec
+`rm "$TARA_LIVE_DIR/maintenance/enabled"` et attendre la fin
+du traitement. Sinon, arrêter proprement l'application, créer une sauvegarde
+authentifiée, appliquer automatiquement les migrations et démarrer la nouvelle
+image :
 
 ```bash
 sg docker -c 'docker compose -f compose.yaml -f "$TARA_LIVE_OVERRIDE" stop tara-web tara-admin'
@@ -134,11 +155,15 @@ sg docker -c 'docker compose -f compose.yaml -f "$TARA_LIVE_OVERRIDE" up -d --no
 sg docker -c 'docker compose -f compose.yaml -f "$TARA_LIVE_OVERRIDE" ps'
 ```
 
-Valider ensuite TLS et les deux niveaux de santé, puis contrôler Ko-fi et les
-journaux récents. `--resolve` teste le certificat public contre le service
+Valider d'abord les deux niveaux de santé directement dans le nouveau
+conteneur. Le marqueur reste actif pendant ce contrôle et le public continue à
+voir la maintenance. Retirer ensuite le marqueur, puis contrôler TLS, Ko-fi et
+les endpoints publics. `--resolve` teste le certificat public contre le service
 local sans dépendre du routage NAT du réseau :
 
 ```bash
+sg docker -c 'docker compose -f compose.yaml -f "$TARA_LIVE_OVERRIDE" exec -T tara-web python /app/docker/healthcheck.py'
+rm "$TARA_LIVE_DIR/maintenance/enabled"
 curl --fail --silent --show-error \
   --cacert "$TARA_LIVE_DIR/secrets/tls.crt" \
   --resolve tara-wameuh.duckdns.org:8443:127.0.0.1 \
@@ -153,6 +178,10 @@ curl --fail --silent --show-error \
   https://tara-wameuh.duckdns.org:8443/api/v1/funding/monthly
 sg docker -c 'docker compose -f compose.yaml -f "$TARA_LIVE_OVERRIDE" logs --tail 200 tara-web'
 ```
+
+Ne retirer le marqueur qu'après le retour au vert du healthcheck interne. Si le
+nouveau service ne démarre pas, le conserver afin que le public voie la page de
+maintenance plutôt qu'une erreur de proxy.
 
 Pour ne voir que les réceptions ou rejets Ko-fi :
 

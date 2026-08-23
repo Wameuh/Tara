@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import sqlite3
@@ -22,6 +23,7 @@ def main() -> None:
     if hasattr(os, "geteuid") and os.geteuid() == 0:
         raise SystemExit("tara-web must not run as root")
     runtime = load_config(arguments.config)
+    _validate_inference_credentials(runtime.tara_config_snapshot)
     storage = runtime.web.storage
     for path in (storage.root, storage.sqlite_path.parent, storage.backups_root):
         _private_writable_directory(path)
@@ -43,6 +45,55 @@ def main() -> None:
         Path(__file__).parents[1] / "src/tara_web/i18n_manifest.json",
         runtime.web.supported_languages,
         runtime.web.default_language,
+    )
+
+
+def _validate_inference_credentials(
+    tara_config_snapshot: str | None,
+    environ: dict[str, str] | None = None,
+) -> None:
+    """Fail before startup when the selected inference credential type is wrong."""
+    if tara_config_snapshot is None:
+        return
+    try:
+        document = json.loads(tara_config_snapshot)
+        transcription = document["transcription"]
+        provider = str(transcription["inference_auth_provider"]).strip().lower()
+    except (KeyError, TypeError, ValueError) as exc:
+        raise SystemExit("Tara inference configuration is invalid") from exc
+
+    environment = environ if environ is not None else os.environ
+    if provider in {"", "none"}:
+        return
+    if provider == "modal_proxy":
+        key_name = str(
+            transcription.get("modal_proxy_key_env", "TARA_MODAL_PROXY_AUTH_KEY")
+        )
+        secret_name = str(
+            transcription.get("modal_proxy_secret_env", "TARA_MODAL_PROXY_AUTH_SECRET")
+        )
+        if not (
+            _valid_provider_token(environment.get(key_name), "wk-")
+            and _valid_provider_token(environment.get(secret_name), "ws-")
+        ):
+            raise SystemExit("Modal proxy credentials are missing or malformed")
+        return
+    if provider == "modal_map":
+        if not (
+            _valid_provider_token(environment.get("MODAL_TOKEN_ID"), "ak-")
+            and _valid_provider_token(environment.get("MODAL_TOKEN_SECRET"), "as-")
+        ):
+            raise SystemExit("Modal API credentials are missing or malformed")
+        return
+    raise SystemExit("Tara inference provider is unsupported")
+
+
+def _valid_provider_token(value: str | None, prefix: str) -> bool:
+    if value is None or value != value.strip() or not 16 <= len(value) <= 512:
+        return False
+    return value.startswith(prefix) and all(
+        character.isascii() and (character.isalnum() or character in {"-", "_"})
+        for character in value
     )
 
 

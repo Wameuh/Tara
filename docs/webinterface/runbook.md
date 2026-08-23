@@ -14,14 +14,21 @@ dans [Sauvegarde et restauration](operations/backup-restore.md).
    préparer le certificat TLS, sa clé, la clé de signature des sauvegardes et
    les credentials provider sous forme de fichiers privés.
 3. Définir les chemins `TARA_WEB_TLS_CERTIFICATE_FILE`,
-   `TARA_WEB_TLS_PRIVATE_KEY_FILE`, `TARA_WEB_BACKUP_KEY_FILE`,
-   `MODAL_TOKEN_ID_FILE` et `MODAL_TOKEN_SECRET_FILE`.
+   `TARA_WEB_TLS_PRIVATE_KEY_FILE`, `TARA_WEB_BACKUP_KEY_FILE` et la seule
+   paire provider correspondant au mode choisi : `wk-`/`ws-` pour
+   `modal_proxy`, ou `ak-`/`as-` pour `modal_map`.
 4. Vérifier `public_url`, les hôtes et origines autorisés, les sous-réseaux de
    proxy de confiance, le budget, les capacités, les délais et les limites de
    ressources. Aucun joker, faux runner, debug ou documentation interactive
    n'est admis en production.
 5. Exécuter `docker compose -f compose.yaml -f compose.override.yaml config
    --quiet`, puis construire et scanner l'image avant le démarrage.
+
+Avant une mise à jour, exécuter `docker_deploy_check.py` dans `tara-web`,
+activer le marqueur `/maintenance/enabled`, puis répéter le contrôle. Le premier
+passage évite une interruption inutile ; le second, effectué alors que Nginx
+refuse les nouvelles requêtes avec HTTP 503, ferme la fenêtre de course. Ne
+jamais arrêter l'application tant qu'un job non terminal est signalé.
 
 ## Démarrage, santé et arrêt contrôlé
 

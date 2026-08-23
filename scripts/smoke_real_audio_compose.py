@@ -288,20 +288,20 @@ def prepare_secrets(environment: dict[str, str]) -> Path:
         timeout=30,
     )
     backup_key = root / "backup-signing-key"
-    modal_id = root / "modal-token-id"
-    modal_secret = root / "modal-token-secret"
+    modal_key = root / "modal-proxy-auth-key"
+    modal_secret = root / "modal-proxy-auth-secret"
     backup_key.write_text(os.urandom(32).hex(), encoding="ascii")
-    modal_id.write_text("docker-audio-smoke-id", encoding="ascii")
-    modal_secret.write_text("docker-audio-smoke-secret", encoding="ascii")
-    for path in (certificate, private_key, backup_key, modal_id, modal_secret):
+    modal_key.write_text("wk-docker-audio-smoke-key", encoding="ascii")
+    modal_secret.write_text("ws-docker-audio-smoke-secret", encoding="ascii")
+    for path in (certificate, private_key, backup_key, modal_key, modal_secret):
         path.chmod(0o444)
     environment.update(
         {
             "TARA_WEB_TLS_CERTIFICATE_FILE": str(certificate),
             "TARA_WEB_TLS_PRIVATE_KEY_FILE": str(private_key),
             "TARA_WEB_BACKUP_KEY_FILE": str(backup_key),
-            "MODAL_TOKEN_ID_FILE": str(modal_id),
-            "MODAL_TOKEN_SECRET_FILE": str(modal_secret),
+            "TARA_MODAL_PROXY_AUTH_KEY_FILE": str(modal_key),
+            "TARA_MODAL_PROXY_AUTH_SECRET_FILE": str(modal_secret),
         }
     )
     return root
@@ -331,9 +331,7 @@ def run_playwright(base_url: str, environment: dict[str, str]) -> None:
     )
 
 
-def run(
-    base_url: str | None, *, playwright: bool = False, build: bool = True
-) -> None:
+def run(base_url: str | None, *, playwright: bool = False, build: bool = True) -> None:
     InferenceHandler.requests_seen = 0
     server = ThreadingHTTPServer(("0.0.0.0", 0), InferenceHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)

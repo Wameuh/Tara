@@ -12,6 +12,7 @@ htmlcov/
 .venv/
 venv/
 .npm-cache/
+.tara-maintenance/
 .review-tmp/
 tmp/
 dist/

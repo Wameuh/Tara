@@ -7,9 +7,8 @@ services:
   tara-web:
     environment:
       TARA_INFERENCE_ENDPOINT: ${TARA_INFERENCE_ENDPOINT:-http://host.docker.internal:8000}
+      TARA_INFERENCE_AUTH_PROVIDER: ${TARA_INFERENCE_AUTH_PROVIDER:-modal_proxy}
       TARA_WEB_BACKUP_SIGNING_KEY_FILE: /run/secrets/backup_signing_key
-      MODAL_TOKEN_ID_FILE: /run/secrets/modal_token_id
-      MODAL_TOKEN_SECRET_FILE: /run/secrets/modal_token_secret
       TARA_MODAL_PROXY_AUTH_KEY_FILE: /run/secrets/modal_proxy_auth_key
       TARA_MODAL_PROXY_AUTH_SECRET_FILE: /run/secrets/modal_proxy_auth_secret
       TARA_KOFI_VERIFICATION_TOKEN_FILE: /run/secrets/kofi_verification_token
@@ -19,8 +18,6 @@ services:
       - ${TARA_CURSOR_AGENT_DIR:-./cursor-agent}:/opt/cursor-agent:ro
     secrets:
       - backup_signing_key
-      - modal_token_id
-      - modal_token_secret
       - modal_proxy_auth_key
       - modal_proxy_auth_secret
       - kofi_verification_token
@@ -38,10 +35,6 @@ services:
 secrets:
   backup_signing_key:
     file: ${TARA_WEB_BACKUP_KEY_FILE:-./secrets/backup-signing-key}
-  modal_token_id:
-    file: ${MODAL_TOKEN_ID_FILE:-./secrets/modal-token-id}
-  modal_token_secret:
-    file: ${MODAL_TOKEN_SECRET_FILE:-./secrets/modal-token-secret}
   modal_proxy_auth_key:
     file: ${TARA_MODAL_PROXY_AUTH_KEY_FILE:-./secrets/modal-proxy-auth-key}
   modal_proxy_auth_secret:

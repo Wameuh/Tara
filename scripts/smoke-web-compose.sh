@@ -29,8 +29,8 @@ trap cleanup EXIT INT TERM
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost \
   -keyout "$temporary/tls.key" -out "$temporary/tls.crt" >/dev/null 2>&1
 openssl rand -hex 32 >"$temporary/backup-signing-key"
-printf '%s' smoke-modal-id >"$temporary/modal-token-id"
-printf '%s' smoke-modal-secret >"$temporary/modal-token-secret"
+printf '%s' wk-smoke-proxy-key >"$temporary/modal-proxy-auth-key"
+printf '%s' ws-smoke-proxy-secret >"$temporary/modal-proxy-auth-secret"
 chmod 700 "$temporary"
 # The private parent directory protects these ephemeral files on the host;
 # read bits are required because local Compose file secrets retain host modes.
@@ -39,8 +39,8 @@ chmod 444 "$temporary"/*
 export TARA_WEB_TLS_CERTIFICATE_FILE="$temporary/tls.crt"
 export TARA_WEB_TLS_PRIVATE_KEY_FILE="$temporary/tls.key"
 export TARA_WEB_BACKUP_KEY_FILE="$temporary/backup-signing-key"
-export MODAL_TOKEN_ID_FILE="$temporary/modal-token-id"
-export MODAL_TOKEN_SECRET_FILE="$temporary/modal-token-secret"
+export TARA_MODAL_PROXY_AUTH_KEY_FILE="$temporary/modal-proxy-auth-key"
+export TARA_MODAL_PROXY_AUTH_SECRET_FILE="$temporary/modal-proxy-auth-secret"
 export TARA_WEB_HOST_PORT=18443
 
 compose="docker compose -p $project -f $root/compose.yaml -f $root/compose.override.yaml.example"

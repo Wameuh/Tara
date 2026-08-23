@@ -40,7 +40,7 @@ COPY --from=python-build /build/src /app/src
 COPY --from=python-build /build/tiktoken-cache /app/tiktoken-cache
 COPY --from=frontend-build /build/webinterface/frontend/dist /app/frontend
 COPY docker/entrypoint.sh docker/healthcheck.py docker/admin_healthcheck.py /app/docker/
-COPY scripts/docker_preflight.py scripts/docker-migrate.sh scripts/docker-backup.sh scripts/docker-restore.sh /app/scripts/
+COPY scripts/docker_preflight.py scripts/docker_deploy_check.py scripts/docker-migrate.sh scripts/docker-backup.sh scripts/docker-restore.sh /app/scripts/
 RUN mkdir -p /restore \
     && chown 10001:10001 /restore \
     && chmod 0700 /restore \

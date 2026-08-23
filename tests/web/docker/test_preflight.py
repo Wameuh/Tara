@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import json
 import os
 import runpy
 from pathlib import Path
 
 import pytest
 
-_private_writable_directory = runpy.run_path(
+_preflight = runpy.run_path(
     str(Path(__file__).parents[3] / "scripts/docker_preflight.py")
-)["_private_writable_directory"]
+)
+_private_writable_directory = _preflight["_private_writable_directory"]
+_validate_inference_credentials = _preflight["_validate_inference_credentials"]
 
 
 def test_preflight_rejects_public_or_linked_volume(tmp_path: Path) -> None:
@@ -27,3 +30,81 @@ def test_preflight_rejects_public_or_linked_volume(tmp_path: Path) -> None:
         pytest.skip("symlink creation is unavailable")
     with pytest.raises(SystemExit, match="invalid"):
         _private_writable_directory(link)
+
+
+def _snapshot(provider: str, **transcription: str) -> str:
+    return json.dumps(
+        {
+            "transcription": {
+                "inference_auth_provider": provider,
+                **transcription,
+            }
+        }
+    )
+
+
+def test_preflight_validates_only_selected_provider_credentials() -> None:
+    _validate_inference_credentials(
+        _snapshot("none"),
+        {"MODAL_TOKEN_ID": "not-a-token"},
+    )
+    _validate_inference_credentials(
+        _snapshot("modal_proxy"),
+        {
+            "TARA_MODAL_PROXY_AUTH_KEY": "wk-valid_proxy_key",
+            "TARA_MODAL_PROXY_AUTH_SECRET": "ws-valid_proxy_secret",
+        },
+    )
+    _validate_inference_credentials(
+        _snapshot("modal_map"),
+        {
+            "MODAL_TOKEN_ID": "ak-valid_account_id",
+            "MODAL_TOKEN_SECRET": "as-valid_account_secret",
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    ("provider", "environment", "message"),
+    [
+        (
+            "modal_proxy",
+            {
+                "TARA_MODAL_PROXY_AUTH_KEY": "ak-wrong_credential_type",
+                "TARA_MODAL_PROXY_AUTH_SECRET": "as-wrong_credential_type",
+            },
+            "Modal proxy credentials",
+        ),
+        (
+            "modal_map",
+            {
+                "MODAL_TOKEN_ID": "0123456789abcdef0123456789abcdef",
+                "MODAL_TOKEN_SECRET": "0123456789abcdef0123456789abcdef",
+            },
+            "Modal API credentials",
+        ),
+        ("unknown", {}, "provider is unsupported"),
+    ],
+)
+def test_preflight_rejects_credentials_for_the_wrong_provider(
+    provider: str,
+    environment: dict[str, str],
+    message: str,
+) -> None:
+    with pytest.raises(SystemExit, match=message):
+        _validate_inference_credentials(_snapshot(provider), environment)
+
+
+def test_preflight_honours_custom_modal_proxy_environment_names() -> None:
+    snapshot = _snapshot(
+        "modal_proxy",
+        modal_proxy_key_env="CUSTOM_MODAL_KEY",
+        modal_proxy_secret_env="CUSTOM_MODAL_SECRET",
+    )
+    _validate_inference_credentials(
+        snapshot,
+        {
+            "CUSTOM_MODAL_KEY": "wk-custom_proxy_key",
+            "CUSTOM_MODAL_SECRET": "ws-custom_proxy_secret",
+        },
+    )
