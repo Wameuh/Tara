@@ -32,6 +32,7 @@ def test_compose_topology_hardening_and_one_shot_services() -> None:
         "tara-web-init",
         "tara-web-migrate",
         "tara-web",
+        "tara-admin",
         "tara-proxy",
         "tara-web-backup",
         "tara-web-restore",
@@ -59,6 +60,18 @@ def test_compose_topology_hardening_and_one_shot_services() -> None:
         "python",
         "/app/docker/healthcheck.py",
     ]
+    admin = services["tara-admin"]
+    assert admin["user"] == "10001:10001"
+    assert admin["ports"] == ["127.0.0.1:${TARA_ADMIN_HOST_PORT:-8765}:8765"]
+    assert admin["networks"] == ["tara_admin"]
+    assert admin["depends_on"]["tara-web-migrate"]["condition"] == (
+        "service_completed_successfully"
+    )
+    assert admin["healthcheck"]["test"] == [
+        "CMD",
+        "python",
+        "/app/docker/admin_healthcheck.py",
+    ]
     assert services["tara-web-migrate"]["network_mode"] == "none"
     assert services["tara-web-backup"]["profiles"] == ["operations"]
     assert services["tara-web-restore"]["profiles"] == ["restore"]
@@ -68,6 +81,7 @@ def test_compose_topology_hardening_and_one_shot_services() -> None:
     ]
     assert proxy["networks"] == ["tara_internal", "tara_public"]
     assert compose["networks"]["tara_internal"]["internal"] is True
+    assert compose["networks"]["tara_admin"]["internal"] is True
 
 
 def test_compose_uses_dedicated_volumes_and_narrow_mounts() -> None:
@@ -158,6 +172,7 @@ def test_operator_scripts_are_local_bounded_and_executable() -> None:
     expected = {
         "docker/entrypoint.sh",
         "docker/healthcheck.py",
+        "docker/admin_healthcheck.py",
         "scripts/docker_preflight.py",
         "scripts/docker-migrate.sh",
         "scripts/docker-backup.sh",

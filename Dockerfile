@@ -39,16 +39,16 @@ COPY --from=python-build /build/.venv /app/.venv
 COPY --from=python-build /build/src /app/src
 COPY --from=python-build /build/tiktoken-cache /app/tiktoken-cache
 COPY --from=frontend-build /build/webinterface/frontend/dist /app/frontend
-COPY docker/entrypoint.sh docker/healthcheck.py /app/docker/
+COPY docker/entrypoint.sh docker/healthcheck.py docker/admin_healthcheck.py /app/docker/
 COPY scripts/docker_preflight.py scripts/docker-migrate.sh scripts/docker-backup.sh scripts/docker-restore.sh /app/scripts/
 RUN mkdir -p /restore \
     && chown 10001:10001 /restore \
     && chmod 0700 /restore \
     && chown -R 0:0 /app \
     && chmod -R a=rX /app \
-    && chmod 0555 /app/docker/entrypoint.sh /app/docker/healthcheck.py /app/scripts/*
+    && chmod 0555 /app/docker/entrypoint.sh /app/docker/healthcheck.py /app/docker/admin_healthcheck.py /app/scripts/*
 ENV PATH=/app/.venv/bin:$PATH PYTHONPATH=/app/src PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONHASHSEED=random HOME=/nonexistent TARA_WEB_FRONTEND_DIST=/app/frontend TIKTOKEN_CACHE_DIR=/app/tiktoken-cache
 USER 10001:10001
-EXPOSE 8000
+EXPOSE 8000 8765
 ENTRYPOINT ["/app/docker/entrypoint.sh"]
 CMD ["--config", "/config/webinterface.yaml", "--host", "0.0.0.0", "--port", "8000"]

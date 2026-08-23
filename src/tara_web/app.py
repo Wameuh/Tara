@@ -860,6 +860,8 @@ def _canonical_origin(value: str) -> str | None:
 
 def _rate_category(request: Request) -> str:
     path = request.url.path
+    if path == "/api/v1/metrics/page-view":
+        return "polling"
     if request.method == "PATCH" and path.endswith("/chunks"):
         return "upload_chunk"
     if path.endswith("/events"):

@@ -127,6 +127,16 @@ def test_webhook_rejects_wrong_token_and_excludes_shop_and_other_currency(
             client.get("/api/v1/funding/monthly").json()["donations_micro_eur"]
             == 0
         )
+        connection = client.app.state.database.connect()
+        try:
+            test_event = connection.execute(
+                "SELECT amount_micros,is_test_transaction "
+                "FROM kofi_payment_events WHERE message_id=?",
+                ("test_abcdefghijklmnop",),
+            ).fetchone()
+            assert tuple(test_event) == (4_500_000, 1)
+        finally:
+            connection.close()
 
 
 def test_webhook_counts_subscription_and_legacy_donation(tmp_path: Path) -> None:

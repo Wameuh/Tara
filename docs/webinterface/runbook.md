@@ -34,12 +34,13 @@ curl --fail --cacert secrets/tls.crt https://localhost:8443/api/v1/ready
 
 `live` prouve que le processus répond. `ready` vérifie que l'instance accepte
 le trafic et n'est ni en drain ni bloquée par le stockage, SQLite ou un circuit
-d'exploitation. Seul `tara-proxy` publie un port.
+d'exploitation. `tara-proxy` publie le site et `tara-admin` publie uniquement
+sur la boucle locale `127.0.0.1:8765`.
 
 Pour drainer, envoyer `SIGTERM` avec Compose :
 
 ```bash
-docker compose -f compose.yaml -f compose.override.yaml stop tara-web
+docker compose -f compose.yaml -f compose.override.yaml stop tara-web tara-admin
 ```
 
 L'instance devient immédiatement non prête, refuse les nouveaux lancements,
@@ -52,7 +53,7 @@ délai applicatif.
 Toujours drainer avant une opération SQLite explicite :
 
 ```bash
-docker compose -f compose.yaml -f compose.override.yaml stop tara-web
+docker compose -f compose.yaml -f compose.override.yaml stop tara-web tara-admin
 docker compose -f compose.yaml -f compose.override.yaml \
   --profile operations run --rm tara-web-backup
 docker compose -f compose.yaml -f compose.override.yaml \

@@ -90,6 +90,41 @@ services:
       start_period: 20s
     logging: *bounded_logs
 
+  tara-admin:
+    image: tara-web:local
+    user: "10001:10001"
+    init: true
+    read_only: true
+    privileged: false
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    depends_on:
+      tara-web-migrate: { condition: service_completed_successfully }
+    entrypoint: [python, -m, tara_web.admin]
+    command: [--host, 0.0.0.0, --port, "8765"]
+    environment:
+      TARA_WEB_STORAGE_ROOT: /data/runtime
+      TARA_WEB_SQLITE_PATH: /data/runtime/db/tara-web.sqlite3
+      TARA_ADMIN_TIMEZONE: ${TARA_ADMIN_TIMEZONE:-Europe/Paris}
+    ports: ["127.0.0.1:${TARA_ADMIN_HOST_PORT:-8765}:8765"]
+    volumes:
+      - tara_web_jobs:/data/runtime
+      - tara_web_db:/data/runtime/db
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=32m"]
+    networks: [tara_admin]
+    stop_grace_period: 10s
+    pids_limit: ${TARA_ADMIN_PIDS_LIMIT:-64}
+    mem_limit: ${TARA_ADMIN_MEM_LIMIT:-256m}
+    cpus: ${TARA_ADMIN_CPUS:-0.5}
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, python, /app/docker/admin_healthcheck.py]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: *bounded_logs
+
   tara-proxy:
     image: nginxinc/nginx-unprivileged:1.31.3-alpine3.24@sha256:f972e5322b9797dc2a6b830030094426437b1ae7032e4644496395336ac6fdac
     user: "101:101"
@@ -177,3 +212,5 @@ networks:
         - subnet: ${TARA_WEB_INTERNAL_SUBNET:-172.29.0.0/29}
   tara_public:
   tara_provider:
+  tara_admin:
+    internal: true

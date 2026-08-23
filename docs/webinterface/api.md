@@ -71,12 +71,27 @@ JSON. Le token est comparé en temps constant au secret monté dans le conteneur
 Une livraison valide, y compris un doublon de `message_id`, reçoit `200` afin
 d'arrêter les nouvelles tentatives Ko-fi.
 
+Chaque livraison produit aussi une ligne structurée dans les journaux de
+`tara-web` : `kofi_webhook_received` précise le type, la devise, le marqueur de
+test, si le montant a été compté et si le `message_id` était nouveau. Un rejet
+produit `kofi_webhook_rejected` avec une raison générique, sans jamais écrire le
+token ni les données personnelles. Les tests Ko-fi sont conservés avec leur
+montant et le marqueur `is_test_transaction`, mais exclus du cumul public.
+
 La jauge additionne en EUR les événements `Tip`, `Subscription` et l'ancien
 libellé `Donation` encore utilisé par certains tests Ko-fi. `Commission` et
 `Shop Order` sont acceptés mais ne contribuent pas à la jauge. Tara ne conserve
 et n'affiche jamais `from_name`, `email`, `message`, `tier_name`, `shop_items`
 ou les détails d'expédition. Le message reste donc privé indépendamment de
 `is_public` ; seuls des totaux mensuels agrégés sont publics.
+
+## Statistiques de vues
+
+`POST /api/v1/metrics/page-view?page=...` est appelé par le frontend à chaque
+vue de haut niveau. Les seules valeurs acceptées sont `new_job`, `help`,
+`upload_session` et `job`. La base conserve uniquement un compteur agrégé par
+jour UTC et par vue : aucune IP, aucun cookie, aucun identifiant de visiteur et
+aucun identifiant de job ou de session n'est enregistré.
 
 ## SSE et repli REST
 

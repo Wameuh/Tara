@@ -120,9 +120,12 @@ docker compose -f compose.yaml -f compose.override.yaml up -d
 docker compose -f compose.yaml -f compose.override.yaml ps
 ```
 
-Seul `tara-proxy` publie le port HTTPS 8443, limité à `127.0.0.1` par défaut.
+`tara-proxy` publie le port HTTPS 8443, limité à `127.0.0.1` par défaut.
 Définir explicitement `TARA_WEB_BIND_ADDRESS=0.0.0.0` uniquement si le pare-feu
-hôte et le certificat sont prêts. FastAPI n'a aucun port hôte.
+hôte et le certificat sont prêts. `tara-admin` publie aussi son interface HTTP
+sur `127.0.0.1:8765` uniquement ; cette adresse n'est pas configurable afin
+qu'une surcharge accidentelle ne l'expose pas au LAN ou à Internet. Le port
+hôte peut être changé avec `TARA_ADMIN_HOST_PORT`.
 
 `tara-web-init` fixe les propriétaires des trois volumes. `tara-web-migrate`
 s'exécute une seule fois avant l'application. L'entrypoint applicatif impose un
@@ -131,7 +134,7 @@ SQLite, FFmpeg, configuration et catalogues, puis utilise `exec` afin que
 `SIGTERM` atteigne Uvicorn.
 
 ```bash
-docker compose -f compose.yaml -f compose.override.yaml stop tara-web
+docker compose -f compose.yaml -f compose.override.yaml stop tara-web tara-admin
 ```
 
 Le service devient non prêt, draine les jobs, réconcilie et sauvegarde avant la
@@ -142,7 +145,7 @@ fin des 90 secondes de `stop_grace_period`.
 Arrêter ou drainer l'application avant une opération hors arrêt contrôlé :
 
 ```bash
-docker compose -f compose.yaml -f compose.override.yaml stop tara-web
+docker compose -f compose.yaml -f compose.override.yaml stop tara-web tara-admin
 docker compose -f compose.yaml -f compose.override.yaml \
   --profile operations run --rm tara-web-backup
 ```
@@ -156,7 +159,7 @@ La restauration est volontairement isolée dans un nouveau volume et refuse une
 racine déjà existante. L'application doit rester arrêtée :
 
 ```bash
-docker compose -f compose.yaml -f compose.override.yaml stop tara-web
+docker compose -f compose.yaml -f compose.override.yaml stop tara-web tara-admin
 export TARA_RESTORE_GENERATION='backup-20260820T120000Z-0123456789abcdef0123456789abcdef'
 docker compose -f compose.yaml -f compose.override.yaml \
   --profile restore run --rm tara-web-restore

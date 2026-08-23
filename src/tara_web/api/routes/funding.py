@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import logging
 import re
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
@@ -17,6 +18,7 @@ from tara_web.api.schemas import MonthlyFundingSnapshot
 from tara_web.db.repositories.funding import FundingRepository
 
 router = APIRouter(prefix="/funding", tags=["funding"])
+LOGGER = logging.getLogger("uvicorn.error.tara_kofi")
 _MESSAGE_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _CURRENCY = re.compile(r"^[A-Z]{3}$")
 # Ko-fi currently emits ``Tip`` for one-off support. ``Donation`` is retained
@@ -62,17 +64,35 @@ async def kofi_webhook(request: Request) -> Response:
         return problem(request, 404)
     try:
         payload = await _payload(request)
-        supplied_token = payload.get("verification_token")
-        if not isinstance(supplied_token, str) or not hmac.compare_digest(
-            supplied_token, token.get_secret_value()
-        ):
-            return problem(request, 403)
-        event = _validated_event(payload)
     except (UnicodeError, ValueError, json.JSONDecodeError):
+        LOGGER.warning("kofi_webhook_rejected reason=invalid_payload")
         return problem(request, 400)
-    FundingRepository(request.app.state.database).record_kofi_event(
+    supplied_token = payload.get("verification_token")
+    if not isinstance(supplied_token, str) or not hmac.compare_digest(
+        supplied_token, token.get_secret_value()
+    ):
+        LOGGER.warning("kofi_webhook_rejected reason=invalid_token")
+        return problem(request, 403)
+    try:
+        event = _validated_event(payload)
+    except ValueError:
+        LOGGER.warning("kofi_webhook_rejected reason=invalid_event")
+        return problem(request, 400)
+    inserted = FundingRepository(request.app.state.database).record_kofi_event(
         **event,
         received_at=datetime.now(UTC).isoformat(),
+    )
+    LOGGER.info(
+        "kofi_webhook_received event_type=%s currency=%s test=%s "
+        "counted=%s inserted=%s",
+        event["event_type"],
+        event["currency"],
+        str(event["is_test_transaction"]).lower(),
+        str(
+            int(event["amount_micros"]) > 0
+            and not bool(event["is_test_transaction"])
+        ).lower(),
+        str(inserted).lower(),
     )
     # Ko-fi retries non-200 responses with the same message_id. Duplicates are
     # therefore acknowledged normally and remain a single database row.
@@ -144,16 +164,18 @@ def _validated_event(payload: dict[str, object]) -> dict[str, object]:
         occurred_at = occurred.astimezone(UTC).isoformat()
     except ValueError as exc:
         raise ValueError("invalid timestamp") from exc
-    # Persist non-funding events for idempotency, but force their amount to zero
-    # so a future query can never accidentally count shop revenue as donations.
+    # Persist non-funding events for idempotency, but force their amount to zero.
+    # Test payments retain their test amount for the private dashboard and are
+    # explicitly excluded from public totals by the repository query.
     return {
         "message_id": message_id,
         "event_type": event_type,
         "amount_micros": (
             int(micros)
-            if event_type in _COUNTED_TYPES and not is_test_transaction
+            if event_type in _COUNTED_TYPES
             else 0
         ),
         "currency": currency,
         "occurred_at": occurred_at,
+        "is_test_transaction": is_test_transaction,
     }

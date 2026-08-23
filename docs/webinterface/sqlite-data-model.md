@@ -3,9 +3,10 @@
 Le stockage de fichiers et les transitions d'artefacts sont documentes dans
 [Stockage et artefacts](storage-et-artefacts.md).
 
-`tara_web` est l'unique proprietaire SQLite; les workers n'importent jamais les
-repositories et n'ouvrent jamais cette base. Les dates sont UTC et les couts sont des
-micro-euros entiers. `completed_at` pilote la retention des echantillons historiques.
+`tara_web` et le tableau de bord local `tara_admin` sont les seuls proprietaires
+SQLite; les workers n'importent jamais les repositories et n'ouvrent jamais cette
+base. Les dates sont UTC et les couts sont des micro-euros entiers. `completed_at`
+pilote la retention des echantillons historiques.
 
 ```mermaid
 erDiagram
@@ -39,6 +40,22 @@ erDiagram
     text job_public_id
     text completed_at
   }
+  KOFI_PAYMENT_EVENTS {
+    text message_id UK
+    int amount_micros
+    int is_test_transaction
+  }
+  PAGE_VIEW_COUNTS {
+    text day PK
+    text page PK
+    int view_count
+  }
+  FUNDING_CONSUMPTION_ADJUSTMENTS {
+    int id PK
+    int amount_micro_eur
+    text note
+    text created_at
+  }
 ```
 
 La promotion est une transaction immediate: les fichiers prets non affectes sont
@@ -51,3 +68,9 @@ Depuis la migration 16, `jobs.identical_relaunch_job_id` enregistre le nouveau j
 cree par une relance identique. La mise a jour conditionnelle depuis `NULL` garantit
 qu'un timeout ne peut produire qu'un seul enfant identique, y compris sous concurrence
 ou apres rejeu idempotent.
+
+La migration 18 ajoute les statistiques operateur. `page_view_counts` ne
+contient que des agregats journaliers par type de vue. Les corrections de
+consommation sont append-only et signees ; elles ne modifient jamais les couts
+provider d'origine. Les evenements Ko-fi de test restent identifiables et sont
+exclus de la jauge publique.

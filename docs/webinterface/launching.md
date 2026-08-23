@@ -49,10 +49,19 @@ docker compose -f compose.yaml -f compose.override.yaml up --build -d
 docker compose -f compose.yaml -f compose.override.yaml ps
 ```
 
-Seul le reverse proxy TLS publie un port hôte, `127.0.0.1:8443` par défaut.
-FastAPI reste sur le réseau interne. Les volumes séparés conservent SQLite, les
-jobs et les sauvegardes ; la configuration et les secrets sont montés en lecture
-seule.
+Le reverse proxy TLS publie `127.0.0.1:8443` par défaut. Le tableau de bord
+d'administration publie séparément `127.0.0.1:8765`, sans TLS, et n'est jamais
+routé par le proxy public. Les deux processus FastAPI restent isolés dans leurs
+réseaux respectifs. Les volumes séparés conservent SQLite, les jobs et les
+sauvegardes ; la configuration et les secrets sont montés en lecture seule.
+
+Ouvrir <http://127.0.0.1:8765> depuis la machine hôte pour consulter les vues
+agrégées, les états des analyses, les dernières réceptions Ko-fi et la
+consommation mensuelle. Le formulaire `+ Ajouter` / `− Retirer` crée une
+correction signée et auditée pour le mois courant. Le cumul public vaut
+`max(0, estimation provider + corrections du mois)`. Le port peut être changé
+avec `TARA_ADMIN_HOST_PORT`, mais l'adresse de publication reste volontairement
+fixée à `127.0.0.1` et ne doit pas être transférée par le routeur.
 
 Arrêter la pile sans supprimer les volumes :
 
@@ -112,7 +121,7 @@ sauvegarde authentifiée, appliquer automatiquement les migrations et démarrer
 la nouvelle image :
 
 ```bash
-sg docker -c 'docker compose -f compose.yaml -f "$TARA_LIVE_OVERRIDE" stop tara-web'
+sg docker -c 'docker compose -f compose.yaml -f "$TARA_LIVE_OVERRIDE" stop tara-web tara-admin'
 sg docker -c 'docker compose -f compose.yaml -f "$TARA_LIVE_OVERRIDE" --profile operations run --rm tara-web-backup'
 sg docker -c 'docker compose -f compose.yaml -f "$TARA_LIVE_OVERRIDE" up -d --no-build'
 sg docker -c 'docker compose -f compose.yaml -f "$TARA_LIVE_OVERRIDE" ps'
@@ -136,6 +145,13 @@ curl --fail --silent --show-error \
   --resolve tara-wameuh.duckdns.org:8443:127.0.0.1 \
   https://tara-wameuh.duckdns.org:8443/api/v1/funding/monthly
 sg docker -c 'docker compose -f compose.yaml -f "$TARA_LIVE_OVERRIDE" logs --tail 200 tara-web'
+```
+
+Pour ne voir que les réceptions ou rejets Ko-fi :
+
+```bash
+sg docker -c 'docker compose -f compose.yaml -f "$TARA_LIVE_OVERRIDE" logs tara-web' \
+  | grep 'kofi_webhook_'
 ```
 
 Si la nouvelle application ne devient pas saine et qu'aucune migration
