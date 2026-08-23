@@ -122,7 +122,7 @@
     "upload.audio_format_invalid": "Invalid audio format. Expected formats: {{expected}}. Supplied format: {{provided}}.",
     "upload.audio_format_mismatch": "Invalid audio format. Expected formats: {{expected}}. Supplied format: {{provided}}; detected format: {{detected}}.",
     "upload.audio_invalid": "The audio file is unreadable, corrupted, or does not match its extension.",
-    "upload.audio_duration_too_long": "The audio track exceeds the maximum duration of 5 hours.",
+    "upload.audio_duration_too_long": "The audio track exceeds the maximum duration of 6 hours.",
     "upload.validation_unavailable": "The server could not verify this file. Try again later.",
     "upload.zip_archive_too_large": "The ZIP archive exceeds the maximum allowed size.",
     "upload.zip_compression_ratio_too_high": "The ZIP archive is unusually compressed and cannot be processed safely.",

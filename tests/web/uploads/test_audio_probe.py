@@ -78,7 +78,7 @@ def test_probe_rejects_bad_duration(
         probe_audio(path, ffprobe_timeout=1, ffmpeg_timeout=1)
 
 
-def test_probe_rejects_polyglot_and_warns_at_four_thirty(
+def test_probe_rejects_polyglot_and_warns_at_five_twenty_four(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = tmp_path / "a.mp3"
@@ -87,7 +87,7 @@ def test_probe_rejects_polyglot_and_warns_at_four_thirty(
         "tara_web.services.audio_probe.subprocess.run",
         lambda *a, **k: _completed(
             {
-                "format": {"format_name": "wav", "duration": "16200"},
+                "format": {"format_name": "wav", "duration": "19440"},
                 "streams": [{"codec_type": "audio"}],
             }
         ),
@@ -130,10 +130,10 @@ def test_validate_audio_rejects_bad_hash(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("duration", "code"),
     [
-        ("16199.999", None),
-        ("16200", "audio_duration_high"),
-        ("18000", "audio_duration_high"),
-        ("18000.001", "input_too_large"),
+        ("19439.999", None),
+        ("19440", "audio_duration_high"),
+        ("21600", "audio_duration_high"),
+        ("21600.001", "input_too_large"),
     ],
 )
 def test_duration_boundaries(

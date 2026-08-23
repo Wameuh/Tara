@@ -102,7 +102,7 @@ def probe_audio(
         item.get("codec_name") == "aac" for item in audio_streams
     ):
         raise ValueError("input_type_mismatch")
-    if duration > 18_000:
+    if duration > 21_600:
         raise ValueError("input_too_large")
     duration_ms = int(duration * 1000)
     try:
@@ -121,5 +121,5 @@ def probe_audio(
     return AudioProbeResult(
         duration_ms,
         detected,
-        "audio_duration_high" if duration >= 16_200 else None,
+        "audio_duration_high" if duration >= 19_440 else None,
     )
