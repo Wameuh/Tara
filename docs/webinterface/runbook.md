@@ -34,8 +34,9 @@ curl --fail --cacert secrets/tls.crt https://localhost:8443/api/v1/ready
 
 `live` prouve que le processus répond. `ready` vérifie que l'instance accepte
 le trafic et n'est ni en drain ni bloquée par le stockage, SQLite ou un circuit
-d'exploitation. `tara-proxy` publie le site et `tara-admin` publie uniquement
-sur la boucle locale `127.0.0.1:8765`.
+d'exploitation. `tara-proxy` publie le site et `tara-admin` publie par défaut
+sur la boucle locale `127.0.0.1:8765`. Si `TARA_ADMIN_BIND_ADDRESS` est défini,
+vérifier que le pare-feu limite le port au réseau d'administration attendu.
 
 Pour drainer, envoyer `SIGTERM` avec Compose :
 

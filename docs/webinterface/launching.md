@@ -60,8 +60,10 @@ agrégées, les états des analyses, les dernières réceptions Ko-fi et la
 consommation mensuelle. Le formulaire `+ Ajouter` / `− Retirer` crée une
 correction signée et auditée pour le mois courant. Le cumul public vaut
 `max(0, estimation provider + corrections du mois)`. Le port peut être changé
-avec `TARA_ADMIN_HOST_PORT`, mais l'adresse de publication reste volontairement
-fixée à `127.0.0.1` et ne doit pas être transférée par le routeur.
+avec `TARA_ADMIN_HOST_PORT`. L'adresse peut être changée avec
+`TARA_ADMIN_BIND_ADDRESS`, par exemple `192.168.1.109` pour un accès LAN ciblé.
+L'interface n'a pas d'authentification : ne pas utiliser `0.0.0.0`, ne pas
+transférer ce port sur le routeur et limiter l'accès avec le pare-feu hôte.
 
 Arrêter la pile sans supprimer les volumes :
 

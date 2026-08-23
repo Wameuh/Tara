@@ -123,11 +123,13 @@ docker compose -f compose.yaml -f compose.override.yaml ps
 `tara-proxy` publie le port HTTPS 8443, limité à `127.0.0.1` par défaut.
 Définir explicitement `TARA_WEB_BIND_ADDRESS=0.0.0.0` uniquement si le pare-feu
 hôte et le certificat sont prêts. `tara-admin` publie aussi son interface HTTP
-sur `127.0.0.1:8765` uniquement ; cette adresse n'est pas configurable afin
-qu'une surcharge accidentelle ne l'expose pas au LAN ou à Internet. Le port
-hôte peut être changé avec `TARA_ADMIN_HOST_PORT`.
+sur `127.0.0.1:8765` par défaut. Le port hôte peut être changé avec
+`TARA_ADMIN_HOST_PORT`. Pour un accès LAN, définir `TARA_ADMIN_BIND_ADDRESS`
+sur l'adresse privée précise de l'hôte, par exemple `192.168.1.109`. Cette
+interface n'a pas d'authentification : ne pas utiliser `0.0.0.0`, ne pas
+transférer son port sur le routeur et filtrer le LAN avec le pare-feu hôte.
 Le réseau dédié de `tara-admin` n'est relié ni au proxy, ni au réseau provider ;
-la restriction d'accès repose sur la publication explicite en boucle locale.
+la restriction d'accès repose sur l'adresse de publication et le pare-feu hôte.
 
 `tara-web-init` fixe les propriétaires des trois volumes. `tara-web-migrate`
 s'exécute une seule fois avant l'application. L'entrypoint applicatif impose un

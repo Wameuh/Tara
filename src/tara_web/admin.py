@@ -1,5 +1,5 @@
 # ruff: noqa: E501
-"""Loopback-only operator dashboard with aggregate, privacy-safe statistics."""
+"""Private operator dashboard with aggregate, privacy-safe statistics."""
 
 from __future__ import annotations
 
@@ -41,7 +41,10 @@ _PAGE_LABELS = {
 
 
 def create_admin_app(
-    database: ConnectionFactory, *, timezone: str = "Europe/Paris"
+    database: ConnectionFactory,
+    *,
+    timezone: str = "Europe/Paris",
+    allowed_hosts: tuple[str, ...] = ("127.0.0.1", "localhost", "testserver"),
 ) -> FastAPI:
     zone = ZoneInfo(timezone)
     csrf_token = secrets.token_urlsafe(32)
@@ -63,9 +66,7 @@ def create_admin_app(
         openapi_url=None,
         lifespan=lifespan,
     )
-    app.add_middleware(
-        TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"]
-    )
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(allowed_hosts))
 
     @app.middleware("http")
     async def local_security(
@@ -276,10 +277,22 @@ def main() -> None:
     parser.add_argument(
         "--timezone", default=os.environ.get("TARA_ADMIN_TIMEZONE", "Europe/Paris")
     )
+    parser.add_argument(
+        "--allowed-hosts",
+        default=os.environ.get(
+            "TARA_ADMIN_ALLOWED_HOSTS", "127.0.0.1,localhost"
+        ),
+    )
     arguments = parser.parse_args()
+    allowed_hosts = tuple(
+        host.strip() for host in arguments.allowed_hosts.split(",") if host.strip()
+    )
+    if not allowed_hosts or "*" in allowed_hosts:
+        parser.error("--allowed-hosts must contain explicit host names or addresses")
     app = create_admin_app(
         ConnectionFactory(arguments.database, arguments.storage_root),
         timezone=arguments.timezone,
+        allowed_hosts=allowed_hosts,
     )
     uvicorn.run(app, host=arguments.host, port=arguments.port, access_log=False)
 

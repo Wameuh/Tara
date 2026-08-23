@@ -102,3 +102,17 @@ def test_local_dashboard_shows_stats_kofi_and_applies_signed_adjustments(
     )
     assert totals.adjustment_micro_eur == 5_500_000
     assert totals.estimated_consumption_micro_eur == 5_500_000
+
+
+def test_dashboard_accepts_only_configured_lan_host(tmp_path: Path) -> None:
+    database = _database(tmp_path)
+    app = create_admin_app(
+        database,
+        timezone="UTC",
+        allowed_hosts=("127.0.0.1", "192.168.1.109", "testserver"),
+    )
+    with TestClient(app) as client:
+        accepted = client.get("/health", headers={"host": "192.168.1.109"})
+        rejected = client.get("/health", headers={"host": "192.168.1.110"})
+        assert accepted.status_code == 200
+        assert rejected.status_code == 400

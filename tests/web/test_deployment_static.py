@@ -62,7 +62,10 @@ def test_compose_topology_hardening_and_one_shot_services() -> None:
     ]
     admin = services["tara-admin"]
     assert admin["user"] == "10001:10001"
-    assert admin["ports"] == ["127.0.0.1:${TARA_ADMIN_HOST_PORT:-8765}:8765"]
+    assert admin["ports"] == [
+        "${TARA_ADMIN_BIND_ADDRESS:-127.0.0.1}:"
+        "${TARA_ADMIN_HOST_PORT:-8765}:8765"
+    ]
     assert admin["networks"] == ["tara_admin"]
     assert admin["depends_on"]["tara-web-migrate"]["condition"] == (
         "service_completed_successfully"
