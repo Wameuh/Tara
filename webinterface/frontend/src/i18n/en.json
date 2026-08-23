@@ -225,7 +225,7 @@
     "job.secret_rotated":  "Link renewed",
     "funding.period": "Transparency · {{month}}",
     "funding.title": "Ko-fi support and Tara estimates",
-    "funding.intro": "Donations received and Tara's cumulative estimated costs are compared on the same scale. This is not a provider invoice.",
+    "funding.intro": "Donations received and Tara's cumulative estimated costs are compared on the same scale.",
     "funding.support": "Support Tara on Ko-fi",
     "funding.donations": "Donations received",
     "funding.consumption": "Estimated consumption",

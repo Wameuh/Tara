@@ -225,7 +225,7 @@
     "job.secret_rotated":  "Lien renouvelé",
     "funding.period": "Transparence · {{month}}",
     "funding.title": "Soutien Ko-fi et estimations Tara",
-    "funding.intro": "Les dons reçus et le cumul des coûts estimés par Tara sont comparés sur la même échelle. Il ne s’agit pas d’une facture fournisseur.",
+    "funding.intro": "Les dons reçus et le cumul des coûts estimés par Tara sont comparés sur la même échelle.",
     "funding.support": "Soutenir Tara sur Ko-fi",
     "funding.donations": "Dons reçus",
     "funding.consumption": "Consommation estimée",
