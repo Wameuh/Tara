@@ -18,6 +18,8 @@ from tara.yaml_utils import to_yaml
 from tara_web.app import create_app
 from tara_web.config import load_config
 
+CREATION_RECOVERY = "cnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnI"
+
 
 def _configuration(tmp_path: Path) -> object:
     tara = tmp_path / "tara.yaml"
@@ -101,7 +103,10 @@ def test_real_merged_yaml_job_skips_audio_and_publishes_result(
     with TestClient(create_app(_configuration(tmp_path))) as client:
         created_response = client.post(
             "/api/v1/uploads/sessions?input_type=merged_transcription",
-            headers={"Idempotency-Key": "real-merged-session"},
+            headers={
+                "Idempotency-Key": "real-merged-session",
+                "X-Tara-Creation-Recovery": CREATION_RECOVERY,
+            },
         )
         assert created_response.status_code == 201, created_response.text
         created = created_response.json()

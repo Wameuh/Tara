@@ -15,6 +15,8 @@ from tara_web.app import create_app
 from tara_web.config import RuntimeConfig, StorageConfig, WebinterfaceConfig
 from tara_web.storage.artifacts import ArtifactService
 
+CREATION_RECOVERY = "cnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnI"
+
 CURRENT_PUBLIC_RESULT = b"""schema_name: tara.public_result
 schema_version: 26.0.1
 content:
@@ -68,7 +70,11 @@ def _completed_job(
     client: TestClient, final_yaml: bytes = CURRENT_PUBLIC_RESULT
 ) -> tuple[str, str, int]:
     created = client.post(
-        "/api/v1/uploads/sessions", headers={"Idempotency-Key": "result-session"}
+        "/api/v1/uploads/sessions",
+        headers={
+            "Idempotency-Key": "result-session",
+            "X-Tara-Creation-Recovery": CREATION_RECOVERY,
+        },
     ).json()
     job_id = "job_result_0000000001"
     now = datetime.now(UTC)
@@ -193,6 +199,37 @@ summary:
     assert result.json()["sections"][0]["blocks"] == [
         {"type": "paragraph", "text": "Legacy public result"}
     ]
+
+
+def test_delete_removes_a_previously_preserved_final_result(tmp_path: Path) -> None:
+    with TestClient(_app(tmp_path)) as client:
+        job_id, secret, database_id = _completed_job(client)
+        with client.app.state.database.transaction() as connection:
+            row = connection.execute(
+                "SELECT j.revision,a.id,a.relative_path FROM jobs j "
+                "JOIN job_artifacts a ON a.job_id=j.id "
+                "WHERE j.id=? AND a.artifact_type='final_yaml'",
+                (database_id,),
+            ).fetchone()
+        final_path = client.app.state.storage_layout.artifact_path(row["relative_path"])
+        assert client.app.state.job_service.cleanup_terminal_private_data(job_id)
+        assert final_path.exists()
+
+        response = client.delete(
+            f"/api/v1/jobs/{job_id}",
+            headers={
+                "X-Tara-Job-Secret": secret,
+                "Expected-Revision": str(row["revision"]),
+                "Idempotency-Key": "delete-cleaned-result",
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert not final_path.exists()
+        with client.app.state.database.transaction() as connection:
+            state = connection.execute(
+                "SELECT storage_state FROM job_artifacts WHERE id=?", (row["id"],)
+            ).fetchone()[0]
+        assert state == "deleted"
 
 
 class _StreamRequest:

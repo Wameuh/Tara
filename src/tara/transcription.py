@@ -115,6 +115,7 @@ class InferenceServerClient:
         auth_provider: str = "none",
         modal_proxy_key_env: str = "TARA_MODAL_PROXY_AUTH_KEY",
         modal_proxy_secret_env: str = "TARA_MODAL_PROXY_AUTH_SECRET",
+        bearer_token_env: str = "INFERENCE_BEARER_TOKEN",
     ) -> None:
         """Initialize the client."""
         self._endpoint = f"{base_url.rstrip('/')}/v1/audio/transcriptions"
@@ -123,6 +124,7 @@ class InferenceServerClient:
         self._auth_provider = auth_provider
         self._modal_proxy_key_env = modal_proxy_key_env
         self._modal_proxy_secret_env = modal_proxy_secret_env
+        self._bearer_token_env = bearer_token_env
 
     def transcribe_file(
         self,
@@ -232,6 +234,15 @@ class InferenceServerClient:
         provider = self._auth_provider.strip().lower()
         if provider in {"", "none"}:
             return headers or None
+        if provider == "bearer":
+            token = os.getenv(self._bearer_token_env)
+            if not token:
+                raise ValueError(
+                    "Missing inference bearer token environment variable: "
+                    + self._bearer_token_env
+                )
+            headers["Authorization"] = f"Bearer {token}"
+            return headers
         if provider != "modal_proxy":
             raise ValueError(f"Unsupported inference auth provider: {provider}")
 
@@ -305,6 +316,7 @@ def _transcribe_audio_directory_via_http(
         auth_provider=config.transcription.inference_auth_provider,
         modal_proxy_key_env=config.transcription.modal_proxy_key_env,
         modal_proxy_secret_env=config.transcription.modal_proxy_secret_env,
+        bearer_token_env=config.transcription.bearer_token_env,
     )
     audio_files = discover_audio_files(
         audio_dir=audio_dir,

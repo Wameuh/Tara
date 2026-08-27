@@ -228,6 +228,20 @@ def test_terminal_attempt_without_provider_calls_has_complete_zero_cost(
     assert tuple(aggregate) == (0, 0, 1)
 
 
+def test_worker_loss_runs_terminal_cleanup_after_commit(tmp_path: Path) -> None:
+    _, database = _service(tmp_path)
+    calls: list[str] = []
+    service = JobService(
+        database,
+        terminal_cleanup=lambda job_id: calls.append(job_id) or True,
+    )
+
+    assert service.worker_lost(
+        "job_0000000000001", 1, f"{_TOKEN}1", "failed"
+    )
+    assert calls == ["job_0000000000001"]
+
+
 def test_failed_provider_usage_updates_the_persistent_circuit(tmp_path: Path) -> None:
     _, database = _service(tmp_path)
     breaker = CircuitBreaker(database, failure_threshold=2, open_seconds=60)

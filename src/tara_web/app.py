@@ -66,6 +66,8 @@ from .storage.cleanup import (
     cleanup_expired,
     cleanup_expired_inputs,
     cleanup_orphans,
+    cleanup_terminal_private_batch,
+    cleanup_terminal_private_data,
     expire_job_metadata,
 )
 from .storage.layout import StorageError, StorageLayout
@@ -158,12 +160,20 @@ def create_app(config: RuntimeConfig, frontend_dist: Path | None = None) -> Fast
                 max_files=config.web.limits.max_upload_files,
                 chunk_size=config.web.limits.recommended_chunk_bytes,
                 max_sessions=config.web.limits.max_upload_sessions,
+                max_sessions_per_identity=(
+                    config.web.limits.max_upload_sessions_per_identity
+                ),
+                max_pending_sessions=config.web.limits.max_pending_upload_sessions,
+                max_pending_sessions_per_identity=(
+                    config.web.limits.max_pending_upload_sessions_per_identity
+                ),
                 max_reserved_bytes=config.web.limits.max_reserved_upload_bytes,
                 max_upload_bytes=config.web.limits.max_upload_bytes,
                 max_merged_transcription_bytes=(
                     config.web.limits.max_merged_transcription_bytes
                 ),
                 retention_hours=config.web.limits.upload_session_retention_hours,
+                pending_ttl_seconds=config.web.limits.upload_inactivity_seconds,
                 idempotency=IdempotencyService(database, upload_hmac),
             )
             app.state.audio_upload_repository = audio_uploads
@@ -237,6 +247,7 @@ def create_app(config: RuntimeConfig, frontend_dist: Path | None = None) -> Fast
                         timeout_seconds=(
                             config.web.limits.zip_validation_timeout_seconds
                         ),
+                        minimum_free_bytes=(config.web.limits.min_free_storage_bytes),
                     ),
                     ffprobe_timeout=config.web.limits.ffprobe_timeout_seconds,
                     ffmpeg_timeout=config.web.limits.ffmpeg_timeout_seconds,
@@ -320,6 +331,9 @@ def create_app(config: RuntimeConfig, frontend_dist: Path | None = None) -> Fast
                 budget_service=budget_service,
                 circuit_breaker=circuit_breaker,
                 record_metrics=config.web.runner_mode == "tara",
+                terminal_cleanup=lambda job_id: cleanup_terminal_private_data(
+                    layout, artifacts, job_id
+                ),
             )
             scheduler = Scheduler(
                 job_service,
@@ -520,11 +534,13 @@ def create_app(config: RuntimeConfig, frontend_dist: Path | None = None) -> Fast
         if request.url.path.startswith("/api/v1"):
             secret = request.headers.get("x-tara-job-secret")
             key = request.headers.get("idempotency-key")
+            recovery = request.headers.get("x-tara-creation-recovery")
             revision = request.headers.get("expected-revision")
             length = request.headers.get("content-length")
             if (
                 (secret is not None and len(secret) > 512)
                 or (key is not None and not 1 <= len(key) <= 256)
+                or (recovery is not None and len(recovery) != 43)
                 or (
                     revision is not None
                     and (
@@ -609,6 +625,7 @@ def create_app(config: RuntimeConfig, frontend_dist: Path | None = None) -> Fast
                 "Expected-Revision",
                 "Upload-Checksum",
                 "Upload-Offset",
+                "X-Tara-Creation-Recovery",
                 "X-Tara-Job-Secret",
             ],
         )
@@ -695,6 +712,9 @@ def _storage_maintenance_cycle(
     policy: ArtifactPolicy,
     scanner: OrphanScanner,
 ) -> None:
+    cleanup_terminal_private_batch(
+        layout, artifacts, batch_size=policy.cleanup_batch_size
+    )
     reconcile_all(
         layout,
         artifacts,

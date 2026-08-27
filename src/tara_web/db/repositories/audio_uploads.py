@@ -17,38 +17,65 @@ class AudioUploadRepository:
         secret_hmac: str,
         *,
         max_sessions: int,
+        max_sessions_per_identity: int | None = None,
+        admission_identity_hmac: str | None = None,
+        admission_identity_hmacs: tuple[str, ...] = (),
         input_type: str = "audio",
         expires_hours: int = 24,
+        expires_seconds: int | None = None,
     ) -> None:
         if input_type not in {"audio", "merged_transcription", "zip"}:
             raise DatabaseConflict("upload input type is invalid")
         archive_mode = input_type == "zip"
         stored_input_type = "audio" if archive_mode else input_type
+        if (
+            max_sessions < 1
+            or (max_sessions_per_identity is not None and max_sessions_per_identity < 1)
+            or (admission_identity_hmacs and admission_identity_hmac is None)
+            or expires_hours < 1
+            or (expires_seconds is not None and expires_seconds < 1)
+        ):
+            raise DatabaseConflict("upload session admission is invalid")
         now = datetime.now(UTC)
         with self._factory.transaction() as connection:
-            active = connection.execute(
-                "SELECT COUNT(*) FROM upload_sessions WHERE status NOT IN "
-                "('consumed','cancelled','expired') "
+            pending = connection.execute(
+                "SELECT COUNT(*) FROM upload_sessions WHERE status='created' "
                 "AND julianday(expires_at)>julianday(?)",
                 (now.isoformat(),),
             ).fetchone()[0]
-            if active >= max_sessions:
-                raise DatabaseConflict("upload session limit reached")
+            if pending >= max_sessions:
+                raise DatabaseConflict("pending upload session limit reached")
+            if max_sessions_per_identity is not None and admission_identity_hmacs:
+                marks = ",".join("?" for _ in admission_identity_hmacs)
+                per_identity = connection.execute(
+                    "SELECT COUNT(*) FROM upload_sessions WHERE status='created' "
+                    "AND admission_identity_hmac IN ("
+                    f"{marks}) AND julianday(expires_at)>julianday(?)",
+                    (*admission_identity_hmacs, now.isoformat()),
+                ).fetchone()[0]
+                if per_identity >= max_sessions_per_identity:
+                    raise DatabaseConflict("pending upload identity limit reached")
+            lifetime = (
+                timedelta(seconds=expires_seconds)
+                if expires_seconds is not None
+                else timedelta(hours=expires_hours)
+            )
             connection.execute(
                 "INSERT INTO upload_sessions("
                 "public_id,secret_hmac,status,expires_at,created_at,updated_at,"
-                "last_activity_at,input_type,archive_mode,archive_phase) "
-                "VALUES (?,?,'created',?,?,?,?,?,?,?)",
+                "last_activity_at,input_type,archive_mode,archive_phase,"
+                "admission_identity_hmac) VALUES (?,?,'created',?,?,?,?,?,?,?,?)",
                 (
                     public_id,
                     secret_hmac,
-                    (now + timedelta(hours=expires_hours)).isoformat(),
+                    (now + lifetime).isoformat(),
                     now.isoformat(),
                     now.isoformat(),
                     now.isoformat(),
                     stored_input_type,
                     int(archive_mode),
                     "transfer" if archive_mode else None,
+                    admission_identity_hmac,
                 ),
             )
 
@@ -170,18 +197,42 @@ class AudioUploadRepository:
         mime: str | None,
         chunk_size: int,
         max_files: int,
+        max_sessions: int = 100,
+        max_sessions_per_identity: int = 5,
         max_reserved_bytes: int,
+        retention_hours: int = 24,
         replacement_for: str | None = None,
     ) -> None:
         with self._factory.transaction() as connection:
             session = connection.execute(
-                "SELECT id,status,expires_at,input_type,archive_mode "
-                "FROM upload_sessions "
+                "SELECT id,status,expires_at,input_type,archive_mode,"
+                "admission_identity_hmac FROM upload_sessions "
                 "WHERE public_id=?",
                 (session_id,),
             ).fetchone()
             if session is None or not self.session_is_mutable(dict(session)):
                 raise DatabaseConflict("upload resource unavailable")
+            now = datetime.now(UTC)
+            if session["status"] == "created":
+                active = connection.execute(
+                    "SELECT COUNT(*) FROM upload_sessions WHERE status IN "
+                    "('uploading','validating','ready','waiting_for_capacity') "
+                    "AND julianday(expires_at)>julianday(?)",
+                    (now.isoformat(),),
+                ).fetchone()[0]
+                if active >= max_sessions:
+                    raise DatabaseConflict("upload session limit reached")
+                identity = session["admission_identity_hmac"]
+                if identity is not None:
+                    per_identity = connection.execute(
+                        "SELECT COUNT(*) FROM upload_sessions WHERE status IN "
+                        "('uploading','validating','ready','waiting_for_capacity') "
+                        "AND admission_identity_hmac=? "
+                        "AND julianday(expires_at)>julianday(?)",
+                        (identity, now.isoformat()),
+                    ).fetchone()[0]
+                    if per_identity >= max_sessions_per_identity:
+                        raise DatabaseConflict("upload identity limit reached")
             # Deleted declarations remain auditable but cannot permit unbounded
             # metadata churn within one session.
             count = connection.execute(
@@ -230,7 +281,7 @@ class AudioUploadRepository:
                 if replacement is None:
                     raise DatabaseConflict("replacement resource unavailable")
                 replacement_id = replacement["id"]
-            now = datetime.now(UTC).isoformat()
+            timestamp = now.isoformat()
             connection.execute(
                 "INSERT INTO upload_files("
                 "public_id,session_id,status,storage_path,original_filename,"
@@ -250,15 +301,26 @@ class AudioUploadRepository:
                     chunk_size,
                     0 if replacement_id is not None else 1,
                     replacement_id,
-                    now,
-                    now,
+                    timestamp,
+                    timestamp,
                 ),
             )
             connection.execute(
                 "UPDATE upload_sessions SET status='uploading',"
                 "reserved_bytes=reserved_bytes+?,revision=revision+1,"
+                "expires_at=?,"
                 "updated_at=?,last_activity_at=? WHERE id=?",
-                (size, now, now, session["id"]),
+                (
+                    size,
+                    (
+                        (now + timedelta(hours=retention_hours)).isoformat()
+                        if session["status"] == "created"
+                        else session["expires_at"]
+                    ),
+                    timestamp,
+                    timestamp,
+                    session["id"],
+                ),
             )
 
     def files_for_session(
@@ -369,6 +431,44 @@ class AudioUploadRepository:
                 ids,
             )
             return len(ids)
+
+    def scrub_terminal_session_text(self, *, limit: int) -> int:
+        """Clear plaintext inputs left by cancelled or expired sessions."""
+        if limit < 1:
+            raise ValueError("upload maintenance limit is invalid")
+        with self._factory.transaction() as connection:
+            rows = connection.execute(
+                "SELECT id FROM upload_sessions WHERE status IN "
+                "('cancelled','expired') AND (context_text!='' OR "
+                "previous_summaries_text!='') ORDER BY id LIMIT ?",
+                (limit,),
+            ).fetchall()
+            if not rows:
+                return 0
+            identifiers = [int(row["id"]) for row in rows]
+            marks = ",".join("?" for _ in identifiers)
+            connection.execute(
+                f"UPDATE upload_sessions SET context_text='',"
+                f"previous_summaries_text='',updated_at=? WHERE id IN ({marks})",
+                (datetime.now(UTC).isoformat(), *identifiers),
+            )
+            return len(identifiers)
+
+    def purge_expired_empty_sessions(self, *, limit: int) -> int:
+        """Delete bounded never-activated tombstones after their recovery window."""
+        if limit < 1:
+            raise ValueError("upload maintenance limit is invalid")
+        with self._factory.transaction() as connection:
+            cursor = connection.execute(
+                "DELETE FROM upload_sessions WHERE id IN (SELECT s.id FROM "
+                "upload_sessions s WHERE s.status='expired' "
+                "AND s.reserved_bytes=0 "
+                "AND NOT EXISTS (SELECT 1 FROM upload_files f WHERE "
+                "f.session_id=s.id) AND NOT EXISTS (SELECT 1 FROM jobs j WHERE "
+                "j.upload_session_id=s.id) ORDER BY s.id LIMIT ?)",
+                (limit,),
+            )
+            return cursor.rowcount
 
     def file_for_session(
         self, session_id: str, file_id: str
@@ -490,7 +590,8 @@ class AudioUploadRepository:
             now = datetime.now(UTC).isoformat()
             cursor = connection.execute(
                 "UPDATE upload_sessions SET status='cancelled',cancelled_at=?,"
-                "reserved_bytes=0,revision=revision+1,updated_at=? "
+                "reserved_bytes=0,context_text='',previous_summaries_text='',"
+                "revision=revision+1,updated_at=? "
                 "WHERE public_id=? AND revision=? "
                 "AND status NOT IN ('consumed','cancelled','expired') "
                 "AND julianday(expires_at)>julianday(?)",
@@ -610,10 +711,14 @@ class AudioUploadRepository:
             return True
 
     def validation_is_running(self, validation_id: str) -> bool:
-        return self._one(
-            "SELECT 1 FROM upload_validations WHERE public_id=? AND status='running'",
-            (validation_id,),
-        ) is not None
+        return (
+            self._one(
+                "SELECT 1 FROM upload_validations WHERE public_id=? "
+                "AND status='running'",
+                (validation_id,),
+            )
+            is not None
+        )
 
     def set_archive_phase(self, validation_id: str, phase: str) -> bool:
         if phase not in {"extraction", "track_validation", "launch_preparation"}:
@@ -762,8 +867,7 @@ class AudioUploadRepository:
             )
             total = sum(int(track["size"]) for track in tracks)
             connection.execute(
-                "UPDATE upload_sessions SET reserved_bytes=?,updated_at=? "
-                "WHERE id=?",
+                "UPDATE upload_sessions SET reserved_bytes=?,updated_at=? WHERE id=?",
                 (total, now, source["session_id"]),
             )
             self._refresh_session_status(connection, source["session_id"])

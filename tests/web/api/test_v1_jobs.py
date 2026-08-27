@@ -8,6 +8,8 @@ from fastapi.testclient import TestClient
 from tara_web.app import create_app
 from tara_web.config import load_config
 
+CREATION_RECOVERY = "cnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnI"
+
 
 def _config(tmp_path):
     path = tmp_path / "web.yaml"
@@ -27,7 +29,10 @@ def _config(tmp_path):
 
 
 def _job(client: TestClient) -> tuple[str, str]:
-    created = client.post("/api/v1/uploads/sessions", headers={"Idempotency-Key": "a"})
+    created = client.post(
+        "/api/v1/uploads/sessions",
+        headers={"Idempotency-Key": "a", "X-Tara-Creation-Recovery": CREATION_RECOVERY},
+    )
     session_id, secret = created.json()["session_id"], created.json()["secret"]
     database = client.app.state.database
     with database.transaction() as connection:
@@ -142,7 +147,11 @@ def test_cancel_is_idempotent_with_expected_revision(tmp_path) -> None:
 def test_session_inputs_are_canonical_persisted_and_revisioned(tmp_path) -> None:
     with TestClient(create_app(_config(tmp_path))) as client:
         created = client.post(
-            "/api/v1/uploads/sessions", headers={"Idempotency-Key": "inputs"}
+            "/api/v1/uploads/sessions",
+            headers={
+                "Idempotency-Key": "inputs",
+                "X-Tara-Creation-Recovery": CREATION_RECOVERY,
+            },
         ).json()
         session_id, secret = created["session_id"], created["secret"]
         response = client.patch(
@@ -172,7 +181,11 @@ def test_session_inputs_are_canonical_persisted_and_revisioned(tmp_path) -> None
 def test_session_inputs_accept_documented_maximum_text_sizes(tmp_path) -> None:
     with TestClient(create_app(_config(tmp_path))) as client:
         created = client.post(
-            "/api/v1/uploads/sessions", headers={"Idempotency-Key": "large-inputs"}
+            "/api/v1/uploads/sessions",
+            headers={
+                "Idempotency-Key": "large-inputs",
+                "X-Tara-Creation-Recovery": CREATION_RECOVERY,
+            },
         ).json()
         response = client.patch(
             f"/api/v1/sessions/{created['session_id']}/inputs",

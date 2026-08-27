@@ -6,17 +6,24 @@ La documentation interactive est désactivée en production.
 
 ## Autorisation et liens partageables
 
-La création d'une session renvoie une seule fois un `session_id` opaque et un
-`secret`. Le frontend place le secret dans le fragment `#secret=...` du lien :
-un fragment n'est pas envoyé au serveur par HTTP. Pour chaque lecture ou
-mutation protégée, le client transmet ensuite :
+La création d'une session renvoie un `session_id` opaque et un `secret`. Une
+reprise de la réponse de création peut renvoyer le même secret uniquement avec
+la preuve de récupération fournie lors de la requête initiale. Le frontend
+place ensuite le secret dans le fragment `#secret=...` du lien : un fragment
+n'est pas envoyé au serveur par HTTP. Pour chaque lecture ou mutation protégée,
+le client transmet :
 
 ```http
 X-Tara-Job-Secret: <secret>
 ```
 
+Le lien complet est une capacité propriétaire au porteur : sa possession suffit
+pour lire et modifier la ressource, sans contrôle d'identité supplémentaire.
 Le secret ne doit apparaître ni dans le chemin, ni dans la query string, ni
-dans les logs. Une ressource inconnue et un secret incorrect produisent la même
+dans les logs. Le choix d'un fragment conserve les liens rafraîchissables et
+partageables, mais le lien doit être protégé comme un mot de passe contre
+l'historique, les extensions, le presse-papiers, les captures et le partage
+d'écran. Une ressource inconnue et un secret incorrect produisent la même
 réponse `404`. La rotation via `POST /api/v1/jobs/{job_id}/secret` révoque
 l'ancien secret atomiquement.
 
@@ -35,12 +42,27 @@ qui n'est plus permise produit `409`. Une précondition absente produit `428`
 sur les commandes qui exigent une révision. Le client doit relire le snapshot
 REST avant de décider d'une nouvelle action.
 
+La création publique exige en plus une preuve distincte de 32 octets aléatoires,
+encodée en base64url canonique sans remplissage :
+
+```http
+X-Tara-Creation-Recovery: <43-caractères-base64url>
+```
+
+`Idempotency-Key` seule ne permet jamais de récupérer le secret propriétaire.
+Après une réponse perdue, le client rejoue une fois la création avec exactement
+les deux mêmes valeurs. La preuve de récupération est un credential au porteur :
+elle n'est ni journalisée, ni placée dans une URL, ni conservée après la reprise.
+
 ## Parcours principal
 
 1. `POST /api/v1/uploads/sessions?input_type=audio|merged_transcription|zip`
-   crée la session.
+   crée une session provisoire, bornée globalement et par identité réseau. Elle
+   expire après 30 minutes sans première déclaration de fichier.
 2. `POST /api/v1/uploads/sessions/{session_id}/files` déclare un fichier avec
-   taille et SHA-256.
+   taille et SHA-256. Cette première déclaration réserve atomiquement une place
+   active et porte l'expiration à 24 heures ; si la capacité active est pleine,
+   la déclaration est refusée sans créer le fichier.
 3. `PATCH .../files/{file_id}/chunks` envoie un chunk séquentiel avec
    `Upload-Offset` et `Upload-Checksum`. `GET .../offset` permet la reprise. En
    cas de `409 upload_chunk_conflict`, le client relit l'offset confirmé puis
@@ -52,13 +74,19 @@ REST avant de décider d'une nouvelle action.
    résumés antérieurs, puis `POST /api/v1/sessions/{session_id}/jobs` lance le
    job lorsque la session est prête.
 6. `GET /api/v1/jobs/{job_id}` est la source de vérité. Le client peut annuler,
-   relancer à l'identique, créer une relance éditable ou régénérer le secret si
-   l'action figure dans `allowed_actions`.
+   créer une relance éditable ou régénérer le secret si l'action figure dans
+   `allowed_actions`. À l'état terminal, les sources et intermédiaires sont
+   supprimés : la relance identique est désactivée et une relance éditable crée
+   toujours une session vide exigeant de nouvelles entrées.
 7. `GET /api/v1/jobs/{job_id}/result` expose uniquement la projection publique
    versionnée, jamais le YAML brut ni un chemin interne. Lorsque
    `summary_markdown` est présent, il contient exactement le document
    `session_summary.md` publié : le téléchargement le conserve tel quel et le
    rendu HTML côté navigateur reste une présentation non canonique.
+8. Après succès, échec, timeout ou annulation, le backend supprime récursivement
+   les uploads, entrées et fichiers de travail. Seul le résultat final validé
+   d'un job réussi est conservé jusqu'à son échéance de sept jours. Un cycle au
+   démarrage puis périodique reprend tout nettoyage interrompu.
 
 Les endpoints de configuration et de santé sont
 `GET /api/v1/config/public`, `GET /api/v1/live` et `GET /api/v1/ready`.

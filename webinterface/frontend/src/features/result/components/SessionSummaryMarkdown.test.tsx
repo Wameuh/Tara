@@ -44,4 +44,20 @@ describe("SessionSummaryMarkdown", () => {
     expect(container.querySelector("a")).not.toBeInTheDocument();
     expect(screen.getByText("lien dangereux")).toBeInTheDocument();
   });
+
+  it("drops relative and protocol-relative links but keeps absolute HTTPS", () => {
+    const { container } = render(<SessionSummaryMarkdown label="Résumé" markdown={`[relatif](/admin)
+
+[protocole](//evil.example/path)
+
+[sûr](https://example.com/path)`} />);
+
+    expect(screen.getByText("relatif").closest("a")).toBeNull();
+    expect(screen.getByText("protocole").closest("a")).toBeNull();
+    expect(screen.getByRole("link", { name: "sûr" })).toHaveAttribute(
+      "href",
+      "https://example.com/path",
+    );
+    expect(container.querySelectorAll("a")).toHaveLength(1);
+  });
 });

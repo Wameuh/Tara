@@ -26,7 +26,11 @@ from tara_web.orchestration.process_pool import ProcessPool
 from tara_web.services.upload_sessions import new_opaque_id
 from tara_web.storage.artifacts import ArtifactPolicy, ArtifactService
 from tara_web.storage.atomic import write_staged
-from tara_web.storage.cleanup import cleanup_expired, cleanup_orphans
+from tara_web.storage.cleanup import (
+    cleanup_expired,
+    cleanup_orphans,
+    cleanup_terminal_private_data,
+)
 from tara_web.storage.layout import StorageLayout
 from tara_web.storage.reconciliation import reconcile
 
@@ -566,6 +570,9 @@ def test_spawn_success_promotes_one_public_yaml(tmp_path: Path) -> None:
         job.database,
         artifact_service=artifacts,
         workspace_service=JobWorkspaceService(job.database, job.layout),
+        terminal_cleanup=lambda job_id: cleanup_terminal_private_data(
+            job.layout, repository, job_id
+        ),
     )
     claim = service.claim_next()
     assert claim is not None
@@ -603,4 +610,48 @@ def test_spawn_success_promotes_one_public_yaml(tmp_path: Path) -> None:
     final_yaml = artifacts.read_final_yaml(artifact_id=artifact[0], job_id=1)
     assert b"schema_name: tara.public_result" in final_yaml
     assert b"schema_version: 26.0.1" in final_yaml
-    assert not (service.workspace_for(request.job_id) / "work" / "final.yaml").exists()
+    assert not (service.workspace_for(request.job_id) / "inputs").exists()
+    assert not (service.workspace_for(request.job_id) / "work").exists()
+    assert not (job.root / "uploads" / "session_000000000001").exists()
+
+
+def test_cancel_during_preparation_rearms_cleanup_after_late_write(
+    tmp_path: Path,
+) -> None:
+    job = seed_audio_job(tmp_path)
+    repository = ArtifactRepository(job.database)
+    service: JobService
+
+    class RacingWorkspace:
+        def prepare_request_paths(
+            self, database_job_id: int, public_id: str
+        ) -> tuple[str, str, None]:
+            assert database_job_id == 1
+            assert service.request_cancel(public_id)
+            inputs = job.root / "jobs" / public_id / "inputs"
+            inputs.mkdir(parents=True, exist_ok=True)
+            (inputs / "late-private.bin").write_bytes(b"late private context")
+            return "inputs/source-manifest.json", "inputs/late-private.bin", None
+
+        def recover(self) -> list[int]:
+            return []
+
+    service = JobService(
+        job.database,
+        workspace_service=RacingWorkspace(),  # type: ignore[arg-type]
+        terminal_cleanup=lambda job_id: cleanup_terminal_private_data(
+            job.layout, repository, job_id
+        ),
+    )
+
+    assert service.claim_next() is None
+    assert not (job.root / "jobs" / "job_0000000000001" / "inputs").exists()
+    connection = job.database.connect()
+    try:
+        row = connection.execute(
+            "SELECT status,private_artifacts_cleaned_at FROM jobs WHERE id=1"
+        ).fetchone()
+        assert row[0] == "cancelled"
+        assert row[1] is not None
+    finally:
+        connection.close()

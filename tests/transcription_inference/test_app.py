@@ -76,7 +76,9 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
     monkeypatch.setattr(app_module, "create_backend", mock_create_backend)
 
-    test_client = TestClient(app)
+    test_client = TestClient(
+        app, headers={"Authorization": "Bearer test-inference-token"}
+    )
     yield test_client
 
 
@@ -126,7 +128,9 @@ def test_transcribe_unsupported_format(client: TestClient, tmp_path: Path) -> No
 
 def test_transcribe_backend_error(tmp_path: Path, disable_worker_mode: None, monkeypatch: pytest.MonkeyPatch) -> None:
     backend = _FakeBackend(fail=True)
-    test_client = TestClient(app)
+    test_client = TestClient(
+        app, headers={"Authorization": "Bearer test-inference-token"}
+    )
 
     # Mock create_backend to return our fake backend that will fail
     def mock_create_backend(model: str) -> TranscriptionBackend:
@@ -173,7 +177,9 @@ def test_transcribe_streaming_backend_error(tmp_path: Path, disable_worker_mode:
 
     monkeypatch.setattr(app_module, "create_backend", mock_create_backend)
 
-    test_client = TestClient(app)
+    test_client = TestClient(
+        app, headers={"Authorization": "Bearer test-inference-token"}
+    )
     audio_path = tmp_path / "sample.mp3"
     audio_path.write_bytes(b"\x00\x00")
     with audio_path.open("rb") as handle:
@@ -216,7 +222,9 @@ def test_transcribe_streaming_skips_empty_text(tmp_path: Path, disable_worker_mo
 
     monkeypatch.setattr(app_module, "create_backend", mock_create_backend)
 
-    test_client = TestClient(app)
+    test_client = TestClient(
+        app, headers={"Authorization": "Bearer test-inference-token"}
+    )
 
     with pytest.raises(NotImplementedError):
         backend.transcribe(Path("x"), model="m", language=None)
@@ -244,7 +252,9 @@ def test_transcribe_cleanup_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setattr(app_module, "create_backend", mock_create_backend)
 
-    test_client = TestClient(app)
+    test_client = TestClient(
+        app, headers={"Authorization": "Bearer test-inference-token"}
+    )
 
     audio_path = tmp_path / "sample.mp3"
     audio_path.write_bytes(b"\x00\x00")
@@ -265,4 +275,3 @@ def test_transcribe_cleanup_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert response.status_code == 200
     # restore to avoid side effects
     monkeypatch.setattr(Path, "unlink", original_unlink)
-

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import secrets
 import stat
@@ -30,6 +31,8 @@ from tara_web.storage.artifacts import ArtifactService, validate_final_yaml_v1
 from .ipc import IpcViolation, parse_message
 from .job_workspace import JobWorkspaceError, JobWorkspaceService
 
+LOGGER = logging.getLogger(__name__)
+
 
 class JobService:
     def __init__(
@@ -45,6 +48,7 @@ class JobService:
         budget_service: BudgetService | None = None,
         circuit_breaker: CircuitBreaker | None = None,
         record_metrics: bool = False,
+        terminal_cleanup: Callable[[str], bool] | None = None,
     ) -> None:
         self._database = database
         self.max_waiting_jobs = max_waiting_jobs
@@ -56,6 +60,7 @@ class JobService:
         self._budget_service = budget_service
         self._circuit_breaker = circuit_breaker
         self._record_metrics = record_metrics
+        self._terminal_cleanup = terminal_cleanup
 
     def _notify(self, job_id: str) -> None:
         if self._on_change is not None:
@@ -102,6 +107,8 @@ class JobService:
                     int(row["current_attempt_number"]),
                 )
                 self._record_terminal_metrics(connection, int(row["id"]))
+        for row in interrupted:
+            self.cleanup_terminal_private_data(str(row["public_id"]))
         if self._workspace_service is not None:
             for job_id in self._workspace_service.recover():
                 self._fail_preparation(job_id)
@@ -156,21 +163,60 @@ class JobService:
             except JobWorkspaceError:
                 self._fail_preparation(int(row["id"]))
                 return None
+        claim, cleanup_job_id = self._commit_prepared_claim(
+            row,
+            max_active_jobs=max_active_jobs,
+            source_manifest_path=source_manifest_path,
+            merged_transcription_path=merged_transcription_path,
+            context_path=context_path,
+            previous_summaries_path=previous_summaries_path,
+        )
+        if cleanup_job_id is not None:
+            self.cleanup_terminal_private_data(cleanup_job_id)
+        return claim
+
+    def _commit_prepared_claim(
+        self,
+        row: object,
+        *,
+        max_active_jobs: int,
+        source_manifest_path: str | None,
+        merged_transcription_path: str | None,
+        context_path: str | None,
+        previous_summaries_path: str | None,
+    ) -> tuple[tuple[RunnerRequest, str] | None, str | None]:
+        """Commit a prepared claim or durably re-arm terminal cleanup."""
         with self._database.transaction() as connection:
+            current = connection.execute(
+                "SELECT id,public_id,current_attempt_number,job_type,language,status "
+                "FROM jobs WHERE id=?",
+                (row["id"],),
+            ).fetchone()
+            if current is None:
+                return None, None
+            if current["status"] != "queued":
+                if current["status"] in {
+                    "completed",
+                    "failed",
+                    "timed_out",
+                    "cancelled",
+                    "cancel_failed",
+                    "expired",
+                    "deleted",
+                }:
+                    connection.execute(
+                        "UPDATE jobs SET private_artifacts_cleaned_at=NULL "
+                        "WHERE id=?",
+                        (current["id"],),
+                    )
+                    return None, str(current["public_id"])
+                return None, None
             active = connection.execute(
                 "SELECT COUNT(*) FROM jobs WHERE status IN "
                 "('running','cancel_requested','stopping')"
             ).fetchone()[0]
             if active >= max_active_jobs:
-                return None
-            current = connection.execute(
-                "SELECT id,public_id,current_attempt_number,job_type,language "
-                "FROM jobs "
-                "WHERE id=? AND status='queued'",
-                (row["id"],),
-            ).fetchone()
-            if current is None:
-                return None
+                return None, None
             row = current
             now = utc_now()
             cursor = connection.execute(
@@ -180,7 +226,7 @@ class JobService:
                 (now, now, row["id"]),
             )
             if cursor.rowcount != 1:
-                return None
+                return None, None
             request = RunnerRequest(
                 CONTRACT_VERSION,
                 str(row["public_id"]),
@@ -212,9 +258,10 @@ class JobService:
                 "WHERE job_id=? AND attempt_number=?",
                 (now, row["id"], request.attempt_number),
             )
-            return request, token
+            return (request, token), None
 
     def _fail_preparation(self, job_id: int) -> None:
+        public_id: str | None = None
         with self._database.transaction() as connection:
             now = utc_now()
             connection.execute(
@@ -233,6 +280,7 @@ class JobService:
                 (job_id,),
             ).fetchone()
             if row is not None:
+                public_id = str(row["public_id"])
                 self._reconcile_budget(
                     connection,
                     job_id,
@@ -240,12 +288,27 @@ class JobService:
                     int(row["current_attempt_number"]),
                 )
                 self._record_terminal_metrics(connection, job_id)
+        if public_id is not None:
+            self.cleanup_terminal_private_data(public_id)
 
     def request_cancel(self, job_id: str, *, connection: object | None = None) -> bool:
         if connection is not None:
             return self._request_cancel(connection, job_id)
         with self._database.transaction() as database_connection:
-            return self._request_cancel(database_connection, job_id)
+            accepted = self._request_cancel(database_connection, job_id)
+        if accepted:
+            self.cleanup_terminal_private_data(job_id)
+        return accepted
+
+    def cleanup_terminal_private_data(self, job_id: str) -> bool:
+        """Best-effort immediate cleanup; durable maintenance retries failures."""
+        if self._terminal_cleanup is None:
+            return True
+        try:
+            return self._terminal_cleanup(job_id)
+        except Exception:
+            LOGGER.exception("terminal_private_cleanup_failed")
+            return False
 
     def _request_cancel(self, connection: object, job_id: str) -> bool:
         now = utc_now()
@@ -480,12 +543,14 @@ class JobService:
                 self._circuit_breaker.finish_probe(
                     success=False, connection=connection
                 )
-            return True
+        self.cleanup_terminal_private_data(job_id)
+        return True
 
     def finish(
         self, job_id: str, attempt: int, token: str, result: RunnerResult
     ) -> bool:
         """Accept only the current worker result and promote its fixed staging file."""
+        accepted = False
         with self._database.transaction() as connection:
             current = connection.execute(
                 "SELECT j.id,j.status FROM jobs j JOIN job_run_snapshots s "
@@ -498,51 +563,55 @@ class JobService:
                 return False
             if current["status"] in ("cancel_requested", "stopping"):
                 self._cleanup_staging(job_id)
-                return self._finish_cancelled(connection, current, attempt)
-            if current["status"] != "running":
+                accepted = self._finish_cancelled(connection, current, attempt)
+            elif current["status"] != "running":
                 self._cleanup_staging(job_id)
                 return False
-            if result.status == RunnerStatus.COMPLETED:
-                status, error = self._promote_completed(
-                    int(current["id"]), job_id, result
-                )
             else:
-                self._cleanup_staging(job_id)
-                status = {
-                    RunnerStatus.FAILED: "failed",
-                    RunnerStatus.TIMED_OUT: "timed_out",
-                    RunnerStatus.CANCELLED: "cancelled",
-                    RunnerStatus.CANCEL_FAILED: "cancel_failed",
-                }[result.status]
-                error = result.error_code.value if result.error_code else None
-            now = utc_now()
-            cursor = connection.execute(
-                "UPDATE jobs SET status=?,error_code=?,finished_at=?,updated_at=?,"
-                "revision=revision+1 "
-                "WHERE id=? AND status='running'",
-                (status, error, now, now, current["id"]),
-            )
-            if cursor.rowcount != 1:
-                return False
-            connection.execute(
-                "UPDATE job_attempts SET status=?,error_code=?,finished_at=? "
-                "WHERE job_id=? AND attempt_number=?",
-                (
-                    status if status != "timed_out" else "failed",
-                    error,
-                    now,
-                    current["id"],
-                    attempt,
-                ),
-            )
-            self._finalize_attempt_cost(connection, int(current["id"]), attempt)
-            self._reconcile_budget(connection, int(current["id"]), job_id, attempt)
-            self._record_terminal_metrics(connection, int(current["id"]))
-            if self._circuit_breaker is not None:
-                self._circuit_breaker.finish_probe(
-                    success=status == "completed", connection=connection
+                if result.status == RunnerStatus.COMPLETED:
+                    status, error = self._promote_completed(
+                        int(current["id"]), job_id, result
+                    )
+                else:
+                    self._cleanup_staging(job_id)
+                    status = {
+                        RunnerStatus.FAILED: "failed",
+                        RunnerStatus.TIMED_OUT: "timed_out",
+                        RunnerStatus.CANCELLED: "cancelled",
+                        RunnerStatus.CANCEL_FAILED: "cancel_failed",
+                    }[result.status]
+                    error = result.error_code.value if result.error_code else None
+                now = utc_now()
+                cursor = connection.execute(
+                    "UPDATE jobs SET status=?,error_code=?,finished_at=?,updated_at=?,"
+                    "revision=revision+1 "
+                    "WHERE id=? AND status='running'",
+                    (status, error, now, now, current["id"]),
                 )
-            return True
+                if cursor.rowcount != 1:
+                    return False
+                connection.execute(
+                    "UPDATE job_attempts SET status=?,error_code=?,finished_at=? "
+                    "WHERE job_id=? AND attempt_number=?",
+                    (
+                        status if status != "timed_out" else "failed",
+                        error,
+                        now,
+                        current["id"],
+                        attempt,
+                    ),
+                )
+                self._finalize_attempt_cost(connection, int(current["id"]), attempt)
+                self._reconcile_budget(connection, int(current["id"]), job_id, attempt)
+                self._record_terminal_metrics(connection, int(current["id"]))
+                if self._circuit_breaker is not None:
+                    self._circuit_breaker.finish_probe(
+                        success=status == "completed", connection=connection
+                    )
+                accepted = True
+        if accepted:
+            self.cleanup_terminal_private_data(job_id)
+        return accepted
 
     def _finish_cancelled(
         self, connection: object, current: object, attempt: int

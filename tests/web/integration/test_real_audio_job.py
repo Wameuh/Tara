@@ -15,9 +15,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from tara.schemas.registry import load_merged_transcription
 from tara_web.app import create_app
 from tara_web.config import load_config
+
+CREATION_RECOVERY = "cnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnI"
 
 
 class _InferenceHandler(BaseHTTPRequestHandler):
@@ -209,7 +210,10 @@ def test_real_supported_audio_job_runs_through_spawn_and_publishes_public_yaml(
         with TestClient(create_app(_configuration(tmp_path, endpoint))) as client:
             created = client.post(
                 "/api/v1/uploads/sessions",
-                headers={"Idempotency-Key": "real-audio-session"},
+                headers={
+                    "Idempotency-Key": "real-audio-session",
+                    "X-Tara-Creation-Recovery": CREATION_RECOVERY,
+                },
             ).json()
             session_id, secret = created["session_id"], created["secret"]
             headers = {"X-Tara-Job-Secret": secret}
@@ -268,23 +272,19 @@ def test_real_supported_audio_job_runs_through_spawn_and_publishes_public_yaml(
             assert str(tmp_path) not in result.text
             assert "host.docker.internal" not in result.text
 
-            merged_path = (
-                client.app.state.storage_layout.root
-                / "jobs"
-                / job_id
-                / "work"
-                / "audio"
-                / "transcriptions"
-                / "merged_transcription.yaml"
-            )
-            merged = load_merged_transcription(merged_path)
-            speakers = {segment.author.speaker for segment in merged.content.segments}
-            source_ids = {
-                segment.author.source_file for segment in merged.content.segments
-            }
-            assert speakers == {"Alice", "MaitreDuJeu", "Guest", "Music"}
-            assert len(source_ids) == 4
-            assert all(source_id.startswith("uf_") for source_id in source_ids)
+            workspace = client.app.state.storage_layout.root / "jobs" / job_id
+            assert not (workspace / "inputs").exists()
+            assert not (workspace / "work").exists()
+            assert not (
+                client.app.state.storage_layout.root / "uploads" / session_id
+            ).exists()
+            with client.app.state.database.transaction() as connection:
+                cleaned_at = connection.execute(
+                    "SELECT private_artifacts_cleaned_at FROM jobs "
+                    "WHERE public_id=?",
+                    (job_id,),
+                ).fetchone()[0]
+            assert cleaned_at is not None
     finally:
         server.shutdown()
         server.server_close()
@@ -321,7 +321,10 @@ def test_real_zip_job_extracts_tracks_then_runs_the_audio_pipeline(
         with TestClient(create_app(_configuration(tmp_path, endpoint))) as client:
             created_response = client.post(
                 "/api/v1/uploads/sessions?input_type=zip",
-                headers={"Idempotency-Key": "real-zip-session"},
+                headers={
+                    "Idempotency-Key": "real-zip-session",
+                    "X-Tara-Creation-Recovery": CREATION_RECOVERY,
+                },
             )
             assert created_response.status_code == 201, created_response.text
             created = created_response.json()

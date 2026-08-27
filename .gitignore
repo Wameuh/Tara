@@ -32,6 +32,9 @@ credentials.json
 token.json
 *service-account*.json
 *.pem
+*.key
+*.crt
+secrets/
 id_rsa*
 id_ed25519*
 

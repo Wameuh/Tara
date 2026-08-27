@@ -15,6 +15,15 @@ _ERROR_CODES = {
     "integrity_failed",
     "delete_failed",
 }
+_TERMINAL_JOB_STATUSES = (
+    "completed",
+    "failed",
+    "timed_out",
+    "cancelled",
+    "cancel_failed",
+    "expired",
+    "deleted",
+)
 _HEX = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -249,13 +258,113 @@ class ArtifactRepository:
                 "JOIN jobs j ON j.id=p.job_id WHERE p.state='moved' "
                 "AND j.status IN ('completed','failed','timed_out','cancelled',"
                 "'cancel_failed','expired','deleted') "
-                "AND julianday(f.created_at,'+24 hours')<=julianday(?) "
+                "AND julianday(COALESCE(j.finished_at,j.updated_at))<=julianday(?) "
                 "ORDER BY p.id LIMIT ?",
                 (now, limit),
             ).fetchall()
             return [dict(row) for row in rows]
         finally:
             connection.close()
+
+    def terminal_private_cleanup_target(
+        self, public_id: str
+    ) -> dict[str, object] | None:
+        """Return a retryable, backend-owned terminal cleanup target."""
+        connection = self._factory.connect()
+        try:
+            row = connection.execute(
+                "SELECT j.id,j.public_id,j.status,s.public_id AS session_public_id,"
+                "(SELECT a.id FROM job_artifacts a WHERE a.job_id=j.id "
+                "AND a.artifact_type='final_yaml' AND a.storage_state='ready' "
+                "ORDER BY a.id DESC LIMIT 1) AS preserved_artifact_id,"
+                "(SELECT a.relative_path FROM job_artifacts a WHERE a.job_id=j.id "
+                "AND a.artifact_type='final_yaml' AND a.storage_state='ready' "
+                "ORDER BY a.id DESC LIMIT 1) AS preserved_result_path "
+                "FROM jobs j JOIN upload_sessions s ON s.id=j.upload_session_id "
+                "WHERE j.public_id=? AND j.private_artifacts_cleaned_at IS NULL "
+                "AND j.status IN ("
+                + ",".join("?" for _ in _TERMINAL_JOB_STATUSES)
+                + ")",
+                (public_id, *_TERMINAL_JOB_STATUSES),
+            ).fetchone()
+            if row is None:
+                return None
+            result = dict(row)
+            if result["status"] != "completed":
+                result["preserved_artifact_id"] = None
+                result["preserved_result_path"] = None
+            return result
+        finally:
+            connection.close()
+
+    def terminal_private_cleanup_batch(self, limit: int) -> list[str]:
+        if not isinstance(limit, int) or not 1 <= limit <= 10_000:
+            raise ValueError("artifact batch is invalid")
+        connection = self._factory.connect()
+        try:
+            rows = connection.execute(
+                "SELECT public_id FROM jobs WHERE private_artifacts_cleaned_at IS NULL "
+                "AND status IN ("
+                + ",".join("?" for _ in _TERMINAL_JOB_STATUSES)
+                + ") ORDER BY id LIMIT ?",
+                (*_TERMINAL_JOB_STATUSES, limit),
+            ).fetchall()
+            return [str(row["public_id"]) for row in rows]
+        finally:
+            connection.close()
+
+    def complete_terminal_private_cleanup(
+        self,
+        job_id: int,
+        expected_status: str,
+        preserved_artifact_id: int | None,
+    ) -> bool:
+        """Scrub private content metadata only after physical deletion succeeds."""
+        with self._factory.transaction() as connection:
+            terminal = connection.execute(
+                "SELECT upload_session_id,status FROM jobs WHERE id=? "
+                "AND private_artifacts_cleaned_at IS NULL AND status IN ("
+                + ",".join("?" for _ in _TERMINAL_JOB_STATUSES)
+                + ")",
+                (job_id, *_TERMINAL_JOB_STATUSES),
+            ).fetchone()
+            if terminal is None:
+                return True
+            if terminal["status"] != expected_status:
+                return False
+            now = utc_now()
+            if preserved_artifact_id is None:
+                predicate = "job_id=?"
+                values: tuple[object, ...] = (job_id,)
+            else:
+                predicate = "job_id=? AND id!=?"
+                values = (job_id, preserved_artifact_id)
+            connection.execute(
+                "UPDATE job_artifacts SET storage_state='deleted',deleted_at=?,"
+                "original_filename=NULL,sha256_hex=NULL,byte_size=NULL,"
+                "staged_temp_name=NULL,updated_at=? WHERE " + predicate,
+                (now, now, *values),
+            )
+            connection.execute(
+                "DELETE FROM job_input_preparations WHERE job_id=?", (job_id,)
+            )
+            connection.execute(
+                "UPDATE upload_files SET storage_cleaned_at=COALESCE("
+                "storage_cleaned_at,?) WHERE session_id=?",
+                (now, terminal["upload_session_id"]),
+            )
+            connection.execute(
+                "UPDATE upload_sessions SET context_text='',"
+                "previous_summaries_text='',reserved_bytes=0,updated_at=? "
+                "WHERE id=?",
+                (now, terminal["upload_session_id"]),
+            )
+            connection.execute(
+                "UPDATE jobs SET private_artifacts_cleaned_at=? WHERE id=? "
+                "AND private_artifacts_cleaned_at IS NULL",
+                (now, job_id),
+            )
+            return True
 
     def remove_input_preparation(self, preparation_id: int) -> None:
         with self._factory.transaction() as connection:

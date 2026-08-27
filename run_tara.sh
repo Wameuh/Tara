@@ -39,7 +39,7 @@ Options:
   --modal                    Use Modal inference and never start local inference
   --inference-endpoint URL   Remote or local inference endpoint
   --inference-auth-provider PROVIDER
-                             Inference auth provider: none, modal_map, or modal_proxy
+                             Inference auth provider: bearer, modal_map, or modal_proxy
   --restart-server           Stop any server on the port and start a fresh one
   --server-port PORT         Inference server port for audio runs (default: 8000)
   --server-host HOST         Inference server host for audio runs (default: localhost)
@@ -167,9 +167,24 @@ ensure_inference_server() {
   echo "Starting inference server on ${SERVER_HOST}:${SERVER_PORT}..."
   echo "Using Python: ${PYTHON_EXE}"
   echo "Inference server log: ${LOG_FILE}"
+  local -a inference_env=(
+    "PATH=${PATH}"
+    "PYTHONPATH=${PYTHONPATH:-}"
+    "HOME=${HOME}"
+    "LANG=${LANG:-C.UTF-8}"
+    "LC_ALL=${LC_ALL:-C.UTF-8}"
+  )
+  local environment_name
+  while IFS= read -r environment_name; do
+    case "$environment_name" in
+      INFERENCE_*|CUDA_*|NVIDIA_*|NEMO_*|PYTORCH_*|TORCH_*|OMP_*|MKL_*|HF_HOME|HUGGINGFACE_HUB_CACHE|TRANSFORMERS_CACHE|XDG_CACHE_HOME|VIRTUAL_ENV|LD_LIBRARY_PATH|SSL_CERT_FILE|REQUESTS_CA_BUNDLE|TMPDIR|TEMP|TMP)
+        inference_env+=("${environment_name}=${!environment_name}")
+        ;;
+    esac
+  done < <(compgen -e)
   (
     cd "$SCRIPT_DIR"
-    "$PYTHON_EXE" -m uvicorn inference_server.app:app \
+    env -i "${inference_env[@]}" "$PYTHON_EXE" -m uvicorn inference_server.app:app \
       --host "$SERVER_HOST" \
       --port "$SERVER_PORT" \
       >"$LOG_FILE" 2>&1
@@ -303,12 +318,26 @@ if [[ -n "$AUDIO_DIR" ]]; then
     "$PYTHON_EXE" -m tara.modal_preflight
   elif [[ -n "${TARA_INFERENCE_ENDPOINT:-}" ]]; then
     if is_local_endpoint "$TARA_INFERENCE_ENDPOINT"; then
+      if [[ -z "${INFERENCE_BEARER_TOKEN:-}" ]]; then
+        export INFERENCE_BEARER_TOKEN
+        INFERENCE_BEARER_TOKEN="$($PYTHON_EXE -c 'import secrets; print(secrets.token_urlsafe(32))')"
+      fi
+      export TARA_INFERENCE_AUTH_PROVIDER="bearer"
+      # Health is intentionally unauthenticated, so it cannot prove that an
+      # existing local process enforces this token. Always replace it.
+      FORCE_RESTART_SERVER="1"
       ensure_inference_server
       export TARA_INFERENCE_ENDPOINT="${HEALTH_URL%/health}"
     else
       echo "Using remote inference endpoint: ${TARA_INFERENCE_ENDPOINT}"
     fi
   else
+    if [[ -z "${INFERENCE_BEARER_TOKEN:-}" ]]; then
+      export INFERENCE_BEARER_TOKEN
+      INFERENCE_BEARER_TOKEN="$($PYTHON_EXE -c 'import secrets; print(secrets.token_urlsafe(32))')"
+    fi
+    export TARA_INFERENCE_AUTH_PROVIDER="bearer"
+    FORCE_RESTART_SERVER="1"
     ensure_inference_server
     export TARA_INFERENCE_ENDPOINT="${HEALTH_URL%/health}"
   fi

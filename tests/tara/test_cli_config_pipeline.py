@@ -356,6 +356,48 @@ def test_modal_proxy_client_fails_before_request_when_secret_missing(
     assert called is False
 
 
+def test_bearer_client_adds_local_inference_authorization(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    audio_file = tmp_path / "speaker.wav"
+    audio_file.write_bytes(b"fixture")
+    captured: dict[str, object] = {}
+
+    def fake_post(**kwargs: object) -> _JSONResponse:
+        captured.update(kwargs)
+        return _JSONResponse(
+            {
+                "text": "Bonjour.",
+                "segments": [{"start": 0.0, "end": 1.0, "text": "Bonjour."}],
+                "language": "fr",
+                "duration": 1.0,
+                "model": "large-v3",
+            },
+        )
+
+    monkeypatch.setenv("INFERENCE_BEARER_TOKEN", "local-test-token")
+    monkeypatch.setattr(
+        "tara.transcription.requests.post",
+        lambda url, files, data, headers, stream, timeout: fake_post(
+            url=url,
+            files=files,
+            data=data,
+            headers=headers,
+            stream=stream,
+            timeout=timeout,
+        ),
+    )
+    InferenceServerClient(
+        base_url="http://127.0.0.1:8000",
+        model="large-v3",
+        timeout=30,
+        auth_provider="bearer",
+    ).transcribe_file(audio_file, language="fr", stream=False)
+
+    assert captured["headers"] == {"Authorization": "Bearer local-test-token"}
+
+
 def test_modal_proxy_streaming_keeps_sse_accept_header(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

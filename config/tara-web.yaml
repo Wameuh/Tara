@@ -15,9 +15,15 @@ analysis:
   pipeline: blackboard_v1
   output_dir: analysis
   parallel: true
-  llm:
-    backend: cursor_cli
+  prompt_security:
+    enabled: true
+    minimum_score: 80
+    max_chars_per_request: 60000
     model: Auto
+  llm:
+    backend: api
+    model: Auto
+    default_api_model: gpt-5
     default_pricing_model: composer-2.5
     usd_to_eur_rate: "0.92"
     pricing_per_million_tokens:
@@ -25,9 +31,6 @@ analysis:
         input_usd: 0.5
         cached_input_usd: 0.2
         output_usd: 2.5
-    cursor_command: cursor-agent
-    cursor_args:
-      - -p
     timeout_seconds: 900
     retries: 2
-    cursor_cli_probe: true
+    cursor_cli_probe: false

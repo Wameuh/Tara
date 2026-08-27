@@ -38,6 +38,9 @@ webinterface:
     recommended_chunk_bytes: 1048576
     max_upload_files: 1000
     max_upload_sessions: 100
+    max_upload_sessions_per_identity: 5
+    max_pending_upload_sessions: 50
+    max_pending_upload_sessions_per_identity: 5
     max_reserved_upload_bytes: 10737418240
     upload_read_timeout_seconds: 30
     upload_inactivity_seconds: 1800

@@ -2951,8 +2951,9 @@ export interface operations {
             query?: {
                 input_type?: "audio" | "merged_transcription" | "zip";
             };
-            header?: {
-                "idempotency-key"?: string | null;
+            header: {
+                "idempotency-key": string;
+                "x-tara-creation-recovery": string;
             };
             path?: never;
             cookie?: never;

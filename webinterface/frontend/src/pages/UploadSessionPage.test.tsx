@@ -23,6 +23,7 @@ describe("UploadSessionPage audio", () => {
     });
     vi.stubGlobal("fetch", fetcher);
     render(<UploadSessionPage sessionId="audio-session" secret="secret" config={config} go={() => undefined} autoLaunch={false} />);
+    expect(await screen.findByText(/Ce lien équivaut à un accès propriétaire/)).toBeInTheDocument();
     const person = await screen.findByLabelText("Personne");
     fireEvent.change(person, { target: { value: "Alicia" } });
     fireEvent.blur(person);

@@ -136,7 +136,7 @@ export function JobPage({ jobId, secret, locale, go }: { jobId: string; secret?:
   </main>;
 }
 
-function ResultPage({
+export function ResultPage({
   result,
   locale,
   jobId,
@@ -178,6 +178,7 @@ function ResultPage({
     return (
       <main className="page">
         <ResultHeader result={result} locale={locale} />
+        <p className="muted">{t("job.share_warning")}</p>
         <p className="error">{t("result.expired")}</p>
       </main>
     );
@@ -187,6 +188,7 @@ function ResultPage({
         message={toast ?? copied ?? (error ? t("result.copy_failed") : null)}
       />
       <ResultHeader result={result} locale={locale} />
+      <p className="muted">{t("job.share_warning")}</p>
       <button
         className="summary-download"
         onClick={() =>

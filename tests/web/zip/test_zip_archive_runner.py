@@ -56,6 +56,60 @@ def test_runner_preserves_precise_archive_rejection_reason(tmp_path: Path) -> No
     assert finished[0]["error_code"] == "zip_no_supported_audio"
 
 
+def test_runner_applies_one_deadline_to_track_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    archive_path = tmp_path / "tracks.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("recording.mp3", b"audio")
+    content = archive_path.read_bytes()
+    finished: list[dict[str, object]] = []
+    repository = SimpleNamespace(
+        claim_validation=lambda _identifier: True,
+        set_archive_phase=lambda *_args: None,
+        validation_is_running=lambda _identifier: True,
+        finish_validation=lambda _identifier, **result: finished.append(result),
+    )
+
+    def upload_path(relative: str) -> Path:
+        return archive_path if relative == "archive.part" else tmp_path / relative
+
+    layout = SimpleNamespace(
+        root=tmp_path,
+        upload_path=upload_path,
+        upload_file=lambda _session, _file: SimpleNamespace(
+            relative_path="validated-track.mp3"
+        ),
+    )
+    monkeypatch.setattr(
+        "tara_web.services.zip_archive_validation.validate_audio",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            TimeoutError("aggregate deadline")
+        ),
+    )
+
+    ZipArchiveValidationRunner(
+        repository,
+        layout,
+        ZipValidationPolicy(
+            archive=ZipPolicy(max_compression_ratio=1_000),
+            ffprobe_timeout=30,
+            ffmpeg_timeout=60,
+        ),
+    ).run(
+        {
+            "validation_id": "uv_zip_validation_000002",
+            "session_public_id": "us_zip_validation_000002",
+            "storage_path": "archive.part",
+            "declared_bytes": len(content),
+            "sha256_hex": hashlib.sha256(content).hexdigest(),
+        }
+    )
+
+    assert finished[0]["error_code"] == "zip_timeout"
+    assert not (tmp_path / "validated-track.mp3").exists()
+
+
 def test_runner_replaces_archive_with_validated_track_rows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

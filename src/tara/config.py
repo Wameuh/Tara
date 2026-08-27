@@ -42,6 +42,7 @@ class TranscriptionConfig:
     inference_auth_provider: str = "none"
     modal_proxy_key_env: str = "TARA_MODAL_PROXY_AUTH_KEY"
     modal_proxy_secret_env: str = "TARA_MODAL_PROXY_AUTH_SECRET"
+    bearer_token_env: str = "INFERENCE_BEARER_TOKEN"
     request_timeout_seconds: int = 1800
     streaming_enabled: bool = True
     parallelism: int = 1
@@ -137,6 +138,9 @@ class TranscriptionConfig:
             ),
             modal_proxy_secret_env=str(
                 data.get("modal_proxy_secret_env", defaults.modal_proxy_secret_env),
+            ),
+            bearer_token_env=str(
+                data.get("bearer_token_env", defaults.bearer_token_env),
             ),
             request_timeout_seconds=int(
                 data.get("request_timeout_seconds", defaults.request_timeout_seconds),

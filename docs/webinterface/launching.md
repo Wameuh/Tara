@@ -65,10 +65,11 @@ provider, ni chemin interne. Les heures utilisent par défaut le fuseau
 `+ Ajouter` / `− Retirer` crée une
 correction signée et auditée pour le mois courant. Le cumul public vaut
 `max(0, estimation provider + corrections du mois)`. Le port peut être changé
-avec `TARA_ADMIN_HOST_PORT`. L'adresse peut être changée avec
-`TARA_ADMIN_BIND_ADDRESS`, par exemple `192.168.1.109` pour un accès LAN ciblé.
-L'interface n'a pas d'authentification : ne pas utiliser `0.0.0.0`, ne pas
-transférer ce port sur le routeur et limiter l'accès avec le pare-feu hôte.
+avec `TARA_ADMIN_HOST_PORT`. L'adresse reste fixée à `127.0.0.1` et
+l'application refuse les hôtes non locaux. Pour administrer depuis un poste
+distant, ouvrir un tunnel SSH avec
+`ssh -L 8765:127.0.0.1:8765 utilisateur@serveur`, puis utiliser
+<http://127.0.0.1:8765> sur le poste distant.
 
 Arrêter la pile sans supprimer les volumes :
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import threading
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -27,6 +28,8 @@ UploadStack = tuple[
     UploadSessionService,
     ChunkUploadService,
 ]
+RECOVERY_KEY = "cnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnI"
+OTHER_RECOVERY_KEY = "c3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3M"
 
 
 def stack(tmp_path: Path, *, max_files: int = 10, max_chunk: int = 1024) -> UploadStack:
@@ -118,7 +121,9 @@ def test_secret_absent_invalid_and_unknown_are_uniform(tmp_path: Path) -> None:
             sessions.authorize(session_id, secret)
 
 
-def test_idempotent_session_creation_reuses_the_derived_secret(tmp_path: Path) -> None:
+def test_idempotent_session_creation_requires_the_recovery_proof(
+    tmp_path: Path,
+) -> None:
     factory, repository, layout, _, _ = stack(tmp_path)
     hmac_service = SecretHmac(b"i" * 32)
     sessions = UploadSessionService(
@@ -127,11 +132,73 @@ def test_idempotent_session_creation_reuses_the_derived_secret(tmp_path: Path) -
         hmac_service,
         idempotency=IdempotencyService(factory, hmac_service),
     )
-    first = sessions.create("replay-key")
-    replay = sessions.create("replay-key")
+    first = sessions.create("replay-key", RECOVERY_KEY)
+    replay = sessions.create("replay-key", RECOVERY_KEY)
     assert replay == first
     assert int(repository.session(first.session_id)["revision"]) == 1
     sessions.authorize(first.session_id, first.secret)
+    with pytest.raises(DatabaseConflict, match="payload conflict"):
+        sessions.create("replay-key", OTHER_RECOVERY_KEY)
+    with pytest.raises(ValueError, match="recovery"):
+        sessions.create("replay-key")
+
+
+def test_creation_recovery_uses_the_recorded_hmac_version(tmp_path: Path) -> None:
+    factory, repository, layout, _, _ = stack(tmp_path)
+    old_key = b"o" * 32
+    original_hmac = SecretHmac(old_key, version=1)
+    original = UploadSessionService(
+        repository,
+        layout,
+        original_hmac,
+        idempotency=IdempotencyService(factory, original_hmac),
+    ).create("rotation-replay", RECOVERY_KEY)
+    rotated_hmac = SecretHmac(b"n" * 32, version=2, previous={1: old_key})
+    replay = UploadSessionService(
+        repository,
+        layout,
+        rotated_hmac,
+        idempotency=IdempotencyService(factory, rotated_hmac),
+    ).create("rotation-replay", RECOVERY_KEY)
+    assert replay == original
+
+
+def test_hmac_rotation_keeps_active_identity_admission_stable(tmp_path: Path) -> None:
+    factory, repository, layout, _, _ = stack(tmp_path)
+    old_key = b"o" * 32
+    original = UploadSessionService(
+        repository,
+        layout,
+        SecretHmac(old_key, version=1),
+        max_sessions=2,
+        max_sessions_per_identity=1,
+    )
+    first = original.create(client_identity="198.51.100.40")
+    original.declare_file(
+        first.session_id,
+        first.secret,
+        filename="first.mp3",
+        size=1,
+        sha256_hex="a" * 64,
+        mime="audio/mpeg",
+    )
+    rotated = UploadSessionService(
+        repository,
+        layout,
+        SecretHmac(b"n" * 32, version=2, previous={1: old_key}),
+        max_sessions=2,
+        max_sessions_per_identity=1,
+    )
+    second = rotated.create(client_identity="198.51.100.40")
+    with pytest.raises(DatabaseConflict, match="identity"):
+        rotated.declare_file(
+            second.session_id,
+            second.secret,
+            filename="second.mp3",
+            size=1,
+            sha256_hex="b" * 64,
+            mime="audio/mpeg",
+        )
 
 
 def test_transactional_idempotency_rolls_back_reservation_and_effect(
@@ -185,7 +252,7 @@ def test_transactional_session_creation_is_single_effect_under_concurrency(
     created: list[CreatedSession] = []
 
     def create() -> None:
-        created.append(sessions.create("same-key"))
+        created.append(sessions.create("same-key", RECOVERY_KEY))
 
     workers = [threading.Thread(target=create) for _ in range(2)]
     for worker in workers:
@@ -547,13 +614,13 @@ def test_upload_capacity_session_and_file_quotas_are_atomic(tmp_path: Path) -> N
         StorageLayout(root),
         SecretHmac(b"q" * 32),
         max_sessions=1,
+        max_pending_sessions=2,
         max_files=2,
         max_reserved_bytes=8,
         max_upload_bytes=8,
     )
-    created = sessions.create()
-    with pytest.raises(DatabaseConflict, match="session limit"):
-        sessions.create()
+    created = sessions.create(client_identity="first")
+    pending = sessions.create(client_identity="second")
     sessions.declare_file(
         created.session_id,
         created.secret,
@@ -562,6 +629,15 @@ def test_upload_capacity_session_and_file_quotas_are_atomic(tmp_path: Path) -> N
         sha256_hex="a" * 64,
         mime="audio/mpeg",
     )
+    with pytest.raises(DatabaseConflict, match="session limit"):
+        sessions.declare_file(
+            pending.session_id,
+            pending.secret,
+            filename="pending.mp3",
+            size=1,
+            sha256_hex="c" * 64,
+            mime="audio/mpeg",
+        )
     with pytest.raises(DatabaseConflict, match="capacity"):
         sessions.declare_file(
             created.session_id,
@@ -571,6 +647,116 @@ def test_upload_capacity_session_and_file_quotas_are_atomic(tmp_path: Path) -> N
             sha256_hex="b" * 64,
             mime="audio/ogg",
         )
+
+
+def test_pending_session_quota_is_durable_per_identity_and_global(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "runtime"
+    root.mkdir(mode=0o700)
+    factory = ConnectionFactory(root / "tara.sqlite3", root)
+    connection = factory.connect()
+    try:
+        migrate(connection)
+    finally:
+        connection.close()
+    sessions = UploadSessionService(
+        AudioUploadRepository(factory),
+        StorageLayout(root),
+        SecretHmac(b"p" * 32),
+        max_pending_sessions=2,
+        max_pending_sessions_per_identity=1,
+    )
+    first = sessions.create(client_identity="198.51.100.1")
+    with pytest.raises(DatabaseConflict, match="identity"):
+        sessions.create(client_identity="198.51.100.1")
+    second = sessions.create(client_identity="198.51.100.2")
+    with pytest.raises(DatabaseConflict, match="pending"):
+        sessions.create(client_identity="198.51.100.3")
+    assert first.session_id != second.session_id
+
+
+def test_first_declaration_atomically_promotes_and_extends_pending_session(
+    tmp_path: Path,
+) -> None:
+    factory, repository, _, sessions, _ = stack(tmp_path)
+    sessions.pending_ttl_seconds = 60
+    session = sessions.create(client_identity="198.51.100.10")
+    pending = repository.session(session.session_id)
+    assert pending is not None and pending["status"] == "created"
+    pending_expiry = datetime.fromisoformat(str(pending["expires_at"]))
+    sessions.declare_file(
+        session.session_id,
+        session.secret,
+        filename="Alice.mp3",
+        size=4,
+        sha256_hex="a" * 64,
+        mime="audio/mpeg",
+    )
+    active = repository.session(session.session_id)
+    assert active is not None and active["status"] == "uploading"
+    assert datetime.fromisoformat(str(active["expires_at"])) > pending_expiry
+    assert datetime.fromisoformat(str(active["expires_at"])) > datetime.now(
+        UTC
+    ) + timedelta(hours=23)
+
+
+def test_concurrent_pending_promotions_cannot_overbook_active_capacity(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "runtime"
+    root.mkdir(mode=0o700)
+    factory = ConnectionFactory(root / "tara.sqlite3", root)
+    connection = factory.connect()
+    try:
+        migrate(connection)
+    finally:
+        connection.close()
+    repository = AudioUploadRepository(factory)
+    sessions = UploadSessionService(
+        repository,
+        StorageLayout(root),
+        SecretHmac(b"w" * 32),
+        max_sessions=1,
+        max_pending_sessions=2,
+    )
+    pending = [
+        sessions.create(client_identity=f"198.51.100.{index}") for index in (20, 21)
+    ]
+    barrier = threading.Barrier(2)
+    outcomes: list[str] = []
+
+    def promote(index: int) -> None:
+        barrier.wait()
+        try:
+            sessions.declare_file(
+                pending[index].session_id,
+                pending[index].secret,
+                filename=f"{index}.mp3",
+                size=1,
+                sha256_hex=str(index) * 64,
+                mime="audio/mpeg",
+            )
+            outcomes.append("accepted")
+        except DatabaseConflict:
+            outcomes.append("rejected")
+
+    workers = [threading.Thread(target=promote, args=(index,)) for index in range(2)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+    assert sorted(outcomes) == ["accepted", "rejected"]
+    connection = factory.connect()
+    try:
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM upload_sessions WHERE status='uploading'"
+            ).fetchone()[0]
+            == 1
+        )
+    finally:
+        connection.close()
 
 
 def test_chunk_checks_minimum_free_space(

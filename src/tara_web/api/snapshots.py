@@ -213,13 +213,7 @@ def job_snapshot(request: object, row: dict[str, object]) -> dict[str, object]:
             "ORDER BY id",
             (row["id"],),
         ).fetchall()
-        identical_relaunch_available = status == JobStatus.TIMED_OUT and bool(
-            connection.execute(
-                "SELECT 1 FROM job_input_preparations WHERE job_id=? "
-                "AND state='moved' LIMIT 1",
-                (row["id"],),
-            ).fetchone()
-        )
+        identical_relaunch_available = False
     finally:
         connection.close()
     return JobSnapshot.model_validate(

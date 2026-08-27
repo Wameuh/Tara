@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode } from "react";
+import { safeLink } from "../../../routing/safeLink";
 
 type Link = { label: string; href: string };
 export type PublicBlock =
@@ -8,15 +9,6 @@ export type PublicBlock =
   | { type: "table"; headers: string[]; rows: string[][] }
   | { type: "callout"; title: string; text: string }
   | { type: "unknown" };
-
-const safeLink = (href: string) => {
-  try {
-    const url = new URL(href);
-    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
-  } catch {
-    return null;
-  }
-};
 
 function highlighted(text: string, query: string): ReactNode {
   if (query.length < 2) return text;

@@ -4867,17 +4867,19 @@
           {
             "in": "header",
             "name": "idempotency-key",
-            "required": false,
+            "required": true,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Idempotency-Key"
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-tara-creation-recovery",
+            "required": true,
+            "schema": {
+              "title": "X-Tara-Creation-Recovery",
+              "type": "string"
             }
           }
         ],

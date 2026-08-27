@@ -12,6 +12,8 @@ def maintain_uploads(
 ) -> int:
     """Expire sessions and clean at most one bounded batch of tombstones."""
     work = repository.expire_sessions(limit=batch_size)
+    work += repository.scrub_terminal_session_text(limit=batch_size)
+    work += repository.purge_expired_empty_sessions(limit=batch_size)
     for row in repository.maintenance_files(limit=batch_size):
         work += 1
         path = str(row["storage_path"])
@@ -29,6 +31,14 @@ def drain_startup_uploads(
     work = 0
     while repository.expire_sessions(limit=batch_size) == batch_size:
         work += batch_size
+    while scrubbed := repository.scrub_terminal_session_text(limit=batch_size):
+        work += scrubbed
+        if scrubbed < batch_size:
+            break
+    while purged := repository.purge_expired_empty_sessions(limit=batch_size):
+        work += purged
+        if purged < batch_size:
+            break
     after_id = 0
     while rows := repository.startup_nonterminal_files(
         after_id=after_id, limit=batch_size

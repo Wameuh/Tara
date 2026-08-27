@@ -62,9 +62,7 @@ def test_compose_topology_hardening_and_one_shot_services() -> None:
     ]
     admin = services["tara-admin"]
     assert admin["user"] == "10001:10001"
-    assert admin["ports"] == [
-        "${TARA_ADMIN_BIND_ADDRESS:-127.0.0.1}:${TARA_ADMIN_HOST_PORT:-8765}:8765"
-    ]
+    assert admin["ports"] == ["127.0.0.1:${TARA_ADMIN_HOST_PORT:-8765}:8765"]
     assert admin["networks"] == ["tara_admin"]
     assert admin["depends_on"]["tara-web-migrate"]["condition"] == (
         "service_completed_successfully"
@@ -83,6 +81,9 @@ def test_compose_topology_hardening_and_one_shot_services() -> None:
     ]
     assert proxy["networks"] == ["tara_internal", "tara_public"]
     assert compose["networks"]["tara_internal"]["internal"] is True
+    assert compose["networks"]["tara_internal"]["ipam"]["config"] == [
+        {"subnet": "172.29.0.0/29"}
+    ]
     assert compose["networks"]["tara_admin"]["driver"] == "bridge"
 
 
@@ -154,6 +155,9 @@ def test_image_context_entrypoint_proxy_and_config_are_production_shaped() -> No
     assert "X-Forwarded-For $remote_addr" in proxy
     assert "proxy_add_x_forwarded_for" not in proxy
     assert "proxy_intercept_errors on" in proxy
+    assert "limit_req_zone" in proxy
+    assert "limit_conn_zone" in proxy
+    assert "proxy_read_timeout 3600s" not in proxy
     assert "error_page 502 503 504 =503 /maintenance.html" in proxy
     assert "if (-f /maintenance/enabled) { return 503; }" in proxy
     assert "Maintenance en cours" in maintenance
@@ -168,14 +172,14 @@ def test_image_context_entrypoint_proxy_and_config_are_production_shaped() -> No
     assert "prepare_cursor_auth" in entrypoint
     assert 'chmod 600 "$cursor_config/auth.json"' in entrypoint
     tara_config = load_yaml(ROOT / "config/tara-web.yaml")
-    assert tara_config["analysis"]["llm"]["backend"] == "cursor_cli"
-    assert tara_config["analysis"]["llm"]["cursor_command"] == "cursor-agent"
+    assert tara_config["analysis"]["llm"]["backend"] == "api"
+    assert tara_config["analysis"]["prompt_security"]["enabled"] is True
     override = (ROOT / "compose.override.yaml.example").read_text(encoding="utf-8")
     assert (
         "TARA_KOFI_VERIFICATION_TOKEN_FILE: /run/secrets/kofi_verification_token"
     ) in override
-    assert "TARA_CURSOR_AUTH_FILE: /run/secrets/cursor_auth" in override
-    assert ":/opt/cursor-agent:ro" in override
+    assert "TARA_CURSOR_AUTH_FILE" not in override
+    assert ":/opt/cursor-agent:ro" not in override
     proxy_mounts = load_yaml(ROOT / "compose.yaml")["services"]["tara-proxy"]["volumes"]
     assert any("maintenance.html:" in str(mount) for mount in proxy_mounts)
     assert any(":/maintenance:ro" in str(mount) for mount in proxy_mounts)

@@ -17,7 +17,9 @@ commande.
 
 ## Flux et recuperation
 
-1. Une session reserve de la capacite, puis recoit des fichiers reprenables.
+1. Une session publique commence dans un niveau provisoire borne et de courte
+   duree. La premiere declaration de fichier reserve atomiquement une place
+   active, puis la session recoit des fichiers reprenables.
    Pour l'audio, la selection cree la session et demarre les transferts sans
    bloquer la saisie du contexte et des resumes anterieurs. Un conflit de chunk
    `409 upload_chunk_conflict` provoque une relecture de l'offset serveur et une
@@ -26,8 +28,11 @@ commande.
 3. Une session prete est revendiquee atomiquement et cree un job FIFO.
 4. Le runner declare uniquement evenements et artefacts; le processus principal
    promeut le resultat et publie un snapshot.
-5. Une annulation est cooperative; un retour tardif est ignore. Les entrees sont
-   conservees jusqu'a la retention normale pour permettre une relance.
+5. Une annulation est cooperative; un retour tardif est ignore. Des que le job
+   devient terminal, uploads, entrees et fichiers de travail sont supprimes
+   recursivement. Un succes conserve uniquement son resultat final valide; les
+   autres issues suppriment aussi tout resultat partiel. Une relance editable
+   demande donc de nouvelles entrees.
 6. Au redemarrage, les jobs actifs sans worker deviennent `failed` avec
    `server_interrupted`; les jobs en attente conservent leur ordre. Les uploads
    et artefacts sont reconcilies depuis leur etat persiste.
@@ -44,9 +49,11 @@ commande.
 | public | statuts, codes, progression, expiration, identifiant de correlation d'une reponse en erreur | schemas API et SSE uniquement |
 | interne | chemins relatifs, detail de retry, diagnostic technique | processus principal et logs expurges |
 | sensible | noms originaux, contenu utilisateur, artefacts | stockage gere et routes protegees |
-| secret | secret de lien, cles HMAC, credentials provider | jamais dans IPC, schemas publics ou logs |
+| secret | lien proprietaire complet, preuve de recuperation de creation, cles HMAC, credentials provider | capacites au porteur, jamais dans IPC, schemas publics ou logs |
 
-Le processus HTTP peut lire sa configuration et secrets, ecrire SQLite et les
+La possession du lien proprietaire vaut autorisation complete sur sa ressource ;
+aucune identite n'est verifiee au-dela de cette capacite. Le processus HTTP peut
+lire sa configuration et secrets, ecrire SQLite et les
 racines gerees, et soumettre des workers. Le worker peut lire les seules entrees
 du job et les credentials strictement requis; il ne peut pas muter la base ni
 publier un artefact. Le frontend ne recoit que les donnees publiques et le
@@ -57,7 +64,7 @@ secret transmis dans le fragment local de l'URL.
 | Menace | Controle contractuel |
 |---|---|
 | Attaquant Internet | identifiants opaques, actions et types inconnus refuses, payloads bornes |
-| Detenteur d'un lien | secret hors URL serveur, snapshots sans fuite interne, rotation atomique et revocation de l'ancien secret |
+| Detenteur d'un lien | fragment absent de la requete HTTP mais lisible par le navigateur, avertissement de capacite au porteur, rotation atomique et revocation de l'ancien secret |
 | Fichier hostile | chemins relatifs geres, validation positive, tailles et evenements bornes |
 | Provider compromis | erreurs converties en codes stables; reponses brutes et credentials restent internes |
 | Operateur mal configure | dependances a sens unique, privileges minimaux et listes positives de contrats |

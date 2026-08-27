@@ -659,13 +659,25 @@ def _build_prompt_security_runner(
     retry_callback: Callable[[int], None] | None = None,
     usage_attempt_callback: Callable[[UsageAttempt], None] | None = None,
 ) -> LLMRunner:
-    """Build the dedicated Cursor CLI runner used by the input safety gate."""
+    """Build the input-safety runner on the configured completion boundary."""
     raw_model = config.analysis.prompt_security.model
-    model = None if raw_model == "Auto" else raw_model
     llm = config.analysis.llm
+    if llm.backend == "api":
+        model = llm.default_api_model if raw_model == "Auto" else raw_model
+        if not model:
+            raise TaraPipelineError(
+                "analysis.llm.default_api_model must be set when prompt security "
+                "uses the api backend and model is Auto.",
+            )
+    elif llm.backend == "cursor_cli":
+        model = None if raw_model == "Auto" else raw_model
+    else:
+        raise TaraPipelineError(
+            f"Unsupported prompt-security LLM backend: {llm.backend}",
+        )
     return LLMRunner(
         LLMRunnerConfig(
-            backend="cursor_cli",
+            backend=llm.backend,
             model=model,
             cursor_command=llm.cursor_command,
             cursor_args=tuple(llm.cursor_args),

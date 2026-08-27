@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,14 +22,22 @@ def validate_audio(
     expected_sha256: str,
     ffprobe_timeout: int,
     ffmpeg_timeout: int,
+    deadline_monotonic: float | None = None,
 ) -> AudioProbeResult:
     digest = hashlib.sha256()
     size = 0
     try:
         with path.open("rb") as handle:
             while chunk := handle.read(65_536):
+                if (
+                    deadline_monotonic is not None
+                    and time.monotonic() >= deadline_monotonic
+                ):
+                    raise TimeoutError("audio validation deadline exceeded")
                 size += len(chunk)
                 digest.update(chunk)
+    except TimeoutError:
+        raise
     except OSError as exc:
         raise ValueError("validation_unavailable") from exc
     if size != expected_size or not hmac.compare_digest(
@@ -36,7 +45,10 @@ def validate_audio(
     ):
         raise ValueError("input_invalid")
     return probe_audio(
-        path, ffprobe_timeout=ffprobe_timeout, ffmpeg_timeout=ffmpeg_timeout
+        path,
+        ffprobe_timeout=ffprobe_timeout,
+        ffmpeg_timeout=ffmpeg_timeout,
+        deadline_monotonic=deadline_monotonic,
     )
 
 

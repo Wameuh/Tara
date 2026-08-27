@@ -74,14 +74,20 @@ le HMAC, `PRAGMA integrity_check` et l'audit opérateur, puis seulement basculer
 vers la nouvelle racine. Ne jamais monter simultanément l'ancienne et la
 nouvelle base dans l'application.
 
+La migration 0020 expire volontairement les anciennes sessions `created` sans
+fichier : elles ne disposent pas de l'identité HMAC ni de la durée provisoire
+nécessaires au nouveau contrôle d'admission. Aucun fichier utilisateur n'est
+supprimé par cette étape.
+
 ## Rotation et révocation
 
 - Certificat TLS : installer la nouvelle paire, valider la chaîne, recréer le
   proxy puis révoquer l'ancien certificat.
 - Credentials provider : créer un credential de remplacement, le monter,
   recréer `tara-web`, vérifier un appel borné, puis révoquer l'ancien.
-- Clé HMAC d'upload : sa rotation invalide les secrets de liens existants ;
-  planifier une fenêtre et prévenir les utilisateurs avant la bascule.
+- Clé HMAC d'upload : sa rotation invalide les secrets de liens existants ainsi
+  que toute reprise de création encore en cours ; planifier une fenêtre et
+  prévenir les utilisateurs avant la bascule.
 - Clé de signature des sauvegardes : conserver l'ancienne clé hors ligne aussi
   longtemps qu'une génération correspondante doit rester restaurable. Toute
   nouvelle sauvegarde utilise uniquement la nouvelle clé.

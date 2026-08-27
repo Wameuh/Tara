@@ -234,6 +234,4 @@ def allowed_actions_for_job(
         actions.add(AllowedAction.EDIT_AND_RELAUNCH)
     if status == JobStatus.TIMED_OUT:
         actions.add(AllowedAction.EDIT_AND_RELAUNCH)
-        if identical_relaunch_available:
-            actions.add(AllowedAction.RELAUNCH_IDENTICAL)
     return frozenset(actions)

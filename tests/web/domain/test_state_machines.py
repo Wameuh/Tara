@@ -148,5 +148,4 @@ def test_allowed_actions_are_pure_functions_of_resource_state() -> None:
         "delete_job",
         "edit_and_relaunch",
         "regenerate_secret",
-        "relaunch_identical",
     }

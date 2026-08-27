@@ -51,6 +51,7 @@ class ZipPolicy:
     max_depth: int = 16
     max_name_bytes: int = 1_024
     timeout_seconds: float = 30.0
+    minimum_free_bytes: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,13 +61,23 @@ class ZipInspection:
     total_uncompressed_bytes: int
 
 
-def inspect_zip(path: Path, policy: ZipPolicy) -> ZipInspection:
+def inspect_zip(
+    path: Path,
+    policy: ZipPolicy,
+    *,
+    deadline_monotonic: float | None = None,
+) -> ZipInspection:
     """Inspect all central-directory entries without writing archive content."""
-    started = time.monotonic()
+    deadline = (
+        deadline_monotonic
+        if deadline_monotonic is not None
+        else time.monotonic() + policy.timeout_seconds
+    )
     try:
         info = os.lstat(path)
     except OSError as exc:
         raise ZipValidationError("zip_invalid") from exc
+    _deadline(deadline)
     if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
         raise ZipValidationError("zip_invalid")
     if not 1 <= info.st_size <= policy.max_archive_bytes:
@@ -77,6 +88,7 @@ def inspect_zip(path: Path, policy: ZipPolicy) -> ZipInspection:
             entries = archive.infolist()
     except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
         raise ZipValidationError("zip_invalid") from exc
+    _deadline(deadline)
     if not entries:
         raise ZipValidationError("zip_empty")
     if len(entries) > policy.max_entries:
@@ -87,7 +99,7 @@ def inspect_zip(path: Path, policy: ZipPolicy) -> ZipInspection:
     total = 0
     normalized_names: set[str] = set()
     for entry in entries:
-        _deadline(started, policy)
+        _deadline(deadline)
         name = _safe_name(entry, policy)
         collision_key = unicodedata.normalize("NFC", name).casefold()
         if collision_key in normalized_names:
@@ -154,6 +166,6 @@ def _regular_entry(entry: zipfile.ZipInfo) -> None:
         raise ZipValidationError("zip_non_regular_entry")
 
 
-def _deadline(started: float, policy: ZipPolicy) -> None:
-    if time.monotonic() - started > policy.timeout_seconds:
+def _deadline(deadline: float) -> None:
+    if time.monotonic() >= deadline:
         raise ZipValidationError("zip_timeout")

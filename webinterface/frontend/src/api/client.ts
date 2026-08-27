@@ -7,6 +7,12 @@ export type ResultSnapshot = components["schemas"]["ResultSnapshot"];
 export type MonthlyFundingSnapshot = components["schemas"]["MonthlyFundingSnapshot"];
 type Inputs = { language: string; context_text: string; previous_summaries_text: string };
 const key = () => crypto.randomUUID();
+const recoveryKey = () => {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  let binary = "";
+  for (const value of bytes) binary += String.fromCharCode(value);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+};
 type ProblemDetails = components["schemas"]["ProblemDetails"];
 
 export class ApiError extends Error {
@@ -58,7 +64,15 @@ export function isPublicConfig(value: unknown): value is PublicConfig { if (!val
 export const api = {
   getMonthlyFunding: () => request<MonthlyFundingSnapshot>("/api/v1/funding/monthly"),
   recordPageView: (page: "new_job" | "help" | "upload_session" | "job") => fetch(`/api/v1/metrics/page-view?page=${page}`, { method: "POST", cache: "no-store", keepalive: true }).then(() => undefined).catch(() => undefined),
-  createUploadSession: (input_type: InputKind) => request<{ session_id: string; secret: string; revision: number }>(`/api/v1/uploads/sessions?input_type=${encodeURIComponent(input_type)}`, { method: "POST", headers: { "Idempotency-Key": key() } }),
+  createUploadSession: (input_type: InputKind) => {
+    const idempotencyKey = key();
+    const recovery = recoveryKey();
+    const create = () => request<{ session_id: string; secret: string; revision: number }>(`/api/v1/uploads/sessions?input_type=${encodeURIComponent(input_type)}`, { method: "POST", headers: { "Idempotency-Key": idempotencyKey, "X-Tara-Creation-Recovery": recovery } });
+    return create().catch((reason: unknown) => {
+      if (reason instanceof ApiError && reason.status < 500) throw reason;
+      return create();
+    });
+  },
   getSession: (id: string, secret: string) => request<SessionSnapshot>(`/api/v1/sessions/${id}`, { headers: ownerHeaders(secret) }),
   updateSessionInputs: (id: string, secret: string, revision: number, body: Inputs) => request<SessionSnapshot>(`/api/v1/sessions/${id}/inputs`, { method: "PATCH", headers: { ...ownerHeaders(secret, revision, true), "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   declareFile: (id: string, secret: string, body: { filename: string; size: number; sha256: string; mime: string | null }, idempotencyKey?: string, signal?: AbortSignal) => request<{ file_id: string; revision: number }>(`/api/v1/uploads/sessions/${id}/files`, { method: "POST", headers: { ...ownerHeaders(secret, undefined, true, idempotencyKey), "Content-Type": "application/json" }, body: JSON.stringify(body), signal }),

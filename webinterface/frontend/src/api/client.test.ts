@@ -13,6 +13,18 @@ describe("public config client", () => {
     expect(init).toMatchObject({ method: "POST" });
     expect(init.body).toBeUndefined();
     expect(init.headers).not.toMatchObject({ "Content-Type": "application/json" });
+    expect(init.headers).toMatchObject({ "Idempotency-Key": expect.any(String), "X-Tara-Creation-Recovery": expect.stringMatching(/^[A-Za-z0-9_-]{43}$/) });
+  });
+  it("reuses both creation proofs after a lost response", async () => {
+    const fetch = vi.fn()
+      .mockRejectedValueOnce(new TypeError("response lost"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ session_id: "session", secret: "secret", revision: 1 })));
+    vi.stubGlobal("fetch", fetch);
+    await api.createUploadSession("audio");
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const first = (fetch.mock.calls[0] as unknown as [string, RequestInit])[1].headers;
+    const replay = (fetch.mock.calls[1] as unknown as [string, RequestInit])[1].headers;
+    expect(replay).toEqual(first);
   });
   it("sends resumable chunks as declared binary bodies", async () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify({ confirmed_offset: 3, revision: 2 })));

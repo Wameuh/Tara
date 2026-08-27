@@ -6,6 +6,7 @@ import json
 import math
 import os
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,7 +38,11 @@ def detect_signature(prefix: bytes) -> str:
 
 
 def probe_audio(
-    path: Path, *, ffprobe_timeout: int, ffmpeg_timeout: int
+    path: Path,
+    *,
+    ffprobe_timeout: int,
+    ffmpeg_timeout: int,
+    deadline_monotonic: float | None = None,
 ) -> AudioProbeResult:
     try:
         with path.open("rb") as handle:
@@ -64,10 +69,16 @@ def probe_audio(
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            timeout=ffprobe_timeout,
+            timeout=_bounded_timeout(ffprobe_timeout, deadline_monotonic),
             env=environment,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+    except subprocess.TimeoutExpired as exc:
+        if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+            raise TimeoutError("audio validation deadline exceeded") from exc
+        raise ValueError("validation_unavailable") from exc
+    except TimeoutError:
+        raise
+    except (FileNotFoundError, OSError) as exc:
         raise ValueError("validation_unavailable") from exc
     if completed.returncode or len(completed.stdout) > _MAX_PROBE_OUTPUT:
         raise ValueError("input_invalid")
@@ -111,10 +122,16 @@ def probe_audio(
             check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            timeout=ffmpeg_timeout,
+            timeout=_bounded_timeout(ffmpeg_timeout, deadline_monotonic),
             env=environment,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+    except subprocess.TimeoutExpired as exc:
+        if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+            raise TimeoutError("audio validation deadline exceeded") from exc
+        raise ValueError("validation_unavailable") from exc
+    except TimeoutError:
+        raise
+    except (FileNotFoundError, OSError) as exc:
         raise ValueError("validation_unavailable") from exc
     if decoded.returncode:
         raise ValueError("input_invalid")
@@ -123,3 +140,12 @@ def probe_audio(
         detected,
         "audio_duration_high" if duration >= 19_440 else None,
     )
+
+
+def _bounded_timeout(configured: int, deadline_monotonic: float | None) -> float:
+    if deadline_monotonic is None:
+        return float(configured)
+    remaining = deadline_monotonic - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("audio validation deadline exceeded")
+    return min(float(configured), remaining)

@@ -23,6 +23,7 @@ from tara.analysis.llm_runner import (
     LLMRunner,
     LLMRunnerConfig,
     ModelPricing,
+    _cursor_args_with_sandbox_trust,
     OpenAIAPIBackend,
     _parse_cursor_cli_stdout,
 )
@@ -381,9 +382,11 @@ def test_cursor_cli_backend_runs_agent_prompt() -> None:
 
     assert response.content == "done"
     assert response.model == "Auto"
-    exe0, arg0, arg1 = commands[0][0:3]
-    assert arg0 == "--trust"
-    assert arg1 == "-p"
+    exe0 = commands[0][0]
+    assert "--trust" in commands[0]
+    assert commands[0][commands[0].index("--mode") + 1] == "ask"
+    assert commands[0][commands[0].index("--sandbox") + 1] == "enabled"
+    assert "-p" in commands[0]
     assert Path(exe0).name.lower() in {"agent", "agent.cmd"}
     assert "--output-format" in commands[0]
     assert "json" in commands[0]
@@ -450,11 +453,32 @@ def test_cursor_cli_backend_can_use_argv_transport() -> None:
     )
 
     assert backend.run(_request()).content == "done"
-    assert commands[0][1] == "--trust"
-    assert commands[0][2] == "-p"
-    assert commands[0][3] == "--output-format"
-    assert commands[0][4] == "json"
-    assert '"purpose": "unit-test"' in commands[0][5]
+    assert "--trust" in commands[0]
+    assert "-p" in commands[0]
+    assert "--output-format" in commands[0]
+    assert "json" in commands[0]
+    assert '"purpose": "unit-test"' in commands[0][-1]
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("-p", "--yolo"),
+        ("-p", "--force"),
+        ("-p", "-f"),
+        ("-p", "--auto-review"),
+        ("-p", "--approve-mcps"),
+        ("-p", "--yolo=true"),
+        ("-p", "--force=false"),
+        ("-p", "--auto-review=true"),
+        ("-p", "--approve-mcps=true"),
+        ("-p", "--sandbox", "disabled"),
+        ("-p", "--mode", "plan"),
+    ],
+)
+def test_cursor_cli_rejects_execution_enabling_args(args: tuple[str, ...]) -> None:
+    with pytest.raises(LLMConfigurationError):
+        _cursor_args_with_sandbox_trust(args)
 
 
 def test_cursor_cli_backend_reports_command_errors() -> None:
@@ -825,7 +849,9 @@ def test_cursor_cli_backend_strips_secret_environment_and_uses_sandbox(
     assert "super-secret-test" not in " ".join(env.values())
     assert captured["cwd"].endswith("tara_cursor_cli_sandbox")
     assert '"purpose": "unit-test"' in captured["input"]
-    assert captured["command"][1] == "--trust"
+    assert "--trust" in captured["command"]
+    assert captured["command"][captured["command"].index("--mode") + 1] == "ask"
+    assert captured["command"][captured["command"].index("--sandbox") + 1] == "enabled"
     assert "--output-format" in captured["command"]
     assert "json" in captured["command"]
 

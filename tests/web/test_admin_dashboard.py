@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import base64
 import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tara_web.admin import create_admin_app
@@ -105,18 +107,61 @@ def test_local_dashboard_shows_stats_kofi_and_applies_signed_adjustments(
     assert totals.estimated_consumption_micro_eur == 5_500_000
 
 
-def test_dashboard_accepts_only_configured_lan_host(tmp_path: Path) -> None:
+def test_dashboard_accepts_only_configured_loopback_host(tmp_path: Path) -> None:
     database = _database(tmp_path)
     app = create_admin_app(
         database,
         timezone="UTC",
-        allowed_hosts=("127.0.0.1", "192.168.1.109", "testserver"),
+        allowed_hosts=("127.0.0.1", "localhost", "testserver"),
     )
     with TestClient(app) as client:
-        accepted = client.get("/health", headers={"host": "192.168.1.109"})
-        rejected = client.get("/health", headers={"host": "192.168.1.110"})
+        accepted = client.get("/health", headers={"host": "127.0.0.1"})
+        rejected = client.get("/health", headers={"host": "attacker.example"})
         assert accepted.status_code == 200
         assert rejected.status_code == 400
+
+
+def test_non_loopback_admin_is_rejected_even_with_auth(tmp_path: Path) -> None:
+    database = _database(tmp_path)
+    with pytest.raises(ValueError, match="loopback"):
+        create_admin_app(
+            database,
+            timezone="UTC",
+            allowed_hosts=("192.168.1.109", "testserver"),
+        )
+
+    with pytest.raises(ValueError, match="loopback"):
+        create_admin_app(
+            database,
+            timezone="UTC",
+            allowed_hosts=("192.168.1.109", "testserver"),
+            admin_password="strong-admin-password-for-tests",
+        )
+
+
+def test_optional_basic_auth_protects_loopback_dashboard(tmp_path: Path) -> None:
+    database = _database(tmp_path)
+    password = "strong-admin-password-for-tests"
+    app = create_admin_app(
+        database,
+        timezone="UTC",
+        allowed_hosts=("127.0.0.1", "testserver"),
+        admin_password=password,
+    )
+    token = base64.b64encode(f"tara-admin:{password}".encode()).decode()
+    with TestClient(app) as client:
+        assert client.get("/health", headers={"host": "127.0.0.1"}).status_code == 200
+        denied = client.get("/", headers={"host": "127.0.0.1"})
+        accepted = client.get(
+            "/",
+            headers={
+                "host": "127.0.0.1",
+                "Authorization": f"Basic {token}",
+            },
+        )
+    assert denied.status_code == 401
+    assert denied.headers["www-authenticate"].startswith("Basic ")
+    assert accepted.status_code == 200
 
 
 def test_dashboard_lists_recent_failures_with_stage_reason_and_code(

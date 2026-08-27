@@ -6,8 +6,10 @@ import hashlib
 import hmac
 import os
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from threading import Lock
 
 from tara_web.db.repositories.audio_uploads import AudioUploadRepository
 from tara_web.storage.layout import StorageLayout
@@ -23,6 +25,8 @@ from .zip_validation import (
     ZipValidationError,
     inspect_zip,
 )
+
+_ZIP_EXTRACTION_LOCK = Lock()
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,88 +53,113 @@ class ZipArchiveValidationRunner:
             return
         source = self._layout.upload_path(str(row["storage_path"]))
         destinations: list[Path] = []
+        deadline = time.monotonic() + self._policy.archive.timeout_seconds
+        lock_acquired = False
         try:
             _integrity(
-                source, int(row["declared_bytes"]), str(row["sha256_hex"])
+                source,
+                int(row["declared_bytes"]),
+                str(row["sha256_hex"]),
+                deadline,
             )
+            _require_time(deadline)
             self._repository.set_archive_phase(validation_id, "extraction")
-            inspection = inspect_zip(source, self._policy.archive)
-            with tempfile.TemporaryDirectory(
-                prefix="zip-extract-", dir=self._layout.root
-            ) as temporary:
-                extracted = extract_audio(
-                    source,
-                    Path(temporary),
-                    inspection,
-                    self._policy.archive,
-                    cancelled=lambda: not self._repository.validation_is_running(
-                        validation_id
-                    ),
-                )
-                self._repository.set_archive_phase(validation_id, "track_validation")
-                tracks: list[dict[str, object]] = []
-                for track in extracted:
-                    if not self._repository.validation_is_running(validation_id):
-                        raise ZipValidationError("cancelled")
-                    file_id = new_opaque_id("uf")
-                    managed = self._layout.upload_file(
-                        str(row["session_public_id"]), file_id
+            inspection = inspect_zip(
+                source,
+                self._policy.archive,
+                deadline_monotonic=deadline,
+            )
+            _require_time(deadline)
+            lock_acquired = _ZIP_EXTRACTION_LOCK.acquire(
+                timeout=max(0.0, deadline - time.monotonic())
+            )
+            if not lock_acquired:
+                raise ZipValidationError("zip_timeout")
+            try:
+                with tempfile.TemporaryDirectory(
+                    prefix="zip-extract-", dir=self._layout.root
+                ) as temporary:
+                    extracted = extract_audio(
+                        source,
+                        Path(temporary),
+                        inspection,
+                        self._policy.archive,
+                        cancelled=lambda: (
+                            not self._repository.validation_is_running(validation_id)
+                        ),
+                        deadline_monotonic=deadline,
                     )
-                    destination = self._layout.upload_path(managed.relative_path)
-                    os.replace(track.physical_path, destination)
-                    destinations.append(destination)
-                    extension = PurePosixPath(track.archive_name).suffix.lower()[1:]
-                    display_name = sanitize_display_name(
-                        PurePosixPath(track.archive_name).name
+                    self._repository.set_archive_phase(
+                        validation_id, "track_validation"
                     )
-                    error_code = None
-                    warning_code = None
-                    duration_ms = None
-                    detected_type = extension
-                    try:
-                        probe = validate_audio(
-                            destination,
-                            expected_size=track.size,
-                            expected_sha256=track.sha256,
-                            ffprobe_timeout=self._policy.ffprobe_timeout,
-                            ffmpeg_timeout=self._policy.ffmpeg_timeout,
+                    tracks: list[dict[str, object]] = []
+                    for track in extracted:
+                        _require_time(deadline)
+                        if not self._repository.validation_is_running(validation_id):
+                            raise ZipValidationError("cancelled")
+                        file_id = new_opaque_id("uf")
+                        managed = self._layout.upload_file(
+                            str(row["session_public_id"]), file_id
                         )
-                        if probe.detected_type != extension:
-                            raise ValueError("input_type_mismatch")
-                        detected_type = probe.detected_type
-                        duration_ms = probe.duration_ms
-                        warning_code = probe.warning_code
-                    except ValueError as exc:
-                        error_code = (
-                            str(exc)
-                            if str(exc)
-                            in {
-                                "input_invalid",
-                                "input_type_mismatch",
-                                "input_too_large",
-                                "validation_unavailable",
+                        destination = self._layout.upload_path(managed.relative_path)
+                        os.replace(track.physical_path, destination)
+                        destinations.append(destination)
+                        extension = PurePosixPath(track.archive_name).suffix.lower()[1:]
+                        display_name = sanitize_display_name(
+                            PurePosixPath(track.archive_name).name
+                        )
+                        error_code = None
+                        warning_code = None
+                        duration_ms = None
+                        detected_type = extension
+                        try:
+                            probe = validate_audio(
+                                destination,
+                                expected_size=track.size,
+                                expected_sha256=track.sha256,
+                                ffprobe_timeout=self._policy.ffprobe_timeout,
+                                ffmpeg_timeout=self._policy.ffmpeg_timeout,
+                                deadline_monotonic=deadline,
+                            )
+                            if probe.detected_type != extension:
+                                raise ValueError("input_type_mismatch")
+                            detected_type = probe.detected_type
+                            duration_ms = probe.duration_ms
+                            warning_code = probe.warning_code
+                        except ValueError as exc:
+                            error_code = (
+                                str(exc)
+                                if str(exc)
+                                in {
+                                    "input_invalid",
+                                    "input_type_mismatch",
+                                    "input_too_large",
+                                    "validation_unavailable",
+                                }
+                                else "input_invalid"
+                            )
+                        tracks.append(
+                            {
+                                "public_id": file_id,
+                                "storage_path": managed.relative_path,
+                                "display_name": display_name,
+                                "person": sanitize_person(
+                                    display_name.rsplit(".", 1)[0]
+                                ),
+                                "mime": canonical_audio_mime(extension),
+                                "size": track.size,
+                                "sha256": track.sha256,
+                                "detected_type": detected_type,
+                                "duration_ms": duration_ms,
+                                "warning_code": warning_code,
+                                "error_code": error_code,
+                                "status": "invalid" if error_code else "ready",
+                                "archive_name": track.archive_name,
                             }
-                            else "input_invalid"
                         )
-                    tracks.append(
-                        {
-                            "public_id": file_id,
-                            "storage_path": managed.relative_path,
-                            "display_name": display_name,
-                            "person": sanitize_person(
-                                display_name.rsplit(".", 1)[0]
-                            ),
-                            "mime": canonical_audio_mime(extension),
-                            "size": track.size,
-                            "sha256": track.sha256,
-                            "detected_type": detected_type,
-                            "duration_ms": duration_ms,
-                            "warning_code": warning_code,
-                            "error_code": error_code,
-                            "status": "invalid" if error_code else "ready",
-                            "archive_name": track.archive_name,
-                        }
-                    )
+            finally:
+                _ZIP_EXTRACTION_LOCK.release()
+                lock_acquired = False
             self._repository.set_archive_phase(validation_id, "launch_preparation")
             if not self._repository.finish_archive_validation(
                 validation_id,
@@ -146,37 +175,58 @@ class ZipArchiveValidationRunner:
             except Exception:
                 # Metadata already makes the source unreachable; orphan cleanup retries.
                 pass
+        except TimeoutError:
+            for destination in destinations:
+                destination.unlink(missing_ok=True)
+            self._finish_error(validation_id, ZipValidationError("zip_timeout"))
         except (OSError, ZipValidationError, ValueError) as exc:
             for destination in destinations:
                 destination.unlink(missing_ok=True)
-            code = str(exc)
-            self._repository.finish_validation(
-                validation_id,
-                detected_type=None,
-                duration_ms=None,
-                warning_code=None,
-                error_code=(
-                    code
-                    if code
-                    in ZIP_ERROR_CODES
-                    | {
-                        "input_invalid",
-                        "input_too_large",
-                        "validation_unavailable",
-                    }
-                    else "input_invalid"
-                ),
-            )
+            self._finish_error(validation_id, exc)
+        finally:
+            if lock_acquired:
+                _ZIP_EXTRACTION_LOCK.release()
+
+    def _finish_error(self, validation_id: str, exc: Exception) -> None:
+        code = str(exc)
+        self._repository.finish_validation(
+            validation_id,
+            detected_type=None,
+            duration_ms=None,
+            warning_code=None,
+            error_code=(
+                code
+                if code
+                in ZIP_ERROR_CODES
+                | {
+                    "input_invalid",
+                    "input_too_large",
+                    "validation_unavailable",
+                }
+                else "input_invalid"
+            ),
+        )
 
 
-def _integrity(path: Path, expected_size: int, expected_sha256: str) -> None:
+def _integrity(
+    path: Path,
+    expected_size: int,
+    expected_sha256: str,
+    deadline: float,
+) -> None:
     digest = hashlib.sha256()
     size = 0
     with path.open("rb") as handle:
         while chunk := handle.read(65_536):
+            _require_time(deadline)
             size += len(chunk)
             digest.update(chunk)
     if size != expected_size or not hmac.compare_digest(
         digest.hexdigest(), expected_sha256
     ):
         raise ZipValidationError("zip_integrity_failed")
+
+
+def _require_time(deadline: float) -> None:
+    if time.monotonic() >= deadline:
+        raise ZipValidationError("zip_timeout")

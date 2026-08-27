@@ -72,7 +72,9 @@ services:
     cap_drop: [ALL]
     depends_on:
       tara-web-migrate: { condition: service_completed_successfully }
-    environment: *tara_environment
+    environment:
+      <<: *tara_environment
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY is required by config/tara-web.yaml}
     volumes: *tara_volumes
     extra_hosts: [host.docker.internal:host-gateway]
     tmpfs: ["/tmp:rw,noexec,nosuid,size=256m"]
@@ -101,13 +103,14 @@ services:
     depends_on:
       tara-web-migrate: { condition: service_completed_successfully }
     entrypoint: [python, -m, tara_web.admin]
-    command: [--host, 0.0.0.0, --port, "8765"]
+    command: [--port, "8765"]
     environment:
       TARA_WEB_STORAGE_ROOT: /data/runtime
       TARA_WEB_SQLITE_PATH: /data/runtime/db/tara-web.sqlite3
       TARA_ADMIN_TIMEZONE: ${TARA_ADMIN_TIMEZONE:-Europe/Helsinki}
       TARA_ADMIN_ALLOWED_HOSTS: ${TARA_ADMIN_ALLOWED_HOSTS:-127.0.0.1,localhost}
-    ports: ["${TARA_ADMIN_BIND_ADDRESS:-127.0.0.1}:${TARA_ADMIN_HOST_PORT:-8765}:8765"]
+      TARA_ADMIN_CONTAINER_BIND: "1"
+    ports: ["127.0.0.1:${TARA_ADMIN_HOST_PORT:-8765}:8765"]
     volumes:
       - tara_web_jobs:/data/runtime
       - tara_web_db:/data/runtime/db
@@ -212,7 +215,8 @@ networks:
     internal: true
     ipam:
       config:
-        - subnet: ${TARA_WEB_INTERNAL_SUBNET:-172.29.0.0/29}
+        # Security boundary: this must match web.security.trusted_proxy_subnets.
+        - subnet: 172.29.0.0/29
   tara_public:
   tara_provider:
   tara_admin:

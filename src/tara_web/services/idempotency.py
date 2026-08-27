@@ -106,11 +106,25 @@ class SecretHmac:
         versions = (self._version, *sorted(set(self._keys) - {self._version}))
         return tuple(self._digest_for(version, value, purpose) for version in versions)
 
-    def derive_secret(self, value: str, purpose: str) -> str:
+    def stable_digest(self, value: str, purpose: str) -> str:
+        """Keep admission identities stable while an old HMAC key is retained."""
+        return self._digest_for(min(self._keys), value, purpose)
+
+    @property
+    def current_version(self) -> int:
+        return self._version
+
+    def derive_secret(
+        self, value: str, purpose: str, *, version: int | None = None
+    ) -> str:
         """Derive a URL-safe opaque secret without persisting recoverable data."""
+        selected = self._version if version is None else version
+        key = self._keys.get(selected)
+        if key is None:
+            raise ValueError("HMAC derivation version is unavailable")
         raw = hmac.new(
-            self._keys[self._version],
-            f"v{self._version}:{purpose}:{value}".encode(),
+            key,
+            f"v{selected}:{purpose}:{value}".encode(),
             hashlib.sha256,
         ).digest()
         return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")

@@ -376,7 +376,7 @@ export function UploadSessionPage({
 
   const Wrapper = embedded ? "section" : "main";
   return <Wrapper className={embedded ? "upload-page embedded-upload" : "page upload-page"}>
-    {!embedded && <header className="page-header"><p className="eyebrow">{t("upload.eyebrow")}</p><h1>{t("upload.title")}</h1><p className="lede">{t("upload.lede")}</p></header>}
+    {!embedded && <><header className="page-header"><p className="eyebrow">{t("upload.eyebrow")}</p><h1>{t("upload.title")}</h1><p className="lede">{t("upload.lede")}</p></header><p className="muted">{t("job.share_warning")}</p></>}
     {inputKind === "merged_transcription" && <section className="validation-details" aria-live="polite">
       <h2>{t("upload.merged_transcription")}</h2>
       {mergedFile?.schema_name && <p>{t("upload.schema_name", { name: mergedFile.schema_name })}</p>}

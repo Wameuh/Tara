@@ -16,6 +16,7 @@ from tara_web.services.upload_sessions import (
     UploadUnauthorized,
     new_opaque_id,
     sanitize_person,
+    valid_recovery_key,
 )
 from tara_web.storage.layout import StorageError
 from tara_web.storage.uploads import unlink_upload
@@ -99,14 +100,18 @@ def _cleanup_file(request: Request, session_id: str, file_id: str) -> None:
 @router.post("/sessions", status_code=201, response_model=None)
 def create_session(
     request: Request,
+    idempotency_key: Annotated[str, Header()],
+    x_tara_creation_recovery: Annotated[str, Header()],
     input_type: Literal["audio", "merged_transcription", "zip"] = "audio",
-    idempotency_key: Annotated[str | None, Header()] = None,
 ) -> Response | dict[str, object]:
-    if not idempotency_key:
-        return _problem(400, "idempotency_key_required")
+    if not idempotency_key or not valid_recovery_key(x_tara_creation_recovery):
+        return _problem(400, "creation_precondition_required")
     try:
         created = request.app.state.upload_sessions.create(
-            idempotency_key, input_type=input_type
+            idempotency_key,
+            x_tara_creation_recovery,
+            input_type=input_type,
+            client_identity=str(getattr(request.state, "client_identity", "unknown")),
         )
     except (ValueError, DatabaseConflict, IdempotencyConflict):
         return _problem(409, "idempotency_conflict")

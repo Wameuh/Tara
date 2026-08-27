@@ -77,7 +77,9 @@ class _FakeBackend(TranscriptionBackend):
 
 @pytest.fixture()
 def client() -> TestClient:
-    test_client = TestClient(app)
+    test_client = TestClient(
+        app, headers={"Authorization": "Bearer test-inference-token"}
+    )
     yield test_client
 
 
@@ -197,7 +199,6 @@ def test_backend_factory_integration() -> None:
 
     backend4 = create_backend("parakeet:nvidia/parakeet-tdt-0.6b-v3")
     assert backend2 is backend4
-
 
 
 

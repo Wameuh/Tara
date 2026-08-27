@@ -4,6 +4,7 @@ import io
 import stat
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -153,4 +154,36 @@ def test_cancelled_extraction_removes_every_partial_output(tmp_path: Path) -> No
     output = tmp_path / "cancelled"
     with pytest.raises(ZipValidationError, match="cancelled"):
         extract_audio(path, output, inspection, policy, cancelled=cancelled)
+    assert list(output.iterdir()) == []
+
+
+def test_extraction_reserves_worst_case_free_space(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _archive(tmp_path / "space.zip", [("audio.mp3", b"audio")])
+    policy = ZipPolicy(max_compression_ratio=1_000, minimum_free_bytes=10)
+    inspection = inspect_zip(path, policy)
+    monkeypatch.setattr(
+        "tara_web.services.zip_extraction.shutil.disk_usage",
+        lambda _path: SimpleNamespace(free=14),
+    )
+    output = tmp_path / "space"
+    with pytest.raises(ZipValidationError, match="input_too_large"):
+        extract_audio(path, output, inspection, policy)
+    assert list(output.iterdir()) == []
+
+
+def test_extraction_deadline_is_checked_inside_large_entries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _archive(tmp_path / "slow.zip", [("audio.mp3", b"a" * 200_000)])
+    policy = ZipPolicy(max_compression_ratio=10_000, timeout_seconds=1)
+    inspection = inspect_zip(path, policy)
+    ticks = iter([0.0, 0.0, 2.0, 2.0])
+    monkeypatch.setattr(
+        "tara_web.services.zip_extraction.time.monotonic", lambda: next(ticks)
+    )
+    output = tmp_path / "slow"
+    with pytest.raises(ZipValidationError, match="zip_timeout"):
+        extract_audio(path, output, inspection, policy)
     assert list(output.iterdir()) == []

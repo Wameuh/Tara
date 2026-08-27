@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+from fastapi import BackgroundTasks
 from fastapi.testclient import TestClient
 
 import inference_server.app as app_module
@@ -25,6 +27,7 @@ from inference_server.app import (
     lifespan,
 )
 from inference_server.backend import TranscriptionBackend
+from inference_server.ipc import encode_worker_message
 
 
 class _FakeBackend(TranscriptionBackend):
@@ -42,7 +45,9 @@ class _FakeBackend(TranscriptionBackend):
             model="test",
         )
 
-    def stream_transcribe(self, *args: object, **kwargs: object) -> tuple[object, object]:
+    def stream_transcribe(
+        self, *args: object, **kwargs: object
+    ) -> tuple[object, object]:
         """Fake stream_transcribe method."""
         from inference_server.models import TranscriptionSegment
 
@@ -67,16 +72,10 @@ def test_sse_function() -> None:
     assert b'"type": "test"' in result
 
 
-def test_use_worker_mode_default_windows(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test _use_worker_mode returns True on Windows by default."""
+def test_use_worker_mode_defaults_to_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Worker isolation is the secure default on every platform."""
     monkeypatch.delenv("INFERENCE_USE_WORKER", raising=False)
-    # On Windows, should default to True
-    result = _use_worker_mode()
-    if os.name == "nt":
-        assert result is True
-    else:
-        # On non-Windows, should default to False
-        assert result is False
+    assert _use_worker_mode() is True
 
 
 def test_use_worker_mode_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -111,7 +110,9 @@ def test_cleanup_temp_file_missing_file(tmp_path: Path) -> None:
     _cleanup_temp_file(test_file)
 
 
-def test_cleanup_temp_file_exception(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cleanup_temp_file_exception(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Test _cleanup_temp_file handles exceptions gracefully."""
     test_file = tmp_path / "test.tmp"
     test_file.write_text("test")
@@ -209,7 +210,9 @@ def test_lifespan_startup_shutdown() -> None:
     asyncio.run(run_test())
 
 
-def test_transcribe_via_worker_error_message(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_transcribe_via_worker_error_message(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Test _transcribe_via_worker handles worker error messages."""
     from fastapi import HTTPException
 
@@ -225,10 +228,10 @@ def test_transcribe_via_worker_error_message(monkeypatch: pytest.MonkeyPatch, tm
     fake_conn = Mock()
     fake_conn.poll.return_value = True
 
-    def mock_recv() -> dict[str, object]:
-        return {"type": "error", "message": "Worker failed"}
+    def mock_recv_bytes(*args: object) -> bytes:
+        return encode_worker_message({"type": "error", "message": "Worker failed"})
 
-    fake_conn.recv = mock_recv
+    fake_conn.recv_bytes = mock_recv_bytes
     fake_conn.close = Mock()
 
     def mock_spawn_worker(*args: object, **kwargs: object) -> tuple[Mock, Mock]:
@@ -242,7 +245,9 @@ def test_transcribe_via_worker_error_message(monkeypatch: pytest.MonkeyPatch, tm
     assert "Worker failed" in str(exc_info.value.detail)
 
 
-def test_transcribe_via_worker_timeout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_transcribe_via_worker_timeout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Test _transcribe_via_worker handles timeout."""
     from fastapi import HTTPException
 
@@ -276,12 +281,16 @@ def test_transcribe_via_worker_timeout(monkeypatch: pytest.MonkeyPatch, tmp_path
     monkeypatch.setattr(time, "time", mock_time)
 
     with pytest.raises(HTTPException) as exc_info:
-        _transcribe_via_worker(audio_path=audio_path, model="test", language=None, timeout=0.1)
+        _transcribe_via_worker(
+            audio_path=audio_path, model="test", language=None, timeout=0.1
+        )
     assert exc_info.value.status_code == 500
     assert "timeout" in str(exc_info.value.detail).lower()
 
 
-def test_transcribe_via_worker_no_payload(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_transcribe_via_worker_no_payload(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Test _transcribe_via_worker handles missing payload."""
     from fastapi import HTTPException
 
@@ -307,7 +316,9 @@ def test_transcribe_via_worker_no_payload(monkeypatch: pytest.MonkeyPatch, tmp_p
     assert exc_info.value.status_code == 500
 
 
-def test_stream_transcription_worker_error_message(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_stream_transcription_worker_error_message(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Test _stream_transcription_worker handles worker error messages."""
     audio_path = tmp_path / "test.mp3"
     audio_path.write_bytes(b"\x00\x00")
@@ -320,10 +331,10 @@ def test_stream_transcription_worker_error_message(monkeypatch: pytest.MonkeyPat
     fake_conn = Mock()
     fake_conn.poll.return_value = True
 
-    def mock_recv() -> dict[str, object]:
-        return {"type": "error", "message": "Worker failed"}
+    def mock_recv_bytes(*args: object) -> bytes:
+        return encode_worker_message({"type": "error", "message": "Worker failed"})
 
-    fake_conn.recv = mock_recv
+    fake_conn.recv_bytes = mock_recv_bytes
     fake_conn.close = Mock()
 
     def mock_spawn_worker(*args: object, **kwargs: object) -> tuple[Mock, Mock]:
@@ -331,7 +342,12 @@ def test_stream_transcription_worker_error_message(monkeypatch: pytest.MonkeyPat
 
     monkeypatch.setattr(app_module, "_spawn_worker", mock_spawn_worker)
 
-    response = _stream_transcription_worker(audio_path=audio_path, model="test", language=None)
+    response = _stream_transcription_worker(
+        audio_path=audio_path,
+        model="test",
+        language=None,
+        background_tasks=BackgroundTasks(),
+    )
 
     # Read the stream to trigger error handling - StreamingResponse.body_iterator is async
     # For testing, we can check the response exists and has the right media type
@@ -339,7 +355,9 @@ def test_stream_transcription_worker_error_message(monkeypatch: pytest.MonkeyPat
     # The actual body reading would require async context, but we've triggered the code path
 
 
-def test_stream_transcription_worker_proc_exited(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_stream_transcription_worker_proc_exited(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Test _stream_transcription_worker handles process exit."""
     audio_path = tmp_path / "test.mp3"
     audio_path.write_bytes(b"\x00\x00")
@@ -358,7 +376,12 @@ def test_stream_transcription_worker_proc_exited(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr(app_module, "_spawn_worker", mock_spawn_worker)
 
-    response = _stream_transcription_worker(audio_path=audio_path, model="test", language=None)
+    response = _stream_transcription_worker(
+        audio_path=audio_path,
+        model="test",
+        language=None,
+        background_tasks=BackgroundTasks(),
+    )
 
     # Read the stream to trigger error handling - StreamingResponse.body_iterator is async
     # For testing, we can check the response exists and has the right media type
@@ -366,7 +389,9 @@ def test_stream_transcription_worker_proc_exited(monkeypatch: pytest.MonkeyPatch
     # The actual body reading would require async context, but we've triggered the code path
 
 
-def test_transcribe_with_worker_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_transcribe_with_worker_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Test transcription endpoint with worker mode enabled."""
     monkeypatch.setenv("INFERENCE_USE_WORKER", "1")
 
@@ -378,12 +403,22 @@ def test_transcribe_with_worker_mode(tmp_path: Path, monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(app_module, "create_backend", mock_create_backend)
 
     # Mock _transcribe_via_worker to avoid actual subprocess
-    def mock_transcribe_via_worker(*args: object, **kwargs: object) -> dict[str, object]:
-        return {"text": "test", "segments": [], "language": "en", "duration": 1.0, "model": "test"}
+    def mock_transcribe_via_worker(
+        *args: object, **kwargs: object
+    ) -> dict[str, object]:
+        return {
+            "text": "test",
+            "segments": [],
+            "language": "en",
+            "duration": 1.0,
+            "model": "test",
+        }
 
-    monkeypatch.setattr(app_module, "_transcribe_via_worker", mock_transcribe_via_worker)
+    monkeypatch.setattr(
+        app_module, "_transcribe_via_worker", mock_transcribe_via_worker
+    )
 
-    client = TestClient(app)
+    client = TestClient(app, headers={"Authorization": "Bearer test-inference-token"})
     audio_path = tmp_path / "sample.mp3"
     audio_path.write_bytes(b"\x00\x00")
 
@@ -395,7 +430,9 @@ def test_transcribe_with_worker_mode(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert response.status_code == 200
 
 
-def test_transcribe_streaming_with_worker_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_transcribe_streaming_with_worker_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Test streaming transcription endpoint with worker mode enabled."""
     monkeypatch.setenv("INFERENCE_USE_WORKER", "1")
 
@@ -409,15 +446,19 @@ def test_transcribe_streaming_with_worker_mode(tmp_path: Path, monkeypatch: pyte
     # Mock _stream_transcription_worker to avoid actual subprocess
     from fastapi.responses import StreamingResponse
 
-    def mock_stream_transcription_worker(*args: object, **kwargs: object) -> StreamingResponse:
+    def mock_stream_transcription_worker(
+        *args: object, **kwargs: object
+    ) -> StreamingResponse:
         def event_stream() -> object:
             yield b'data: {"type": "final", "text": "test"}\n\n'
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 
-    monkeypatch.setattr(app_module, "_stream_transcription_worker", mock_stream_transcription_worker)
+    monkeypatch.setattr(
+        app_module, "_stream_transcription_worker", mock_stream_transcription_worker
+    )
 
-    client = TestClient(app)
+    client = TestClient(app, headers={"Authorization": "Bearer test-inference-token"})
     audio_path = tmp_path / "sample.mp3"
     audio_path.write_bytes(b"\x00\x00")
 
@@ -446,7 +487,9 @@ def test_middleware_exception_handling() -> None:
     app.include_router(temp_router)
 
     try:
-        client = TestClient(app)
+        client = TestClient(
+            app, headers={"Authorization": "Bearer test-inference-token"}
+        )
 
         # The exception should be logged by the middleware and then re-raised
         # The middleware exception handling is covered (lines 407-410)
@@ -456,14 +499,17 @@ def test_middleware_exception_handling() -> None:
         # Remove the router by removing all routes from it
         # Find and remove routes that match our test endpoint
         routes_to_remove = [
-            route for route in app.router.routes
+            route
+            for route in app.router.routes
             if hasattr(route, "path") and route.path == "/test-exception-middleware"
         ]
         for route in routes_to_remove:
             app.router.routes.remove(route)
 
 
-def test_transcribe_unexpected_exception(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_transcribe_unexpected_exception(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Test transcription endpoint handles unexpected exceptions."""
     # The exception needs to happen inside the try block (after line 100)
     # We'll make it happen during backend.transcribe
@@ -481,7 +527,7 @@ def test_transcribe_unexpected_exception(tmp_path: Path, monkeypatch: pytest.Mon
     backend.transcribe = failing_transcribe  # type: ignore[assignment]
     monkeypatch.setenv("INFERENCE_USE_WORKER", "0")  # Disable worker mode
 
-    client = TestClient(app)
+    client = TestClient(app, headers={"Authorization": "Bearer test-inference-token"})
     audio_path = tmp_path / "sample.mp3"
     audio_path.write_bytes(b"\x00\x00")
 
@@ -518,7 +564,9 @@ def test_spawn_worker(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
     monkeypatch.setattr(mp, "get_context", mock_get_context)
 
-    proc, conn = _spawn_worker(audio_path=audio_path, model="test", language=None, stream=False)
+    proc, conn = _spawn_worker(
+        audio_path=audio_path, model="test", language=None, stream=False
+    )
 
     assert proc == mock_process
     assert conn == mock_conn_parent
@@ -528,7 +576,9 @@ def test_spawn_worker(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     mock_context.Process.assert_called_once()
 
 
-def test_transcribe_via_worker_final_payload(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_transcribe_via_worker_final_payload(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Test _transcribe_via_worker returns final payload (lines 307-308)."""
 
     audio_path = tmp_path / "test.mp3"
@@ -542,9 +592,22 @@ def test_transcribe_via_worker_final_payload(monkeypatch: pytest.MonkeyPatch, tm
 
     mock_conn = Mock()
     # Simulate receiving a final message with payload
-    messages = [{"type": "final", "payload": {"text": "test transcription", "language": "en"}}]
+    messages = [
+        encode_worker_message(
+            {
+                "type": "final",
+                "payload": {
+                    "text": "test transcription",
+                    "segments": [],
+                    "language": "en",
+                    "duration": 1.0,
+                    "model": "test",
+                },
+            }
+        )
+    ]
     mock_conn.poll.side_effect = [True, False]  # First poll returns True, then False
-    mock_conn.recv.side_effect = messages
+    mock_conn.recv_bytes.side_effect = messages
     mock_conn.close = Mock()
 
     def mock_spawn_worker(*args: object, **kwargs: object) -> tuple[Mock, Mock]:
@@ -556,12 +619,20 @@ def test_transcribe_via_worker_final_payload(monkeypatch: pytest.MonkeyPatch, tm
     result = _transcribe_via_worker(audio_path=audio_path, model="test", language=None)
 
     # Verify the payload was returned
-    assert result == {"text": "test transcription", "language": "en"}
+    assert result == {
+        "text": "test transcription",
+        "segments": [],
+        "language": "en",
+        "duration": 1.0,
+        "model": "test",
+    }
     mock_conn.close.assert_called_once()
     mock_process.join.assert_called_once()
 
 
-def test_transcribe_via_worker_payload_none(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_transcribe_via_worker_payload_none(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Test _transcribe_via_worker raises error when payload is None (lines 323-328)."""
     from fastapi import HTTPException
 
@@ -575,10 +646,10 @@ def test_transcribe_via_worker_payload_none(monkeypatch: pytest.MonkeyPatch, tmp
     mock_process.join = Mock()
 
     mock_conn = Mock()
-    # Simulate receiving a final message with payload=None
-    messages = [{"type": "final", "payload": None}]
+    # A final message without a valid object payload is rejected at the IPC boundary.
+    messages = [b'{"type":"final","payload":null}']
     mock_conn.poll.side_effect = [True, False]  # First poll returns True, then False
-    mock_conn.recv.side_effect = messages
+    mock_conn.recv_bytes.side_effect = messages
     mock_conn.close = Mock()
 
     def mock_spawn_worker(*args: object, **kwargs: object) -> tuple[Mock, Mock]:
@@ -591,7 +662,7 @@ def test_transcribe_via_worker_payload_none(monkeypatch: pytest.MonkeyPatch, tmp
         _transcribe_via_worker(audio_path=audio_path, model="test", language=None)
 
     assert exc_info.value.status_code == 500
-    assert "Worker returned no result" in str(exc_info.value.detail)
+    assert "Worker returned an invalid response" in str(exc_info.value.detail)
     mock_conn.close.assert_called_once()
     mock_process.join.assert_called_once()
 
@@ -607,7 +678,9 @@ def test_start_heartbeat() -> None:
     asyncio.run(run_test())
 
 
-def test_stream_transcription_worker_segment_final(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_stream_transcription_worker_segment_final(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Test _stream_transcription_worker handles segment then final (lines 347-378)."""
     import asyncio
 
@@ -624,8 +697,24 @@ def test_stream_transcription_worker_segment_final(monkeypatch: pytest.MonkeyPat
     mock_conn = Mock()
     # Simulate receiving segment then final
     messages = [
-        {"type": "segment", "text": "hello"},
-        {"type": "final", "text": "hello world"},
+        encode_worker_message(
+            {
+                "type": "segment",
+                "text": "hello",
+                "start": 0.0,
+                "end": 1.0,
+                "progress": 50.0,
+            }
+        ),
+        encode_worker_message(
+            {
+                "type": "final",
+                "text": "hello world",
+                "language": "en",
+                "duration": 2.0,
+                "model": "test",
+            }
+        ),
     ]
     message_iter = iter(messages)
     poll_results = [True, True]  # Two messages available
@@ -635,11 +724,11 @@ def test_stream_transcription_worker_segment_final(monkeypatch: pytest.MonkeyPat
             return poll_results.pop(0)
         return False
 
-    def recv_side_effect(*args: object) -> dict[str, object]:
+    def recv_side_effect(*args: object) -> bytes:
         return next(message_iter)
 
     mock_conn.poll.side_effect = poll_side_effect
-    mock_conn.recv.side_effect = recv_side_effect
+    mock_conn.recv_bytes.side_effect = recv_side_effect
     mock_conn.close = Mock()
 
     def mock_spawn_worker(*args: object, **kwargs: object) -> tuple[Mock, Mock]:
@@ -648,7 +737,12 @@ def test_stream_transcription_worker_segment_final(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(app_module, "_spawn_worker", mock_spawn_worker)
 
     # Call _stream_transcription_worker
-    response = _stream_transcription_worker(audio_path=audio_path, model="test", language=None)
+    response = _stream_transcription_worker(
+        audio_path=audio_path,
+        model="test",
+        language=None,
+        background_tasks=BackgroundTasks(),
+    )
 
     # Iterate through the async stream to trigger all code paths
     async def collect_chunks() -> list[bytes]:
@@ -668,7 +762,9 @@ def test_stream_transcription_worker_segment_final(monkeypatch: pytest.MonkeyPat
     mock_process.join.assert_called_once()
 
 
-def test_stream_transcription_worker_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_stream_transcription_worker_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Test _stream_transcription_worker handles error message (lines 357-365)."""
     import asyncio
 
@@ -684,7 +780,7 @@ def test_stream_transcription_worker_error(monkeypatch: pytest.MonkeyPatch, tmp_
 
     mock_conn = Mock()
     # Simulate receiving an error message
-    messages = [{"type": "error", "message": "Worker failed"}]
+    messages = [encode_worker_message({"type": "error", "message": "Worker failed"})]
     message_iter = iter(messages)
     poll_results = [True]  # One message available
 
@@ -693,11 +789,11 @@ def test_stream_transcription_worker_error(monkeypatch: pytest.MonkeyPatch, tmp_
             return poll_results.pop(0)
         return False
 
-    def recv_side_effect(*args: object) -> dict[str, object]:
+    def recv_side_effect(*args: object) -> bytes:
         return next(message_iter)
 
     mock_conn.poll.side_effect = poll_side_effect
-    mock_conn.recv.side_effect = recv_side_effect
+    mock_conn.recv_bytes.side_effect = recv_side_effect
     mock_conn.close = Mock()
 
     def mock_spawn_worker(*args: object, **kwargs: object) -> tuple[Mock, Mock]:
@@ -706,7 +802,12 @@ def test_stream_transcription_worker_error(monkeypatch: pytest.MonkeyPatch, tmp_
     monkeypatch.setattr(app_module, "_spawn_worker", mock_spawn_worker)
 
     # Call _stream_transcription_worker
-    response = _stream_transcription_worker(audio_path=audio_path, model="test", language=None)
+    response = _stream_transcription_worker(
+        audio_path=audio_path,
+        model="test",
+        language=None,
+        background_tasks=BackgroundTasks(),
+    )
 
     # Iterate through the async stream to trigger error path
     async def collect_chunks() -> list[bytes]:
@@ -721,12 +822,17 @@ def test_stream_transcription_worker_error(monkeypatch: pytest.MonkeyPatch, tmp_
     assert len(chunks) >= 1
     error_chunk = chunks[-1]
     assert b'"type": "error"' in error_chunk or b'"type":"error"' in error_chunk
-    assert b'"message": "Worker failed"' in error_chunk or b'"message":"Worker failed"' in error_chunk
+    assert (
+        b'"message": "Worker failed"' in error_chunk
+        or b'"message":"Worker failed"' in error_chunk
+    )
     mock_conn.close.assert_called_once()
     mock_process.join.assert_called_once()
 
 
-def test_stream_transcription_worker_proc_exited(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_stream_transcription_worker_proc_exited(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Test _stream_transcription_worker handles proc exited unexpectedly (lines 366-373)."""
     import asyncio
 
@@ -750,7 +856,12 @@ def test_stream_transcription_worker_proc_exited(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(app_module, "_spawn_worker", mock_spawn_worker)
 
     # Call _stream_transcription_worker
-    response = _stream_transcription_worker(audio_path=audio_path, model="test", language=None)
+    response = _stream_transcription_worker(
+        audio_path=audio_path,
+        model="test",
+        language=None,
+        background_tasks=BackgroundTasks(),
+    )
 
     # Iterate through the async stream to trigger proc-exited path
     async def collect_chunks() -> list[bytes]:
@@ -765,12 +876,47 @@ def test_stream_transcription_worker_proc_exited(monkeypatch: pytest.MonkeyPatch
     assert len(chunks) >= 1
     error_chunk = chunks[-1]
     assert b'"type": "error"' in error_chunk or b'"type":"error"' in error_chunk
-    assert b'"message": "Worker exited unexpectedly"' in error_chunk or b'"message":"Worker exited unexpectedly"' in error_chunk
+    assert (
+        b'"message": "Worker exited unexpectedly"' in error_chunk
+        or b'"message":"Worker exited unexpectedly"' in error_chunk
+    )
     mock_conn.close.assert_called_once()
     mock_process.join.assert_called_once()
 
 
-def test_get_worker_timeout_seconds_invalid_value(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_stream_transcription_worker_timeout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    audio_path = tmp_path / "test.mp3"
+    audio_path.write_bytes(b"\x00\x00")
+    mock_process = Mock()
+    mock_process.is_alive.return_value = True
+    mock_conn = Mock()
+    mock_conn.poll.return_value = False
+    monkeypatch.setattr(
+        app_module,
+        "_spawn_worker",
+        lambda **_kwargs: (mock_process, mock_conn),
+    )
+    response = _stream_transcription_worker(
+        audio_path=audio_path,
+        model="test",
+        language=None,
+        background_tasks=BackgroundTasks(),
+        timeout=0.0,
+    )
+
+    async def collect_chunks() -> list[bytes]:
+        return [chunk async for chunk in response.body_iterator]
+
+    chunks = asyncio.run(collect_chunks())
+    assert b"Worker timeout" in chunks[-1]
+    mock_process.terminate.assert_called_once()
+
+
+def test_get_worker_timeout_seconds_invalid_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test _get_worker_timeout_seconds handles invalid value (lines 294-298)."""
     from inference_server.app import _get_worker_timeout_seconds
 
@@ -780,4 +926,3 @@ def test_get_worker_timeout_seconds_invalid_value(monkeypatch: pytest.MonkeyPatc
     # Should return default value (900.0) and log a warning
     result = _get_worker_timeout_seconds()
     assert result == 900.0
-

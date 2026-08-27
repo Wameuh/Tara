@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, type MonthlyFundingSnapshot } from "../api/client";
+import { safeLink } from "../routing/safeLink";
 
 const REFRESH_MS = 60_000;
 
@@ -37,11 +38,12 @@ export function MonthlyFundingPanel() {
   const goal = snapshot.monthly_goal_micro_eur === null ? null : snapshot.monthly_goal_micro_eur / 1_000_000;
   const scale = goal ?? Math.max(donations, consumption, 1);
   const period = month.format(new Date(`${snapshot.month}-01T12:00:00Z`));
+  const kofiPage = snapshot.kofi_page_url ? safeLink(snapshot.kofi_page_url) : null;
 
   return <section className="funding-panel" aria-labelledby="funding-title">
     <header className="funding-header">
       <div><p className="eyebrow">{t("funding.period", { month: period })}</p><h2 id="funding-title">{t("funding.title")}</h2></div>
-      {snapshot.kofi_page_url && <a className="kofi-link" href={snapshot.kofi_page_url} target="_blank" rel="noreferrer">{t("funding.support")}</a>}
+      {kofiPage && <a className="kofi-link" href={kofiPage} target="_blank" rel="noopener noreferrer">{t("funding.support")}</a>}
     </header>
     <p className="funding-intro">{t("funding.intro")}</p>
     <div className="funding-bars">

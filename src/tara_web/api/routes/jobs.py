@@ -78,6 +78,9 @@ def cancel_job(
             {"expected_revision": expected_revision},
             cancel,
         )
+        # The idempotency wrapper owns the transaction, so cleanup must happen
+        # only after it commits. Running jobs remain non-terminal and are ignored.
+        request.app.state.job_service.cleanup_terminal_private_data(job_id)
         # Never signal the process pool before the idempotent mutation commits.
         request.app.state.job_scheduler.pool.cancel(job_id)
         request.app.state.job_scheduler.wakeup()
@@ -228,6 +231,7 @@ def edit_and_relaunch(
             if current is None or int(current["revision"]) != expected_revision:
                 raise DatabaseConflict("resource revision conflict")
             session_id = new_opaque_id("us")
+            limits = request.app.state.runtime_config.web.limits
             return request.app.state.relaunch_service.create_editable(
                 connection,
                 source_public_id=job_id,
@@ -236,7 +240,19 @@ def edit_and_relaunch(
                 secret_hmac=request.app.state.secret_hmac.digest(
                     secret, "upload-secret"
                 ),
-                retention_hours=request.app.state.runtime_config.web.limits.upload_session_retention_hours,
+                admission_identity_hmac=request.app.state.secret_hmac.stable_digest(
+                    str(getattr(request.state, "client_identity", "unknown")),
+                    "upload-admission",
+                ),
+                max_sessions=limits.max_upload_sessions,
+                max_sessions_per_identity=limits.max_upload_sessions_per_identity,
+                max_pending_sessions=limits.max_pending_upload_sessions,
+                max_pending_sessions_per_identity=(
+                    limits.max_pending_upload_sessions_per_identity
+                ),
+                max_reserved_bytes=limits.max_reserved_upload_bytes,
+                pending_ttl_seconds=limits.upload_inactivity_seconds,
+                retention_hours=limits.upload_session_retention_hours,
             )
 
         return request.app.state.idempotency.transactional_execute(
@@ -268,7 +284,8 @@ def delete_job(
         def delete(connection: object) -> dict[str, object]:
             cursor = connection.execute(
                 "UPDATE jobs SET status='deleted',revision=revision+1,"
-                "updated_at=datetime('now') WHERE public_id=? AND revision=? "
+                "updated_at=datetime('now'),private_artifacts_cleaned_at=NULL "
+                "WHERE public_id=? AND revision=? "
                 "AND status IN ('completed','failed','timed_out','cancelled',"
                 "'cancel_failed','expired')",
                 (job_id, expected_revision),
@@ -277,12 +294,14 @@ def delete_job(
                 raise DatabaseConflict("command unavailable")
             return {"deleted": True}
 
-        return request.app.state.idempotency.transactional_execute(
+        result = request.app.state.idempotency.transactional_execute(
             "delete_job",
             job_id,
             idempotency_key,
             {"expected_revision": expected_revision},
             delete,
         )
+        request.app.state.job_service.cleanup_terminal_private_data(job_id)
+        return result
     except (DatabaseConflict, IdempotencyConflict):
         return problem(request, 409)

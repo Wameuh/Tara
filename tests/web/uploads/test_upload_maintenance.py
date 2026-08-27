@@ -221,6 +221,57 @@ def test_expired_session_is_immediately_unreadable_and_excluded_from_quotas(
     declare(sessions, current.session_id, current.secret, "New.mp3", b"ID3x")
 
 
+def test_expired_never_activated_session_is_purged(tmp_path: Path) -> None:
+    factory, repository, layout, sessions, _ = upload_stack(tmp_path)
+    pending = sessions.create()
+    connection = factory.connect()
+    try:
+        connection.execute(
+            "UPDATE upload_sessions SET expires_at=? WHERE public_id=?",
+            (
+                (datetime.now(UTC) - timedelta(seconds=1)).isoformat(),
+                pending.session_id,
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    assert maintain_uploads(repository, layout, batch_size=10) == 2
+    assert repository.session(pending.session_id) is None
+
+
+def test_cancelled_and_legacy_expired_sessions_scrub_plaintext_inputs(
+    tmp_path: Path,
+) -> None:
+    factory, repository, layout, sessions, _ = upload_stack(tmp_path)
+    cancelled = sessions.create()
+    expired = sessions.create()
+    declare(sessions, expired.session_id, expired.secret, "Expired.mp3", b"ID3x")
+    with factory.transaction() as connection:
+        connection.execute(
+            "UPDATE upload_sessions SET context_text='private context',"
+            "previous_summaries_text='private summary' WHERE public_id IN (?,?)",
+            (cancelled.session_id, expired.session_id),
+        )
+        connection.execute(
+            "UPDATE upload_sessions SET status='expired' WHERE public_id=?",
+            (expired.session_id,),
+        )
+
+    assert sessions.cancel(cancelled.session_id, cancelled.secret, 1) == 2
+    assert maintain_uploads(repository, layout, batch_size=10) >= 1
+    connection = factory.connect()
+    try:
+        rows = connection.execute(
+            "SELECT context_text,previous_summaries_text FROM upload_sessions "
+            "WHERE public_id IN (?,?) ORDER BY public_id",
+            (cancelled.session_id, expired.session_id),
+        ).fetchall()
+        assert [tuple(row) for row in rows] == [("", ""), ("", "")]
+    finally:
+        connection.close()
+
+
 def test_periodic_maintenance_survives_one_failure(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

@@ -30,7 +30,8 @@ From the **TaraRepo** root (this package lives under `src/inference_server/`):
 ```powershell
 conda activate DM
 $env:PYTHONPATH = "src"
-python -m uvicorn inference_server.app:app --host 0.0.0.0 --port 8000
+export INFERENCE_BEARER_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+python -m uvicorn inference_server.app:app --host 127.0.0.1 --port 8000
 ```
 
 Or use `run_tara.bat --audio-dir ...`, which sets `PYTHONPATH` and starts this server before `python -m tara`.
@@ -59,6 +60,7 @@ The `model` parameter determines which backend is used:
 **Faster-Whisper:**
 ```bash
 curl -X POST http://localhost:8000/v1/audio/transcriptions \
+  -H "Authorization: Bearer $INFERENCE_BEARER_TOKEN" \
   -F "file=@path/to/audio.wav" \
   -F "model=large-v3" \
   -F "language=fr"
@@ -67,6 +69,7 @@ curl -X POST http://localhost:8000/v1/audio/transcriptions \
 **Parakeet:**
 ```bash
 curl -X POST http://localhost:8000/v1/audio/transcriptions \
+  -H "Authorization: Bearer $INFERENCE_BEARER_TOKEN" \
   -F "file=@path/to/audio.wav" \
   -F "model=parakeet:nvidia/parakeet-tdt-0.6b-v3" \
   -F "language=fr"
@@ -75,6 +78,7 @@ curl -X POST http://localhost:8000/v1/audio/transcriptions \
 **Streaming (works with both backends):**
 ```bash
 curl -N -X POST http://localhost:8000/v1/audio/transcriptions \
+  -H "Authorization: Bearer $INFERENCE_BEARER_TOKEN" \
   -F "file=@path/to/audio.wav" \
   -F "model=large-v3" \
   -F "language=fr" \
@@ -116,6 +120,14 @@ pip install librosa soundfile
 
 ## Configuration & Env Vars
 
+- `INFERENCE_BEARER_TOKEN` or `INFERENCE_BEARER_TOKEN_FILE`: required bearer
+  credential for transcription requests. `run_tara.sh` generates an ephemeral
+  token for a local server when one is not supplied.
+- `INFERENCE_ALLOWED_MODELS`: comma-separated allowlist. Defaults to the models
+  documented above; arbitrary provider model identifiers are rejected.
+- `INFERENCE_MAX_UPLOAD_BYTES`: maximum audio bytes copied per request (default
+  1 GiB). Requests also require a bounded `Content-Length` before multipart parsing.
+- `INFERENCE_MAX_CONCURRENT_REQUESTS`: process-wide admitted requests (default 2).
 - `INFERENCE_USE_WORKER`: `1` to force worker subprocess; defaults to `1` on Windows, `0` elsewhere.
 - `INFERENCE_WORKER_TIMEOUT_SECONDS`: Worker timeout in seconds (default `900`).
 - `INFERENCE_DISABLE_RELEASE`: skip backend release after requests (default off).
@@ -155,7 +167,7 @@ Faster-Whisper supports a wide range of audio formats natively, but may have for
 ## Design Notes
 
 - Temp files are written per request and cleaned via `BackgroundTasks`.
-- Worker mode isolates model execution to release VRAM/process resources after each call; parent process streams results via Pipe/SSE.
+- Worker mode isolates model execution to release VRAM/process resources after each call; the parent accepts only bounded JSON frames over a one-way pipe.
 - Model caching occurs inside each backend; `release_all()` frees weights when allowed.
 - Error handling returns 400 for unsupported response formats and 500 for backend issues with request IDs logged.
 - Intended to back the TARA UI via the remote inference path (`transcription.inference_endpoint`).
@@ -168,4 +180,3 @@ Faster-Whisper supports a wide range of audio formats natively, but may have for
 cd Tara
 pytest tests/inference_server/ --cov=src/inference_server
 ```
-

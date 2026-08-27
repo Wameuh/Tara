@@ -3,13 +3,32 @@
 from __future__ import annotations
 
 import logging
+import os
 from multiprocessing.connection import Connection
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from inference_server.backend import TranscriptionBackend, create_backend
+from inference_server.ipc import encode_worker_message
+
+if TYPE_CHECKING:
+    from inference_server.backend import TranscriptionBackend
 
 LOGGER = logging.getLogger(__name__)
+
+
+def create_backend(model: str) -> TranscriptionBackend:
+    """Import model code only after the worker environment is scrubbed."""
+    from inference_server.backend import create_backend as backend_factory
+
+    return backend_factory(model)
+
+
+def _scrub_worker_credentials() -> None:
+    """Remove credentials that model code never needs from the child process."""
+    markers = ("TOKEN", "SECRET", "PASSWORD", "API_KEY", "AUTH_KEY")
+    for key in tuple(os.environ):
+        if any(marker in key.upper() for marker in markers):
+            os.environ.pop(key, None)
 
 
 def run_transcription_worker(conn: Connection, params: dict[str, Any]) -> None:
@@ -22,6 +41,7 @@ def run_transcription_worker(conn: Connection, params: dict[str, Any]) -> None:
     - ``error``: error string if the worker fails.
     """
     try:
+        _scrub_worker_credentials()
         audio_path = Path(params["audio_path"])
         model = params["model"]
         language = params.get("language")
@@ -31,13 +51,17 @@ def run_transcription_worker(conn: Connection, params: dict[str, Any]) -> None:
         backend = create_backend(model)
 
         if stream:
-            _stream_transcription(conn, backend, audio_path, model=model, language=language)
+            _stream_transcription(
+                conn, backend, audio_path, model=model, language=language
+            )
         else:
             _transcribe_once(conn, backend, audio_path, model=model, language=language)
     except Exception as exc:  # pragma: no cover - defensive
         LOGGER.debug("Worker error", exc_info=True)
         try:
-            conn.send({"type": "error", "message": str(exc)})
+            conn.send_bytes(
+                encode_worker_message({"type": "error", "message": str(exc)})
+            )
         except Exception:
             pass
     finally:
@@ -58,7 +82,9 @@ def _transcribe_once(
     """Run a single transcription and send the payload."""
 
     result = backend.transcribe(audio_path, model=model, language=language)
-    conn.send({"type": "final", "payload": result.model_dump()})
+    conn.send_bytes(
+        encode_worker_message({"type": "final", "payload": result.model_dump()})
+    )
 
 
 def _stream_transcription(
@@ -90,23 +116,26 @@ def _stream_transcription(
         if duration > 0:
             progress = min(100.0, max(0.0, (end / duration) * 100.0))
         full_text.append(text)
-        conn.send(
-            {
-                "type": "segment",
-                "text": text,
-                "start": start,
-                "end": end,
-                "progress": progress,
-            },
+        conn.send_bytes(
+            encode_worker_message(
+                {
+                    "type": "segment",
+                    "text": text,
+                    "start": start,
+                    "end": end,
+                    "progress": progress,
+                }
+            ),
         )
 
-    conn.send(
-        {
-            "type": "final",
-            "text": " ".join(full_text).strip(),
-            "language": resolved_language,
-            "duration": duration or None,
-            "model": model,
-        },
+    conn.send_bytes(
+        encode_worker_message(
+            {
+                "type": "final",
+                "text": " ".join(full_text).strip(),
+                "language": resolved_language,
+                "duration": duration or None,
+                "model": model,
+            }
+        ),
     )
-

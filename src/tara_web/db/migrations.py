@@ -39,6 +39,8 @@ MIGRATIONS = (
     Migration(17, "0017_kofi_funding.sql"),
     Migration(18, "0018_local_admin_dashboard.sql"),
     Migration(19, "0019_aac_m4a_audio.sql"),
+    Migration(20, "0020_upload_admission_identity.sql"),
+    Migration(21, "0021_terminal_private_cleanup.sql"),
 )
 
 

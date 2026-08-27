@@ -13,6 +13,11 @@ webinterface:
   limits:
     max_active_jobs: 5
     storage_maintenance_interval_seconds: 3600
+    max_upload_sessions: 100
+    max_upload_sessions_per_identity: 5
+    max_pending_upload_sessions: 50
+    max_pending_upload_sessions_per_identity: 5
+    upload_inactivity_seconds: 1800
     upload_session_retention_hours: 24
   timeouts:
     shutdown_grace_seconds: 30

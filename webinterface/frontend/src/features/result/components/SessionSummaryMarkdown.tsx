@@ -1,5 +1,6 @@
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { safeLink } from "../../../routing/safeLink";
 
 import "./SessionSummaryMarkdown.css";
 
@@ -12,6 +13,7 @@ export default function SessionSummaryMarkdown({ markdown, label }: { markdown: 
   return <section className="summary-document markdown-document" aria-label={label}>
     <Markdown
       remarkPlugins={[remarkGfm]}
+      urlTransform={(url) => safeLink(url) ?? ""}
       allowedElements={allowedElements}
       skipHtml
       components={{

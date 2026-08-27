@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 import time
 import uuid
 import zipfile
@@ -29,10 +30,21 @@ def extract_audio(
     policy: ZipPolicy,
     *,
     cancelled: Callable[[], bool] | None = None,
+    deadline_monotonic: float | None = None,
 ) -> tuple[ExtractedTrack, ...]:
     """Extract only approved members under exclusive generated names."""
-    started = time.monotonic()
+    deadline = (
+        deadline_monotonic
+        if deadline_monotonic is not None
+        else time.monotonic() + policy.timeout_seconds
+    )
     output_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    required_bytes = sum(entry.file_size for entry in inspection.audio_entries)
+    if (
+        shutil.disk_usage(output_directory).free
+        < required_bytes + policy.minimum_free_bytes
+    ):
+        raise ZipValidationError("input_too_large")
     extracted: list[ExtractedTrack] = []
     created_paths: list[Path] = []
     actual_total = 0
@@ -41,15 +53,12 @@ def extract_audio(
             for entry in inspection.audio_entries:
                 if cancelled and cancelled():
                     raise ZipValidationError("cancelled")
-                if time.monotonic() - started > policy.timeout_seconds:
+                if time.monotonic() >= deadline:
                     raise ZipValidationError("zip_timeout")
                 target = output_directory / f"{uuid.uuid4().hex}.bin"
                 descriptor = os.open(
                     target,
-                    os.O_WRONLY
-                    | os.O_CREAT
-                    | os.O_EXCL
-                    | getattr(os, "O_NOFOLLOW", 0),
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
                     0o600,
                 )
                 created_paths.append(target)
@@ -58,12 +67,10 @@ def extract_audio(
                 try:
                     with archive.open(entry, "r") as source:
                         while chunk := source.read(65_536):
-                            if (
-                                cancelled
-                                and written % 1_048_576 == 0
-                                and cancelled()
-                            ):
+                            if cancelled and cancelled():
                                 raise ZipValidationError("cancelled")
+                            if time.monotonic() >= deadline:
+                                raise ZipValidationError("zip_timeout")
                             written += len(chunk)
                             actual_total += len(chunk)
                             if (
@@ -71,6 +78,11 @@ def extract_audio(
                                 or actual_total > policy.max_uncompressed_bytes
                             ):
                                 raise ZipValidationError("zip_uncompressed_too_large")
+                            if (
+                                shutil.disk_usage(output_directory).free
+                                < len(chunk) + policy.minimum_free_bytes
+                            ):
+                                raise ZipValidationError("input_too_large")
                             view = memoryview(chunk)
                             while view:
                                 count = os.write(descriptor, view)

@@ -3,14 +3,18 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tara_web.app import create_app
 from tara_web.config import load_config
 
+CREATION_RECOVERY = "cnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnI"
+
 
 def test_private_markers_never_reach_logs_unauthorized_responses_or_plaintext_db(
-    tmp_path: Path, caplog,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     context_marker = "PRIVATE_CONTEXT_MARKER_7d3f"
     summary_marker = "PRIVATE_SUMMARY_MARKER_92ac"
@@ -33,7 +37,11 @@ def test_private_markers_never_reach_logs_unauthorized_responses_or_plaintext_db
     with TestClient(app) as client:
         created = client.post(
             "/api/v1/uploads/sessions",
-            headers={"Origin": "http://127.0.0.1:8000", "Idempotency-Key": "privacy-session"},
+            headers={
+                "Origin": "http://127.0.0.1:8000",
+                "Idempotency-Key": "privacy-session",
+                "X-Tara-Creation-Recovery": CREATION_RECOVERY,
+            },
         )
         assert created.status_code == 201
         payload = created.json()
@@ -64,17 +72,26 @@ def test_private_markers_never_reach_logs_unauthorized_responses_or_plaintext_db
     assert context_marker not in logs
     assert summary_marker not in logs
     assert secret not in logs
+    assert CREATION_RECOVERY not in logs
     assert str(tmp_path.resolve()) not in logs
 
     connection = app.state.database.connect()
     try:
         dump = "\n".join(connection.iterdump())
         assert secret not in dump
+        assert CREATION_RECOVERY not in dump
         assert "#secret=" not in dump
-        paths = [row[0] for row in connection.execute("SELECT storage_path FROM upload_files")]
-        assert all(not Path(value).is_absolute() and ".." not in Path(value).parts for value in paths)
+        paths = [
+            row[0]
+            for row in connection.execute("SELECT storage_path FROM upload_files")
+        ]
+        assert all(
+            not Path(value).is_absolute() and ".." not in Path(value).parts
+            for value in paths
+        )
         row = connection.execute(
-            "SELECT context_text,previous_summaries_text FROM upload_sessions WHERE public_id=?",
+            "SELECT context_text,previous_summaries_text FROM upload_sessions "
+            "WHERE public_id=?",
             (session_id,),
         ).fetchone()
         assert tuple(row) == (context_marker, summary_marker)

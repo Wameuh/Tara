@@ -50,5 +50,15 @@ le code `storage_maintenance_failed` sans arreter le serveur. Les orphelins
 restent limites aux noms backend sous les racines gerees. Il n'y a aucune
 promesse de secure erase.
 
+Une transition terminale (`completed`, `failed`, `timed_out`, `cancelled` ou
+`cancel_failed`) declenche aussi un nettoyage prive recursif. Il supprime le
+repertoire d'upload de la session et les arbres `inputs` et `work`, sans suivre
+les liens symboliques. Un job reussi conserve seulement son dernier artefact
+final `ready`; une autre issue supprime tout le repertoire `result`. Le contexte
+et les resumes anterieurs en clair sont remplaces par des chaines vides en base.
+Le marqueur `private_artifacts_cleaned_at` n'est ecrit qu'apres la suppression
+physique complete; sinon le cycle de maintenance retente l'operation. Cette
+politique rend la relance identique indisponible apres la fin du job.
+
 Les workers Tara ne doivent pas importer `tara_web.db` ni choisir un chemin
 public final. Ils recoivent les interfaces de stockage de l'application.

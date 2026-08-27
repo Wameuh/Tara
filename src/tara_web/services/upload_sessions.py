@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import re
 import secrets
 import unicodedata
 from dataclasses import dataclass
+from datetime import timedelta
 
 from tara_web.db.repositories.audio_uploads import AudioUploadRepository
 from tara_web.services.idempotency import IdempotencyService, SecretHmac
@@ -15,6 +18,7 @@ from tara_web.storage.uploads import unlink_upload
 from .audio_formats import AUDIO_EXTENSIONS, AUDIO_MIMES
 
 _HEX = re.compile(r"^[0-9a-f]{64}$")
+_RECOVERY_KEY = re.compile(r"^[A-Za-z0-9_-]{43}$")
 _BIDI = {chr(value) for value in range(0x202A, 0x202F)} | {
     chr(value) for value in range(0x2066, 0x206A)
 }
@@ -41,64 +45,127 @@ class UploadSessionService:
         max_files: int = 1000,
         chunk_size: int = 1_048_576,
         max_sessions: int = 100,
+        max_sessions_per_identity: int | None = None,
+        max_pending_sessions: int = 50,
+        max_pending_sessions_per_identity: int | None = None,
         max_reserved_bytes: int = 10_737_418_240,
         max_upload_bytes: int = 1_073_741_824,
         max_merged_transcription_bytes: int = 32 * 1024 * 1024,
         retention_hours: int = 24,
+        pending_ttl_seconds: int = 1800,
         idempotency: IdempotencyService | None = None,
     ) -> None:
         self.repository, self.layout, self.hmac = repository, layout, hmac_service
         self.max_files, self.chunk_size = max_files, chunk_size
         self.max_sessions = max_sessions
+        self.max_sessions_per_identity = (
+            max_sessions
+            if max_sessions_per_identity is None
+            else max_sessions_per_identity
+        )
+        self.max_pending_sessions = max_pending_sessions
+        self.max_pending_sessions_per_identity = (
+            max_pending_sessions
+            if max_pending_sessions_per_identity is None
+            else max_pending_sessions_per_identity
+        )
         self.max_reserved_bytes = max_reserved_bytes
         self.max_upload_bytes = max_upload_bytes
         self.max_merged_transcription_bytes = max_merged_transcription_bytes
         if not 1 <= retention_hours <= 168:
             raise ValueError("upload session retention is invalid")
+        if (
+            not 1 <= pending_ttl_seconds <= 86_400
+            or not 1 <= self.max_sessions_per_identity <= max_sessions
+            or not 1 <= self.max_pending_sessions_per_identity <= max_pending_sessions
+        ):
+            raise ValueError("upload session admission is invalid")
         self.retention_hours = retention_hours
+        self.pending_ttl_seconds = pending_ttl_seconds
         self.idempotency = idempotency
 
     def create(
-        self, idempotency_key: str | None = None, *, input_type: str = "audio"
+        self,
+        idempotency_key: str | None = None,
+        recovery_key: str | None = None,
+        *,
+        input_type: str = "audio",
+        client_identity: str = "anonymous",
     ) -> CreatedSession:
         if input_type not in {"audio", "merged_transcription", "zip"}:
             raise ValueError("upload input type is invalid")
+        if not client_identity or len(client_identity) > 512:
+            raise ValueError("upload admission identity is invalid")
+        admission_hmac = self.hmac.stable_digest(client_identity, "upload-admission")
+        admission_candidates = self.hmac.candidate_digests(
+            client_identity, "upload-admission"
+        )
         if idempotency_key is not None and self.idempotency is not None:
-            secret = self.hmac.derive_secret(idempotency_key, "upload-session-replay")
+            if recovery_key is None or not valid_recovery_key(recovery_key):
+                raise ValueError("creation recovery key is invalid")
+            recovery_fingerprint = hashlib.sha256(
+                recovery_key.encode("ascii")
+            ).hexdigest()
 
             def create() -> dict[str, object]:
                 session_id = new_opaque_id("us")
+                version = self.hmac.current_version
+                secret = self.hmac.derive_secret(
+                    f"{session_id}:{recovery_key}",
+                    "upload-session-recovery",
+                    version=version,
+                )
                 self.repository.create_session(
                     session_id,
                     self.hmac.digest(secret, "upload-secret"),
-                    max_sessions=self.max_sessions,
+                    max_sessions=self.max_pending_sessions,
+                    max_sessions_per_identity=(self.max_pending_sessions_per_identity),
+                    admission_identity_hmac=admission_hmac,
+                    admission_identity_hmacs=admission_candidates,
                     input_type=input_type,
-                    expires_hours=self.retention_hours,
+                    expires_seconds=self.pending_ttl_seconds,
                 )
-                return {"session_id": session_id, "revision": 1}
+                return {
+                    "session_id": session_id,
+                    "revision": 1,
+                    "derivation_version": version,
+                }
 
             result = self.idempotency.transactional_execute(
                 "create_upload_session",
                 "public_upload",
                 idempotency_key,
-                {"input_type": input_type},
+                {
+                    "input_type": input_type,
+                    "recovery_fingerprint": recovery_fingerprint,
+                },
                 create,
+                ttl=timedelta(seconds=self.pending_ttl_seconds),
             )
-            return CreatedSession(
-                str(result["session_id"]), secret, int(result["revision"])
+            session_id = str(result["session_id"])
+            version = int(result["derivation_version"])
+            secret = self.hmac.derive_secret(
+                f"{session_id}:{recovery_key}",
+                "upload-session-recovery",
+                version=version,
             )
+            row = self.repository.session(session_id)
+            if row is None or not self.hmac.verify(
+                secret, str(row["secret_hmac"]), "upload-secret"
+            ):
+                raise ValueError("creation recovery key is invalid")
+            return CreatedSession(session_id, secret, int(result["revision"]))
         session_id = new_opaque_id("us")
-        secret = (
-            self.hmac.derive_secret(idempotency_key, "upload-session-replay")
-            if idempotency_key is not None
-            else secrets.token_urlsafe(32)
-        )
+        secret = secrets.token_urlsafe(32)
         self.repository.create_session(
             session_id,
             self.hmac.digest(secret, "upload-secret"),
-            max_sessions=self.max_sessions,
+            max_sessions=self.max_pending_sessions,
+            max_sessions_per_identity=self.max_pending_sessions_per_identity,
+            admission_identity_hmac=admission_hmac,
+            admission_identity_hmacs=admission_candidates,
             input_type=input_type,
-            expires_hours=self.retention_hours,
+            expires_seconds=self.pending_ttl_seconds,
         )
         return CreatedSession(session_id, secret)
 
@@ -174,7 +241,10 @@ class UploadSessionService:
             mime=mime,
             chunk_size=self.chunk_size,
             max_files=self.max_files,
+            max_sessions=self.max_sessions,
+            max_sessions_per_identity=self.max_sessions_per_identity,
             max_reserved_bytes=self.max_reserved_bytes,
+            retention_hours=self.retention_hours,
             replacement_for=replacement_for,
         )
         return {
@@ -239,3 +309,16 @@ def sanitize_person(value: str) -> str:
 
 def new_opaque_id(prefix: str) -> str:
     return f"{prefix}_{secrets.token_urlsafe(18)}"
+
+
+def valid_recovery_key(value: str | None) -> bool:
+    if value is None or _RECOVERY_KEY.fullmatch(value) is None:
+        return False
+    try:
+        decoded = base64.urlsafe_b64decode(value + "=")
+    except (ValueError, TypeError):
+        return False
+    return (
+        len(decoded) == 32
+        and base64.urlsafe_b64encode(decoded).rstrip(b"=").decode("ascii") == value
+    )

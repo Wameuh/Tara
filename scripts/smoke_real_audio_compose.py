@@ -7,6 +7,7 @@ import hashlib
 import ipaddress
 import json
 import os
+import secrets
 import shutil
 import socket
 import ssl
@@ -396,7 +397,10 @@ def run(base_url: str | None, *, playwright: bool = False, build: bool = True) -
                 base_url,
                 "POST",
                 "/api/v1/uploads/sessions",
-                headers={"Idempotency-Key": f"docker-smoke-{time.time_ns()}"},
+                headers={
+                    "Idempotency-Key": f"docker-smoke-{time.time_ns()}",
+                    "X-Tara-Creation-Recovery": secrets.token_urlsafe(32),
+                },
             )
             session_id, secret = session["session_id"], session["secret"]
             upload(base_url, session_id, secret, "Alice.mp3", "audio/mpeg", mp3)

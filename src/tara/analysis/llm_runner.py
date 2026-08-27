@@ -679,11 +679,51 @@ def _is_denied_cursor_env_key(key: str) -> bool:
 
 
 def _cursor_args_with_sandbox_trust(args: Sequence[str]) -> list[str]:
-    """Return Cursor args that trust only the sandbox working directory."""
+    """Return Cursor args constrained to read-only ask mode and its sandbox."""
     result = [str(arg) for arg in args]
     normalized = {arg.strip().lower() for arg in result}
+    forbidden = {"--yolo", "-f", "--force", "--auto-review", "--approve-mcps"}
+    if (
+        normalized & forbidden
+        or any(
+            any(arg.startswith(f"{flag}=") for flag in forbidden) for arg in normalized
+        )
+        or "--sandbox=disabled" in normalized
+    ):
+        raise LLMConfigurationError(
+            "Cursor CLI execution-enabling flags are forbidden for untrusted input."
+        )
+    for index, arg in enumerate(result):
+        lowered = arg.strip().lower()
+        if lowered == "--mode" and (
+            index + 1 >= len(result) or result[index + 1].strip().lower() != "ask"
+        ):
+            raise LLMConfigurationError(
+                "Cursor CLI must use read-only ask mode for untrusted input."
+            )
+        if lowered.startswith("--mode=") and lowered != "--mode=ask":
+            raise LLMConfigurationError(
+                "Cursor CLI must use read-only ask mode for untrusted input."
+            )
+        if lowered == "--sandbox" and (
+            index + 1 >= len(result) or result[index + 1].strip().lower() != "enabled"
+        ):
+            raise LLMConfigurationError(
+                "Cursor CLI sandbox must be enabled for untrusted input."
+            )
     if normalized.isdisjoint({"--trust", "--yolo", "-f"}):
         result.insert(0, "--trust")
+    if not any(
+        arg.strip().lower() == "--mode" or arg.strip().lower().startswith("--mode=")
+        for arg in result
+    ):
+        result[0:0] = ["--mode", "ask"]
+    if not any(
+        arg.strip().lower() == "--sandbox"
+        or arg.strip().lower().startswith("--sandbox=")
+        for arg in result
+    ):
+        result[0:0] = ["--sandbox", "enabled"]
     return result
 
 

@@ -215,10 +215,13 @@ def test_migration_0019_preserves_existing_types_and_accepts_aac_m4a(
         connection.commit()
 
         assert migrate(connection) == LATEST_VERSION
-        assert connection.execute(
-            "SELECT detected_type FROM upload_files WHERE public_id=?",
-            ("uf_migration_0019",),
-        ).fetchone()[0] == "mp3"
+        assert (
+            connection.execute(
+                "SELECT detected_type FROM upload_files WHERE public_id=?",
+                ("uf_migration_0019",),
+            ).fetchone()[0]
+            == "mp3"
+        )
         for audio_type in ("aac", "m4a"):
             connection.execute(
                 "UPDATE upload_files SET detected_type=? WHERE public_id=?",
@@ -233,6 +236,61 @@ def test_migration_0019_preserves_existing_types_and_accepts_aac_m4a(
             row[1] for row in connection.execute("PRAGMA table_info(upload_files)")
         }
         assert "detected_type_legacy" not in columns
+    finally:
+        connection.close()
+
+
+def test_migration_0020_expires_legacy_empty_upload_sessions(tmp_path: Path) -> None:
+    db = factory(tmp_path)
+    connection = db.connect()
+    try:
+        assert migrate(connection, registry=MIGRATIONS[:19]) == 19
+        now = utc_now()
+        connection.execute(
+            "INSERT INTO upload_sessions(public_id,secret_hmac,status,expires_at,"
+            "created_at,updated_at,reserved_bytes) "
+            "VALUES (?,?,'created',?,?,?,0)",
+            (
+                "us_legacy_empty_0020",
+                "v1:" + "a" * 64,
+                "2100-01-01T00:00:00+00:00",
+                now,
+                now,
+            ),
+        )
+        connection.commit()
+
+        assert migrate(connection) == LATEST_VERSION
+        row = connection.execute(
+            "SELECT status,admission_identity_hmac FROM upload_sessions "
+            "WHERE public_id='us_legacy_empty_0020'"
+        ).fetchone()
+        assert tuple(row) == ("expired", None)
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(jobs)")}
+        assert "editable_relaunch_session_id" in columns
+    finally:
+        connection.close()
+
+
+def test_migration_0021_marks_terminal_private_cleanup_retryable(
+    tmp_path: Path,
+) -> None:
+    db = factory(tmp_path)
+    connection = db.connect()
+    try:
+        assert migrate(connection, registry=MIGRATIONS[:20]) == 20
+        assert "private_artifacts_cleaned_at" not in {
+            row[1] for row in connection.execute("PRAGMA table_info(jobs)")
+        }
+
+        assert migrate(connection) == LATEST_VERSION
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(jobs)")}
+        assert "private_artifacts_cleaned_at" in columns
+        index = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='index' "
+            "AND name='idx_jobs_terminal_private_cleanup'"
+        ).fetchone()
+        assert index is not None
     finally:
         connection.close()
 

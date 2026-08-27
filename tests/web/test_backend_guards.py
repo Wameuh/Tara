@@ -12,6 +12,9 @@ from tara_web.app import create_app
 from tara_web.catalogs import validate_catalogues
 from tara_web.config import ConfigError, load_config
 
+CREATION_RECOVERY = "cnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnI"
+OTHER_CREATION_RECOVERY = "c3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3M"
+
 
 def config_file(tmp_path: Path, replacement: str = "") -> Path:
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -396,7 +399,11 @@ def test_upload_origin_guard_accepts_same_origin_and_rejects_third_party(
         assert (
             client.post(
                 "/api/v1/uploads/sessions",
-                headers={"Origin": "http://127.0.0.1:8000", "Idempotency-Key": "same"},
+                headers={
+                    "Origin": "http://127.0.0.1:8000",
+                    "Idempotency-Key": "same",
+                    "X-Tara-Creation-Recovery": CREATION_RECOVERY,
+                },
             ).status_code
             == 201
         )
@@ -413,7 +420,11 @@ def test_upload_idempotency_replay_never_bypasses_secret(tmp_path: Path) -> None
     app = create_app(load_config(config_file(tmp_path)))
     with TestClient(app) as client:
         session = client.post(
-            "/api/v1/uploads/sessions", headers={"Idempotency-Key": "create"}
+            "/api/v1/uploads/sessions",
+            headers={
+                "Idempotency-Key": "create",
+                "X-Tara-Creation-Recovery": CREATION_RECOVERY,
+            },
         ).json()
         body = {
             "filename": "Alice.mp3",
@@ -445,6 +456,43 @@ def test_upload_idempotency_replay_never_bypasses_secret(tmp_path: Path) -> None
                 ).status_code
                 == 404
             )
+
+
+def test_creation_replay_requires_the_original_recovery_proof(tmp_path: Path) -> None:
+    app = create_app(load_config(config_file(tmp_path)))
+    with TestClient(app) as client:
+        assert (
+            client.post(
+                "/api/v1/uploads/sessions", headers={"Idempotency-Key": "recover"}
+            ).status_code
+            == 422
+        )
+        assert (
+            client.post(
+                "/api/v1/uploads/sessions",
+                headers={
+                    "Idempotency-Key": "recover",
+                    "X-Tara-Creation-Recovery": "weak",
+                },
+            ).status_code
+            == 400
+        )
+        headers = {
+            "Idempotency-Key": "recover",
+            "X-Tara-Creation-Recovery": CREATION_RECOVERY,
+        }
+        first = client.post("/api/v1/uploads/sessions", headers=headers)
+        replay = client.post("/api/v1/uploads/sessions", headers=headers)
+        assert first.status_code == replay.status_code == 201
+        assert replay.json() == first.json()
+        denied = client.post(
+            "/api/v1/uploads/sessions",
+            headers={
+                "Idempotency-Key": "recover",
+                "X-Tara-Creation-Recovery": OTHER_CREATION_RECOVERY,
+            },
+        )
+        assert denied.status_code == 409
 
 
 def test_embedded_manifest_publishes_only_complete_languages(tmp_path: Path) -> None:

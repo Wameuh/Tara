@@ -100,9 +100,12 @@ class LimitsConfig(StrictModel):
     recommended_chunk_bytes: int = Field(default=1_048_576, ge=16_384, le=67_108_864)
     max_upload_files: int = Field(default=1_000, ge=1, le=100_000)
     max_upload_sessions: int = Field(default=100, ge=1, le=10_000)
+    max_upload_sessions_per_identity: int = Field(default=5, ge=1, le=1_000)
+    max_pending_upload_sessions: int = Field(default=50, ge=1, le=10_000)
+    max_pending_upload_sessions_per_identity: int = Field(default=5, ge=1, le=1_000)
     max_reserved_upload_bytes: int = Field(default=10_737_418_240, ge=1)
     upload_read_timeout_seconds: int = Field(default=30, ge=1, le=600)
-    upload_inactivity_seconds: int = Field(default=1800, ge=60, le=86_400)
+    upload_inactivity_seconds: int = Field(default=1800, ge=1800, le=86_400)
     upload_session_retention_hours: int = Field(default=24, ge=1, le=168)
     validation_concurrency: int = Field(default=2, ge=1, le=16)
     public_parallel_uploads: int = Field(default=3, ge=1, le=16)
@@ -125,6 +128,13 @@ class LimitsConfig(StrictModel):
             > self.inference_budget_micro_eur
         ):
             raise ValueError("inference reservation must fit the global budget")
+        if self.max_upload_sessions_per_identity > self.max_upload_sessions:
+            raise ValueError("per-identity upload capacity exceeds global capacity")
+        if (
+            self.max_pending_upload_sessions_per_identity
+            > self.max_pending_upload_sessions
+        ):
+            raise ValueError("per-identity pending capacity exceeds global capacity")
         return self
 
 

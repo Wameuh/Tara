@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hmac
 import html
 import os
@@ -86,7 +87,11 @@ def create_admin_app(
     *,
     timezone: str = "Europe/Helsinki",
     allowed_hosts: tuple[str, ...] = ("127.0.0.1", "localhost", "testserver"),
+    admin_password: str | None = None,
 ) -> FastAPI:
+    non_loopback = set(allowed_hosts) - {"127.0.0.1", "localhost", "::1", "testserver"}
+    if non_loopback:
+        raise ValueError("the admin dashboard is restricted to loopback hosts")
     zone = ZoneInfo(timezone)
     csrf_token = secrets.token_urlsafe(32)
 
@@ -95,7 +100,9 @@ def create_admin_app(
         connection = database.connect()
         try:
             if schema_version(connection) != MIGRATIONS[-1].version:
-                raise RuntimeError("admin dashboard requires the latest database schema")
+                raise RuntimeError(
+                    "admin dashboard requires the latest database schema"
+                )
         finally:
             connection.close()
         yield
@@ -108,6 +115,23 @@ def create_admin_app(
         lifespan=lifespan,
     )
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(allowed_hosts))
+
+    @app.middleware("http")
+    async def admin_authentication(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        if request.url.path == "/health" or admin_password is None:
+            return await call_next(request)
+        supplied = _basic_password(request.headers.get("authorization"))
+        if supplied is None or not hmac.compare_digest(supplied, admin_password):
+            return PlainTextResponse(
+                "Authentication required",
+                status_code=401,
+                headers={
+                    "WWW-Authenticate": 'Basic realm="Tara administration", charset="UTF-8"'
+                },
+            )
+        return await call_next(request)
 
     @app.middleware("http")
     async def local_security(
@@ -136,7 +160,9 @@ def create_admin_app(
     @app.get("/", response_class=HTMLResponse)
     def dashboard(request: Request) -> HTMLResponse:
         return HTMLResponse(
-            _dashboard_html(database, zone, csrf_token, request.query_params.get("saved"))
+            _dashboard_html(
+                database, zone, csrf_token, request.query_params.get("saved")
+            )
         )
 
     @app.post("/consumption-adjustments")
@@ -144,9 +170,7 @@ def create_admin_app(
         try:
             form = await _form(request)
             supplied = form.get("csrf", [""])
-            if len(supplied) != 1 or not hmac.compare_digest(
-                supplied[0], csrf_token
-            ):
+            if len(supplied) != 1 or not hmac.compare_digest(supplied[0], csrf_token):
                 raise ValueError("invalid csrf token")
             values = form.get("amount", [])
             directions = form.get("direction", [])
@@ -168,6 +192,30 @@ def create_admin_app(
         return RedirectResponse("/?saved=1", status_code=303)
 
     return app
+
+
+def _basic_password(authorization: str | None) -> str | None:
+    scheme, separator, encoded = (authorization or "").partition(" ")
+    if not separator or scheme.lower() != "basic" or not encoded:
+        return None
+    try:
+        decoded = base64.b64decode(encoded, validate=True).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return None
+    username, separator, password = decoded.partition(":")
+    return password if separator and username == "tara-admin" else None
+
+
+def _admin_password() -> str | None:
+    path = os.environ.get("TARA_ADMIN_PASSWORD_FILE")
+    if path:
+        try:
+            value = Path(path).read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            raise RuntimeError("unable to read TARA_ADMIN_PASSWORD_FILE") from exc
+        return value or None
+    value = os.environ.get("TARA_ADMIN_PASSWORD")
+    return value.strip() if value and value.strip() else None
 
 
 async def _form(request: Request) -> dict[str, list[str]]:
@@ -237,37 +285,52 @@ def _dashboard_html(
         f"<td>{row.last_7_days}</td><td>{row.total}</td></tr>"
         for row in views
     )
-    status_rows = "".join(
-        f"<tr><th>{html.escape(_STATUS_LABELS.get(status, status))}</th><td>{count}</td></tr>"
-        for status, count in statuses.items()
-    ) or '<tr><td colspan="2">Aucune analyse enregistrée.</td></tr>'
-    failed_job_rows = "".join(
-        f'<tr><td>{_date(row.failed_at, zone)}</td><td><code>{html.escape(row.public_id)}</code></td>'
-        f'<td><span class="badge">{html.escape(_STATUS_LABELS.get(row.status, row.status))}</span></td>'
-        f'<td>{html.escape(_STAGE_LABELS.get(row.stage, row.stage))}</td>'
-        f'<td>{html.escape(_failure_label(row.error_code, row.stage))}<br>'
-        f'<code>{html.escape(row.error_code or "cause_non_renseignee")}</code></td></tr>'
-        for row in failed_jobs
-    ) or '<tr><td colspan="5">Aucune analyse échouée.</td></tr>'
-    technical_log_rows = "".join(
-        f'<tr><td>{_date(row.created_at, zone)}</td>'
-        f'<td><code>{html.escape(row.public_id)}</code><br><small>Tentative {row.attempt_number}</small></td>'
-        f'<td>{html.escape(_EVENT_LABELS.get(row.event_type, row.event_type))}</td>'
-        f'<td>{html.escape(_STAGE_LABELS.get(row.stage, row.stage))}</td>'
-        f'<td><code>{html.escape(row.code)}</code></td></tr>'
-        for row in technical_logs
-    ) or '<tr><td colspan="5">Aucun événement technique enregistré.</td></tr>'
-    adjustment_rows = "".join(
-        f"<tr><td>{_date(row.created_at, zone)}</td><td class=\"money\">{_money(row.amount_micro_eur, signed=True)}</td>"
-        f"<td>{html.escape(row.note)}</td></tr>"
-        for row in adjustments
-    ) or '<tr><td colspan="3">Aucun ajustement manuel.</td></tr>'
-    kofi_rows = "".join(
-        f"<tr><td>{_date(row.received_at, zone)}</td><td>{html.escape(row.event_type)}</td>"
-        f"<td>{'Oui' if row.is_test_transaction else 'Non'}</td>"
-        f"<td class=\"money\">{_money(row.amount_micros)} {html.escape(row.currency)}</td></tr>"
-        for row in kofi
-    ) or '<tr><td colspan="4">Aucun webhook Ko-fi reçu.</td></tr>'
+    status_rows = (
+        "".join(
+            f"<tr><th>{html.escape(_STATUS_LABELS.get(status, status))}</th><td>{count}</td></tr>"
+            for status, count in statuses.items()
+        )
+        or '<tr><td colspan="2">Aucune analyse enregistrée.</td></tr>'
+    )
+    failed_job_rows = (
+        "".join(
+            f"<tr><td>{_date(row.failed_at, zone)}</td><td><code>{html.escape(row.public_id)}</code></td>"
+            f'<td><span class="badge">{html.escape(_STATUS_LABELS.get(row.status, row.status))}</span></td>'
+            f"<td>{html.escape(_STAGE_LABELS.get(row.stage, row.stage))}</td>"
+            f"<td>{html.escape(_failure_label(row.error_code, row.stage))}<br>"
+            f"<code>{html.escape(row.error_code or 'cause_non_renseignee')}</code></td></tr>"
+            for row in failed_jobs
+        )
+        or '<tr><td colspan="5">Aucune analyse échouée.</td></tr>'
+    )
+    technical_log_rows = (
+        "".join(
+            f"<tr><td>{_date(row.created_at, zone)}</td>"
+            f"<td><code>{html.escape(row.public_id)}</code><br><small>Tentative {row.attempt_number}</small></td>"
+            f"<td>{html.escape(_EVENT_LABELS.get(row.event_type, row.event_type))}</td>"
+            f"<td>{html.escape(_STAGE_LABELS.get(row.stage, row.stage))}</td>"
+            f"<td><code>{html.escape(row.code)}</code></td></tr>"
+            for row in technical_logs
+        )
+        or '<tr><td colspan="5">Aucun événement technique enregistré.</td></tr>'
+    )
+    adjustment_rows = (
+        "".join(
+            f'<tr><td>{_date(row.created_at, zone)}</td><td class="money">{_money(row.amount_micro_eur, signed=True)}</td>'
+            f"<td>{html.escape(row.note)}</td></tr>"
+            for row in adjustments
+        )
+        or '<tr><td colspan="3">Aucun ajustement manuel.</td></tr>'
+    )
+    kofi_rows = (
+        "".join(
+            f"<tr><td>{_date(row.received_at, zone)}</td><td>{html.escape(row.event_type)}</td>"
+            f"<td>{'Oui' if row.is_test_transaction else 'Non'}</td>"
+            f'<td class="money">{_money(row.amount_micros)} {html.escape(row.currency)}</td></tr>'
+            for row in kofi
+        )
+        or '<tr><td colspan="4">Aucun webhook Ko-fi reçu.</td></tr>'
+    )
     total_views = sum(row.total for row in views)
     total_jobs = sum(statuses.values())
     return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
@@ -331,7 +394,6 @@ form{display:grid;grid-template-columns:1fr 2fr;gap:16px;margin:24px 0}label{fon
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument(
         "--storage-root",
@@ -350,9 +412,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--allowed-hosts",
-        default=os.environ.get(
-            "TARA_ADMIN_ALLOWED_HOSTS", "127.0.0.1,localhost"
-        ),
+        default=os.environ.get("TARA_ADMIN_ALLOWED_HOSTS", "127.0.0.1,localhost"),
     )
     arguments = parser.parse_args()
     allowed_hosts = tuple(
@@ -360,12 +420,24 @@ def main() -> None:
     )
     if not allowed_hosts or "*" in allowed_hosts:
         parser.error("--allowed-hosts must contain explicit host names or addresses")
+    admin_password = _admin_password()
+    if set(allowed_hosts) - {"127.0.0.1", "localhost", "::1"} and (
+        admin_password is None or len(admin_password) < 20
+    ):
+        parser.error(
+            "non-loopback admin hosts require TARA_ADMIN_PASSWORD or "
+            "TARA_ADMIN_PASSWORD_FILE with at least 20 characters"
+        )
     app = create_admin_app(
         ConnectionFactory(arguments.database, arguments.storage_root),
         timezone=arguments.timezone,
         allowed_hosts=allowed_hosts,
+        admin_password=admin_password,
     )
-    uvicorn.run(app, host=arguments.host, port=arguments.port, access_log=False)
+    bind_host = (
+        "0.0.0.0" if os.environ.get("TARA_ADMIN_CONTAINER_BIND") == "1" else "127.0.0.1"
+    )
+    uvicorn.run(app, host=bind_host, port=arguments.port, access_log=False)
 
 
 if __name__ == "__main__":

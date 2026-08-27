@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -8,29 +7,22 @@ import pytest
 
 from tara_web.db.connection import ConnectionFactory, DatabaseConflict
 from tara_web.db.migrations import migrate
-from tara_web.db.repositories.artifacts import ArtifactRepository
-from tara_web.orchestration.job_workspace import JobWorkspaceService
 from tara_web.services.relaunch import RelaunchService
-from tara_web.storage.cleanup import cleanup_expired_inputs
 from tara_web.storage.layout import StorageLayout
 
 
-def test_identical_relaunch_creates_one_distinct_job_with_reusable_inputs(
-    tmp_path: Path,
-) -> None:
+def _seed_terminal_job(tmp_path: Path) -> tuple[ConnectionFactory, RelaunchService]:
     root = tmp_path / "runtime"
     root.mkdir(mode=0o700)
     factory = ConnectionFactory(root / "tara.sqlite3", root)
-    connection = factory.connect()
     now = datetime.now(UTC)
-    source_public_id = "job-0000000000000001"
-    content = b"ID3-identical-relaunch"
-    digest = hashlib.sha256(content).hexdigest()
+    connection = factory.connect()
     try:
         migrate(connection)
         session_id = connection.execute(
             "INSERT INTO upload_sessions(public_id,secret_hmac,status,expires_at,"
-            "created_at,updated_at,language) VALUES (?,?, 'consumed',?,?,?,'fr') "
+            "created_at,updated_at,language,context_text,previous_summaries_text) "
+            "VALUES (?,?, 'consumed',?,?,?,'fr','private context','private summary') "
             "RETURNING id",
             (
                 "session-000000000001",
@@ -40,13 +32,13 @@ def test_identical_relaunch_creates_one_distinct_job_with_reusable_inputs(
                 now.isoformat(),
             ),
         ).fetchone()[0]
-        job_id = connection.execute(
+        connection.execute(
             "INSERT INTO jobs(public_id,upload_session_id,secret_hmac,status,"
             "pipeline_version,expires_at,created_at,updated_at,finished_at,"
-            "input_file_count,revision) VALUES (?,?,?,'timed_out','test',?,?,?,?,1,3) "
-            "RETURNING id",
+            "input_file_count,revision,job_type,language) "
+            "VALUES ('job-0000000000000001',?,?, 'timed_out','test',?,?,?,?,1,3,"
+            "'audio','fr')",
             (
-                source_public_id,
                 session_id,
                 "v1:" + "a" * 64,
                 (now + timedelta(days=7)).isoformat(),
@@ -54,110 +46,114 @@ def test_identical_relaunch_creates_one_distinct_job_with_reusable_inputs(
                 now.isoformat(),
                 now.isoformat(),
             ),
-        ).fetchone()[0]
-        file_id = connection.execute(
-            "INSERT INTO upload_files(public_id,session_id,status,storage_path,"
-            "original_filename,declared_bytes,confirmed_offset,sha256_hex,"
-            "created_at,updated_at,job_id) VALUES (?,?, 'ready',?,?,?, ?,?,?,?,?) "
-            "RETURNING id",
-            (
-                "file-0000000000000001",
-                session_id,
-                "uploads/session-000000000001/file-0000000000000001.part",
-                "source.mp3",
-                len(content),
-                len(content),
-                digest,
-                now.isoformat(),
-                now.isoformat(),
-                job_id,
-            ),
-        ).fetchone()[0]
-        layout = StorageLayout(root)
-        layout.create_job_layout(source_public_id)
-        relative = f"jobs/{source_public_id}/inputs/{'1' * 32}.bin"
-        path = root / relative
-        path.write_bytes(content)
-        path.chmod(0o600)
-        connection.execute(
-            "INSERT INTO job_input_preparations(job_id,upload_file_id,"
-            "destination_path,expected_bytes,sha256_hex,state,created_at,updated_at) "
-            "VALUES (?,?,?,?,?,'moved',?,?)",
-            (
-                job_id,
-                file_id,
-                relative,
-                len(content),
-                digest,
-                now.isoformat(),
-                now.isoformat(),
-            ),
         )
         connection.commit()
     finally:
         connection.close()
+    return factory, RelaunchService(StorageLayout(root))
 
-    service = RelaunchService(StorageLayout(root))
-    with factory.transaction() as transaction:
-        result = service.create_identical(
-            transaction,
-            source_public_id=source_public_id,
+
+def test_identical_relaunch_is_disabled_even_before_cleanup(tmp_path: Path) -> None:
+    factory, service = _seed_terminal_job(tmp_path)
+
+    with factory.transaction() as connection, pytest.raises(
+        DatabaseConflict, match="identical relaunch"
+    ):
+        service.create_identical(
+            connection,
+            source_public_id="job-0000000000000001",
             expected_revision=3,
             job_public_id="job-0000000000000002",
             session_public_id="session-000000000002",
         )
-    assert result == {"accepted": True, "job_id": "job-0000000000000002"}
 
-    database = factory.connect()
-    try:
-        new = database.execute(
-            "SELECT id,status,parent_job_id,current_attempt_number FROM jobs "
-            "WHERE public_id='job-0000000000000002'"
-        ).fetchone()
-        assert tuple(new)[1:] == ("queued", job_id, 1)
-        assert database.execute(
-            "SELECT identical_relaunch_job_id FROM jobs WHERE id=?", (job_id,)
-        ).fetchone()[0] == new[0]
-    finally:
-        database.close()
-    assert JobWorkspaceService(factory, StorageLayout(root)).prepare(
-        int(new[0]), "job-0000000000000002"
-    ) == "inputs/source-manifest.json"
-    with factory.transaction() as transaction:
-        editable = service.create_editable(
-            transaction,
-            source_public_id=source_public_id,
-            expected_revision=4,
-            session_public_id="session-000000000004",
-            secret_hmac="v1:" + "a" * 64,
+
+def test_editable_relaunch_is_empty_pending_and_single_use(tmp_path: Path) -> None:
+    factory, service = _seed_terminal_job(tmp_path)
+
+    with factory.transaction() as connection:
+        result = service.create_editable(
+            connection,
+            source_public_id="job-0000000000000001",
+            expected_revision=3,
+            session_public_id="session-000000000002",
+            secret_hmac="v1:" + "b" * 64,
+            admission_identity_hmac="v1:" + "c" * 64,
+            max_sessions=1,
+            max_sessions_per_identity=1,
+            max_pending_sessions=5,
+            max_pending_sessions_per_identity=5,
+            max_reserved_bytes=1,
+            pending_ttl_seconds=1800,
         )
-    assert editable == {"session_id": "session-000000000004", "revision": 1}
-    database = factory.connect()
+    assert result == {"session_id": "session-000000000002", "revision": 1}
+
+    connection = factory.connect()
     try:
-        copied = database.execute(
-            "SELECT s.status,f.storage_path FROM upload_sessions s "
-            "JOIN upload_files f ON f.session_id=s.id WHERE s.public_id=?",
-            ("session-000000000004",),
+        row = connection.execute(
+            "SELECT status,reserved_bytes,context_text,previous_summaries_text,"
+            "relaunch_parent_job_id FROM upload_sessions WHERE public_id=?",
+            ("session-000000000002",),
         ).fetchone()
-        assert copied[0] == "ready"
-        assert (root / copied[1]).read_bytes() == content
+        assert tuple(row[:4]) == ("created", 0, "", "")
+        assert row[4] is not None
+        assert connection.execute(
+            "SELECT COUNT(*) FROM upload_files WHERE session_id=(SELECT id FROM "
+            "upload_sessions WHERE public_id='session-000000000002')"
+        ).fetchone()[0] == 0
     finally:
-        database.close()
-    with factory.transaction() as transaction, pytest.raises(DatabaseConflict):
-        service.create_identical(
-            transaction,
-            source_public_id=source_public_id,
+        connection.close()
+
+    with factory.transaction() as connection, pytest.raises(
+        DatabaseConflict, match="editable relaunch"
+    ):
+        service.create_editable(
+            connection,
+            source_public_id="job-0000000000000001",
             expected_revision=4,
-            job_public_id="job-0000000000000003",
             session_public_id="session-000000000003",
+            secret_hmac="v1:" + "b" * 64,
+            admission_identity_hmac="v1:" + "c" * 64,
+            max_sessions=1,
+            max_sessions_per_identity=1,
+            max_pending_sessions=5,
+            max_pending_sessions_per_identity=5,
+            max_reserved_bytes=1,
+            pending_ttl_seconds=1800,
         )
-    with factory.transaction() as transaction:
-        transaction.execute(
-            "UPDATE upload_files SET created_at=? WHERE id=?",
-            ((datetime.now(UTC) - timedelta(hours=25)).isoformat(), file_id),
+
+
+def test_editable_relaunch_obeys_pending_identity_quota(tmp_path: Path) -> None:
+    factory, service = _seed_terminal_job(tmp_path)
+    now = datetime.now(UTC).isoformat()
+    with factory.transaction() as connection:
+        connection.execute(
+            "INSERT INTO upload_sessions(public_id,secret_hmac,status,expires_at,"
+            "created_at,updated_at,admission_identity_hmac) "
+            "VALUES ('session-capacity-blocker',?,'created',?,?,?,?)",
+            (
+                "v1:" + "b" * 64,
+                (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
+                now,
+                now,
+                "v1:" + "c" * 64,
+            ),
         )
-    assert cleanup_expired_inputs(
-        StorageLayout(root), ArtifactRepository(factory), batch_size=10
-    ) == 1
-    assert not path.exists()
-    assert (root / "jobs/job-0000000000000002/inputs").exists()
+
+    with factory.transaction() as connection, pytest.raises(
+        DatabaseConflict, match="pending capacity"
+    ):
+        service.create_editable(
+            connection,
+            source_public_id="job-0000000000000001",
+            expected_revision=3,
+            session_public_id="session-000000000004",
+            secret_hmac="v1:" + "b" * 64,
+            admission_identity_hmac="v1:" + "c" * 64,
+            max_sessions=100,
+            max_sessions_per_identity=100,
+            max_pending_sessions=100,
+            max_pending_sessions_per_identity=1,
+            max_reserved_bytes=10_000,
+            pending_ttl_seconds=1800,
+        )
