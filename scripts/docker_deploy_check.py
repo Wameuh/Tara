@@ -11,6 +11,7 @@ from pathlib import Path
 _TERMINAL_STATUSES = (
     "completed",
     "failed",
+    "expired",
     "cancelled",
     "timed_out",
     "cancel_failed",

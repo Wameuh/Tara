@@ -28,7 +28,7 @@ def _database(tmp_path: Path, statuses: tuple[str, ...]) -> Path:
 def test_deploy_check_accepts_only_terminal_jobs(tmp_path: Path) -> None:
     path = _database(
         tmp_path,
-        ("completed", "failed", "cancelled", "timed_out", "cancel_failed"),
+        ("completed", "failed", "expired", "cancelled", "timed_out", "cancel_failed"),
     )
 
     assert active_job_counts(path) == {}

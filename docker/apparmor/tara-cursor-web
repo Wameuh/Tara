@@ -1,0 +1,28 @@
+# AppArmor 4 profile for Tara's Cursor CLI container.
+# Docker still enforces a read-only root filesystem, dropped capabilities,
+# no-new-privileges and the service's explicit mounts/resources.
+profile tara_cursor_web flags=(attach_disconnected) {
+  file,
+  /** ix,
+
+  capability sys_admin,
+  capability net_admin,
+  capability chown,
+  capability setuid,
+  capability setgid,
+  capability setpcap,
+
+  network unix,
+  network inet stream,
+  network inet6 stream,
+  network netlink raw,
+
+  signal (receive) peer=unconfined,
+  ptrace (read, readby) peer=tara_cursor_web,
+  userns,
+
+  mount,
+  remount,
+  umount,
+  pivot_root,
+}

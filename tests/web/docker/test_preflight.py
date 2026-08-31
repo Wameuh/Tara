@@ -12,6 +12,7 @@ _preflight = runpy.run_path(
 )
 _private_writable_directory = _preflight["_private_writable_directory"]
 _validate_inference_credentials = _preflight["_validate_inference_credentials"]
+_validate_cursor_backend = _preflight["_validate_cursor_backend"]
 
 
 def test_preflight_rejects_public_or_linked_volume(tmp_path: Path) -> None:
@@ -108,3 +109,79 @@ def test_preflight_honours_custom_modal_proxy_environment_names() -> None:
             "CUSTOM_MODAL_SECRET": "ws-custom_proxy_secret",
         },
     )
+
+
+def _cursor_snapshot(backend: str = "cursor_cli") -> str:
+    return json.dumps(
+        {
+            "analysis": {
+                "llm": {
+                    "backend": backend,
+                    "cursor_command": "cursor-agent",
+                }
+            }
+        }
+    )
+
+
+def test_preflight_validates_cursor_runtime_without_reading_auth(tmp_path: Path) -> None:
+    config_home = tmp_path / "config"
+    auth = config_home / "cursor" / "auth.json"
+    auth.parent.mkdir(parents=True)
+    auth.write_text("opaque", encoding="utf-8")
+    auth.chmod(0o600)
+    available = {"cursor-agent": "/opt/cursor-agent/cursor-agent", "bwrap": "/usr/bin/bwrap"}
+
+    _validate_cursor_backend(
+        _cursor_snapshot(),
+        {"XDG_CONFIG_HOME": str(config_home)},
+        available.get,
+    )
+
+
+@pytest.mark.parametrize(
+    ("available", "message"),
+    [
+        ({"bwrap": "/usr/bin/bwrap"}, "executable"),
+        ({"cursor-agent": "/opt/cursor-agent/cursor-agent"}, "sandbox dependency"),
+    ],
+)
+def test_preflight_rejects_incomplete_cursor_runtime(
+    tmp_path: Path,
+    available: dict[str, str],
+    message: str,
+) -> None:
+    config_home = tmp_path / "config"
+    auth = config_home / "cursor" / "auth.json"
+    auth.parent.mkdir(parents=True)
+    auth.write_text("opaque", encoding="utf-8")
+    auth.chmod(0o600)
+
+    with pytest.raises(SystemExit, match=message):
+        _validate_cursor_backend(
+            _cursor_snapshot(),
+            {"XDG_CONFIG_HOME": str(config_home)},
+            available.get,
+        )
+
+
+def test_preflight_rejects_missing_or_public_cursor_auth(tmp_path: Path) -> None:
+    config_home = tmp_path / "config"
+    available = {"cursor-agent": "/cursor-agent", "bwrap": "/bwrap"}
+    with pytest.raises(SystemExit, match="authentication is unavailable"):
+        _validate_cursor_backend(
+            _cursor_snapshot(),
+            {"XDG_CONFIG_HOME": str(config_home)},
+            available.get,
+        )
+
+    auth = config_home / "cursor" / "auth.json"
+    auth.parent.mkdir(parents=True)
+    auth.write_text("opaque", encoding="utf-8")
+    auth.chmod(0o644)
+    with pytest.raises(SystemExit, match="authentication is invalid"):
+        _validate_cursor_backend(
+            _cursor_snapshot(),
+            {"XDG_CONFIG_HOME": str(config_home)},
+            available.get,
+        )

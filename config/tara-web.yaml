@@ -21,9 +21,8 @@ analysis:
     max_chars_per_request: 60000
     model: Auto
   llm:
-    backend: api
+    backend: cursor_cli
     model: Auto
-    default_api_model: gpt-5
     default_pricing_model: composer-2.5
     usd_to_eur_rate: "0.92"
     pricing_per_million_tokens:
@@ -33,4 +32,7 @@ analysis:
         output_usd: 2.5
     timeout_seconds: 900
     retries: 2
-    cursor_cli_probe: false
+    cursor_command: cursor-agent
+    cursor_args:
+      - -p
+    cursor_cli_probe: true

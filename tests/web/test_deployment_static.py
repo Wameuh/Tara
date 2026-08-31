@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from pathlib import Path
 from stat import S_IXUSR
@@ -12,6 +13,12 @@ ROOT = Path(__file__).parents[2]
 
 def load_yaml(path: Path) -> dict[str, Any]:
     document = YAML(typ="safe").load(path.read_text(encoding="utf-8"))
+    assert isinstance(document, dict)
+    return document
+
+
+def load_json(path: Path) -> dict[str, Any]:
+    document = json.loads(path.read_text(encoding="utf-8"))
     assert isinstance(document, dict)
     return document
 
@@ -139,6 +146,7 @@ def test_image_context_entrypoint_proxy_and_config_are_production_shaped() -> No
     assert "uv sync --frozen --no-dev" in dockerfile
     assert "npm ci --ignore-scripts" in dockerfile
     assert "USER 10001:10001" in dockerfile
+    assert "bubblewrap" in dockerfile
     assert 'ENTRYPOINT ["/app/docker/entrypoint.sh"]' in dockerfile
     assert "org.opencontainers.image.revision" in dockerfile
     assert "chown -R 0:0 /app" in dockerfile
@@ -172,14 +180,41 @@ def test_image_context_entrypoint_proxy_and_config_are_production_shaped() -> No
     assert "prepare_cursor_auth" in entrypoint
     assert 'chmod 600 "$cursor_config/auth.json"' in entrypoint
     tara_config = load_yaml(ROOT / "config/tara-web.yaml")
-    assert tara_config["analysis"]["llm"]["backend"] == "api"
+    assert tara_config["analysis"]["llm"]["backend"] == "cursor_cli"
+    assert tara_config["analysis"]["llm"]["cursor_command"] == "cursor-agent"
+    assert tara_config["analysis"]["llm"]["cursor_cli_probe"] is True
     assert tara_config["analysis"]["prompt_security"]["enabled"] is True
     override = (ROOT / "compose.override.yaml.example").read_text(encoding="utf-8")
     assert (
         "TARA_KOFI_VERIFICATION_TOKEN_FILE: /run/secrets/kofi_verification_token"
     ) in override
-    assert "TARA_CURSOR_AUTH_FILE" not in override
-    assert ":/opt/cursor-agent:ro" not in override
+    assert "TARA_CURSOR_AUTH_FILE: /run/secrets/cursor_auth" in override
+    assert ":/opt/cursor-agent:ro" in override
+    assert "apparmor=tara_cursor_web" in override
+    assert "seccomp=./docker/seccomp/tara-cursor-web.json" in override
+    assert "dns_opt: [use-vc]" in override
+    apparmor_profile = (ROOT / "docker/apparmor/tara-cursor-web").read_text(
+        encoding="utf-8"
+    )
+    assert "profile tara_cursor_web" in apparmor_profile
+    assert "userns," in apparmor_profile
+    assert "network inet dgram" not in apparmor_profile
+    seccomp_profile = load_json(ROOT / "docker/seccomp/tara-cursor-web.json")
+    cursor_rule = next(
+        rule
+        for rule in seccomp_profile["syscalls"]
+        if rule.get("comment", "").startswith("Required by Cursor CLI")
+    )
+    assert set(cursor_rule["names"]) == {
+        "mount",
+        "pivot_root",
+        "setns",
+        "umount",
+        "umount2",
+        "unshare",
+        "clone",
+        "clone3",
+    }
     proxy_mounts = load_yaml(ROOT / "compose.yaml")["services"]["tara-proxy"]["volumes"]
     assert any("maintenance.html:" in str(mount) for mount in proxy_mounts)
     assert any(":/maintenance:ro" in str(mount) for mount in proxy_mounts)

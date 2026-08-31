@@ -29,7 +29,7 @@ LABEL org.opencontainers.image.source=$OCI_SOURCE \
       org.opencontainers.image.revision=$OCI_REVISION \
       org.opencontainers.image.version=$OCI_VERSION \
       org.opencontainers.image.title="Tara Web"
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates ffmpeg \
+RUN apt-get update && apt-get install -y --no-install-recommends bubblewrap ca-certificates ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 tara && useradd --uid 10001 --gid tara --no-create-home --shell /usr/sbin/nologin tara \
     && mkdir -p /app/docker /app/scripts /data/runtime/db /data/backups /config \

@@ -24,6 +24,7 @@ def main() -> None:
         raise SystemExit("tara-web must not run as root")
     runtime = load_config(arguments.config)
     _validate_inference_credentials(runtime.tara_config_snapshot)
+    _validate_cursor_backend(runtime.tara_config_snapshot)
     storage = runtime.web.storage
     for path in (storage.root, storage.sqlite_path.parent, storage.backups_root):
         _private_writable_directory(path)
@@ -95,6 +96,48 @@ def _valid_provider_token(value: str | None, prefix: str) -> bool:
         character.isascii() and (character.isalnum() or character in {"-", "_"})
         for character in value
     )
+
+
+def _validate_cursor_backend(
+    tara_config_snapshot: str | None,
+    environ: dict[str, str] | None = None,
+    command_finder=shutil.which,
+) -> None:
+    """Fail startup when a selected Cursor CLI runtime is incomplete."""
+    if tara_config_snapshot is None:
+        return
+    try:
+        document = json.loads(tara_config_snapshot)
+        llm = document["analysis"]["llm"]
+        backend = str(llm["backend"]).strip().lower()
+    except (KeyError, TypeError, ValueError) as exc:
+        raise SystemExit("Tara analysis configuration is invalid") from exc
+    if backend != "cursor_cli":
+        return
+
+    cursor_command = str(llm.get("cursor_command", "cursor-agent")).strip()
+    if not cursor_command or command_finder(cursor_command) is None:
+        raise SystemExit("Cursor CLI executable is unavailable")
+    if command_finder("bwrap") is None:
+        raise SystemExit("Cursor CLI sandbox dependency is unavailable")
+
+    environment = environ if environ is not None else os.environ
+    config_home = environment.get("XDG_CONFIG_HOME")
+    if config_home:
+        auth_path = Path(config_home) / "cursor" / "auth.json"
+    else:
+        auth_path = Path(environment.get("HOME", "")) / ".config/cursor/auth.json"
+    try:
+        info = os.lstat(auth_path)
+    except OSError as exc:
+        raise SystemExit("Cursor CLI authentication is unavailable") from exc
+    if (
+        stat.S_ISLNK(info.st_mode)
+        or not stat.S_ISREG(info.st_mode)
+        or info.st_size <= 0
+        or (os.name != "nt" and info.st_mode & 0o077)
+    ):
+        raise SystemExit("Cursor CLI authentication is invalid")
 
 
 def _private_writable_directory(path: Path) -> None:

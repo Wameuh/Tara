@@ -12,6 +12,7 @@ services d'exploitation sous profils (`backup` et `restore`).
 - certificat TLS et clé privée lisibles par Docker ;
 - clé de signature de sauvegarde aléatoire d'au moins 32 octets ;
 - limites CPU, mémoire et PID adaptées à FFmpeg et au nombre de workers.
+- AppArmor 4 actif sur l'hôte pour isoler Cursor CLI.
 
 Ne montez jamais le dépôt, un home, `/`, ni `/var/run/docker.sock` dans les
 conteneurs. SQLite, son WAL et les jobs doivent rester sur le même hôte, jamais
@@ -71,6 +72,26 @@ Agent contenant `cursor-agent`, `node` et `index.js`. Copier le seul script
 `secrets/cursor-auth.json` sans en afficher le contenu ; l'entrypoint le
 matérialise avec des permissions privées dans le `tmpfs` du conteneur. Le
 pipeline web utilise Cursor CLI avec le modèle `Auto` par défaut.
+
+Cursor utilise Bubblewrap dans l'image et un profil AppArmor dédié sur l'hôte.
+Sur Debian, vérifier que `/sys/module/apparmor/parameters/enabled` vaut `Y` ;
+sinon ajouter `apparmor=1 security=apparmor` à la ligne de commande du noyau et
+redémarrer. Installer ensuite le profil versionné avant de créer le service :
+
+```bash
+sudo install -m 0644 docker/apparmor/tara-cursor-web \
+  /etc/apparmor.d/tara-cursor-web
+sudo apparmor_parser -r /etc/apparmor.d/tara-cursor-web
+```
+
+La surcharge Compose applique ce profil et
+`docker/seccomp/tara-cursor-web.json` au seul service web. Le profil Seccomp
+reprend le profil Moby et ajoute uniquement les appels de création/montage des
+espaces de noms nécessaires à Bubblewrap ; AppArmor, le retrait des capacités,
+le système de fichiers en lecture seule et `no-new-privileges` restent actifs.
+La résolution DNS est forcée sur TCP parce que le profil AppArmor n'autorise
+pas les sockets UDP. Le préflight refuse le démarrage si Cursor, Bubblewrap ou
+le fichier d'authentification privé manque.
 
 Compose monte les secrets locaux comme des fichiers liés et conserve leurs
 propriétaires et permissions hôte. Les GID `101` (Nginx) et `10001` (Tara)

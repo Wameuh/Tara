@@ -72,9 +72,7 @@ services:
     cap_drop: [ALL]
     depends_on:
       tara-web-migrate: { condition: service_completed_successfully }
-    environment:
-      <<: *tara_environment
-      OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY is required by config/tara-web.yaml}
+    environment: *tara_environment
     volumes: *tara_volumes
     extra_hosts: [host.docker.internal:host-gateway]
     tmpfs: ["/tmp:rw,noexec,nosuid,size=256m"]
