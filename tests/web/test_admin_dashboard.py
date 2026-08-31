@@ -121,22 +121,34 @@ def test_dashboard_accepts_only_configured_loopback_host(tmp_path: Path) -> None
         assert rejected.status_code == 400
 
 
-def test_non_loopback_admin_is_rejected_even_with_auth(tmp_path: Path) -> None:
+def test_non_loopback_admin_requires_auth(tmp_path: Path) -> None:
     database = _database(tmp_path)
-    with pytest.raises(ValueError, match="loopback"):
+    with pytest.raises(ValueError, match="strong password"):
         create_admin_app(
             database,
             timezone="UTC",
             allowed_hosts=("192.168.1.109", "testserver"),
         )
 
-    with pytest.raises(ValueError, match="loopback"):
-        create_admin_app(
-            database,
-            timezone="UTC",
-            allowed_hosts=("192.168.1.109", "testserver"),
-            admin_password="strong-admin-password-for-tests",
+    password = "strong-admin-password-for-tests"
+    app = create_admin_app(
+        database,
+        timezone="UTC",
+        allowed_hosts=("192.168.1.109", "testserver"),
+        admin_password=password,
+    )
+    token = base64.b64encode(f"tara-admin:{password}".encode()).decode()
+    with TestClient(app) as client:
+        denied = client.get("/", headers={"host": "192.168.1.109"})
+        accepted = client.get(
+            "/",
+            headers={
+                "host": "192.168.1.109",
+                "Authorization": f"Basic {token}",
+            },
         )
+        assert denied.status_code == 401
+        assert accepted.status_code == 200
 
 
 def test_optional_basic_auth_protects_loopback_dashboard(tmp_path: Path) -> None:

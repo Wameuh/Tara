@@ -90,8 +90,8 @@ def create_admin_app(
     admin_password: str | None = None,
 ) -> FastAPI:
     non_loopback = set(allowed_hosts) - {"127.0.0.1", "localhost", "::1", "testserver"}
-    if non_loopback:
-        raise ValueError("the admin dashboard is restricted to loopback hosts")
+    if non_loopback and (admin_password is None or len(admin_password) < 20):
+        raise ValueError("non-loopback admin hosts require a strong password")
     zone = ZoneInfo(timezone)
     csrf_token = secrets.token_urlsafe(32)
 
