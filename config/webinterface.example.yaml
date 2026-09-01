@@ -27,7 +27,7 @@ webinterface:
     zip_max_uncompressed_bytes: 5368709120
     zip_max_compression_ratio: 100.0
     zip_max_depth: 16
-    zip_validation_timeout_seconds: 30
+    zip_validation_timeout_seconds: 120
     max_active_jobs: 1
     max_sse_connections: 100
     max_artifact_bytes: 1073741824

@@ -198,6 +198,8 @@ def test_image_context_entrypoint_proxy_and_config_are_production_shaped() -> No
     )
     assert "profile tara_cursor_web" in apparmor_profile
     assert "userns," in apparmor_profile
+    assert "signal (receive) peer=runc," in apparmor_profile
+    assert "signal (send, receive) peer=tara_cursor_web," in apparmor_profile
     assert "network inet dgram" not in apparmor_profile
     seccomp_profile = load_json(ROOT / "docker/seccomp/tara-cursor-web.json")
     cursor_rule = next(

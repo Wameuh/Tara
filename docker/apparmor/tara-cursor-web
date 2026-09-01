@@ -18,6 +18,8 @@ profile tara_cursor_web flags=(attach_disconnected) {
   network netlink raw,
 
   signal (receive) peer=unconfined,
+  signal (receive) peer=runc,
+  signal (send, receive) peer=tara_cursor_web,
   ptrace (read, readby) peer=tara_cursor_web,
   userns,
 

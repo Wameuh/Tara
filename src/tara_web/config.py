@@ -81,7 +81,7 @@ class LimitsConfig(StrictModel):
     )
     zip_max_compression_ratio: float = Field(default=100.0, ge=1.0, le=10_000.0)
     zip_max_depth: int = Field(default=16, ge=1, le=128)
-    zip_validation_timeout_seconds: int = Field(default=30, ge=1, le=600)
+    zip_validation_timeout_seconds: int = Field(default=120, ge=1, le=600)
     max_active_jobs: int = Field(default=5, ge=1, le=32)
     max_waiting_jobs: int = Field(default=25, ge=0, le=10_000)
     max_ipc_messages: int = Field(default=512, ge=16, le=16_384)
