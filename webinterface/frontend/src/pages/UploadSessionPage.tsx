@@ -311,9 +311,8 @@ export function UploadSessionPage({
 
   const localBusy = pending.some((item) => ["queued", "hashing", "declaring", "uploading", "finalizing"].includes(item.state));
   const localFailed = pending.some((item) => item.state === "failed");
-  const automaticInputKind = inputKindFor(snapshot, pending);
   useEffect(() => {
-    if (!autoLaunch || !secret || automaticInputKind === "zip" || !snapshot?.allowed_actions.includes("launch") || localBusy || localFailed || launching.current) return;
+    if (!autoLaunch || !secret || !snapshot?.allowed_actions.includes("launch") || localBusy || localFailed || launching.current) return;
     const timer = setTimeout(() => {
       if (launching.current) return;
       launching.current = true;
@@ -328,7 +327,7 @@ export function UploadSessionPage({
         });
     }, 0);
     return () => clearTimeout(timer);
-  }, [autoLaunch, automaticInputKind, go, localBusy, localFailed, secret, sessionId, snapshot, t]);
+  }, [autoLaunch, go, localBusy, localFailed, secret, sessionId, snapshot, t]);
 
   if (!secret || fatalError) {
     const UnavailableWrapper = embedded ? "section" : "main";
@@ -445,7 +444,7 @@ export function UploadSessionPage({
         </li>;
       })}
     </ul>
-    {inputKind === "zip" && snapshot?.allowed_actions.includes("launch") && <button type="button" className="primary" disabled={launching.current} onClick={() => void launchZip()}>{t("upload.zip_confirm")}</button>}
+    {inputKind === "zip" && (!autoLaunch || actionError) && snapshot?.allowed_actions.includes("launch") && <button type="button" className="primary" disabled={launching.current} onClick={() => void launchZip()}>{t("upload.zip_confirm")}</button>}
     {!embedded && snapshot?.allowed_actions.includes("cancel") && <button type="button" className="danger" onClick={() => {
       cancelling.current = true;
       controller.current?.abort();

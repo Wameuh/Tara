@@ -96,10 +96,9 @@ describe("UploadSessionPage merged transcription", () => {
 describe("UploadSessionPage ZIP", () => {
   afterEach(() => { cleanup(); clearPending("zip-session"); vi.unstubAllGlobals(); });
 
-  it("waits for explicit association confirmation before launching", async () => {
+  it("launches automatically after extracting and validating the archive", async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/person")) return new Response(JSON.stringify({ revision: 2 }));
       if (url.endsWith("/jobs")) return new Response(JSON.stringify({ job_id: "job_zip" }));
       return new Response(JSON.stringify({
         session_id: "zip-session", revision: 4, status: "ready", expires_at: "2030-01-01T00:00:00Z", language: "fr", context_text: "", previous_summaries_text: "", validations: [], allowed_actions: ["cancel", "launch"], input_type: "zip", archive_excluded_count: 2, archive_phase: "launch_preparation",
@@ -112,8 +111,26 @@ describe("UploadSessionPage ZIP", () => {
     expect(await screen.findByText("table/Alice.mp3")).toBeInTheDocument();
     expect(screen.getByText("2 fichier(s) non audio ignoré(s).")).toBeInTheDocument();
     expect(screen.getByText("Préparation du lancement")).toHaveAttribute("aria-current", "step");
-    expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/jobs"))).toBe(false);
-    fireEvent.change(screen.getByLabelText("Personne"), { target: { value: "Alicia" } });
+    await vi.waitFor(() => expect(go).toHaveBeenCalled());
+    expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/jobs"))).toBe(true);
+    expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/person"))).toBe(false);
+    expect(screen.queryByRole("button", { name: "Valider les associations et lancer" })).not.toBeInTheDocument();
+  });
+
+  it("keeps manual association as a fallback when automatic launch is disabled", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/person")) return new Response(JSON.stringify({ revision: 2 }));
+      if (url.endsWith("/jobs")) return new Response(JSON.stringify({ job_id: "job_zip" }));
+      return new Response(JSON.stringify({
+        session_id: "zip-session", revision: 4, status: "ready", expires_at: "2030-01-01T00:00:00Z", language: "fr", context_text: "", previous_summaries_text: "", validations: [], allowed_actions: ["cancel", "launch"], input_type: "zip", archive_excluded_count: 0, archive_phase: "launch_preparation",
+        files: [{ file_id: "track", revision: 1, status: "ready", confirmed_offset: 5, total_size: 5, display_name: "Alice.mp3", archive_entry_name: "table/Alice.mp3", person: "Alice", allowed_actions: ["delete_file", "change_person"] }],
+      }), { headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const go = vi.fn();
+    render(<UploadSessionPage sessionId="zip-session" secret="secret" config={config} go={go} autoLaunch={false} />);
+    fireEvent.change(await screen.findByLabelText("Personne"), { target: { value: "Alicia" } });
     fireEvent.click(screen.getByRole("button", { name: "Valider les associations et lancer" }));
     await vi.waitFor(() => expect(go).toHaveBeenCalled());
     expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/person"))).toBe(true);
