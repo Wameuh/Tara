@@ -68,6 +68,7 @@ def test_usage_attempt_event_round_trip_is_closed() -> None:
             "conversion_rate": "0.92",
         },
         {"status": "unknown"},
+        {"operation_name": "not allowed"},
     ],
 )
 def test_usage_attempt_rejects_hostile_or_ambiguous_values(

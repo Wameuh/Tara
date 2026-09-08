@@ -77,6 +77,23 @@ def test_success_attempt_records_available_usage() -> None:
     assert attempts[0].cost_micro_eur is None
 
 
+def test_attempt_classifies_prompt_purpose_without_storing_prompt_text() -> None:
+    attempts: list[UsageAttempt] = []
+    runner, _ = _runner([_response()], attempts)
+
+    runner.run(
+        LLMRequest(
+            "analysis.scenes.describe.yaml_repair",
+            "private system prompt",
+            "private user prompt",
+        )
+    )
+
+    assert attempts[0].operation_family == "llm"
+    assert attempts[0].operation_name == "scene_descriptions"
+    assert "private" not in str(attempts[0].parameters())
+
+
 def test_success_attempt_snapshots_native_cost_and_conversion_rate() -> None:
     attempts: list[UsageAttempt] = []
     response = _response()

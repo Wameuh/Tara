@@ -31,6 +31,16 @@ _LOGGER = logging.getLogger(__name__)
 LLMBackendName = Literal["api", "cursor_cli"]
 CursorPromptTransport = Literal["stdin", "argv"]
 RETRYABLE_HTTP_STATUS_CODES = {408, 409, 425, 429, 500, 502, 503, 504}
+_PURPOSE_OPERATION_NAMES = (
+    ("security.prompt_injection_scan", "security_check"),
+    ("pipeline.cursor_cli_probe", "pipeline_probe"),
+    ("analysis.scenes.boundaries", "scene_boundaries"),
+    ("analysis.scenes.describe", "scene_descriptions"),
+    ("analysis.specialist_extraction", "specialist_analysis"),
+    ("analysis.arbitration", "arbitration"),
+    ("analysis.summary_composer", "composition"),
+    ("analysis.adversarial_audit", "audit"),
+)
 DEFAULT_CURSOR_ENV_ALLOWLIST = (
     "PATH",
     "PATHEXT",
@@ -668,6 +678,14 @@ class CursorCLIBackend:
         ) from last_error
 
 
+def _operation_name(purpose: str) -> str:
+    """Map internal prompt purposes to a closed, content-free operation name."""
+    for prefix, operation_name in _PURPOSE_OPERATION_NAMES:
+        if purpose == prefix or purpose.startswith(prefix + "."):
+            return operation_name
+    return "other"
+
+
 def _is_denied_cursor_env_key(key: str) -> bool:
     """Return whether an environment variable must be hidden from Cursor CLI."""
     normalized = key.upper()
@@ -963,6 +981,7 @@ class LLMRunner:
                     usage_attempt = UsageAttempt(
                         attempt_id="pa_" + secrets.token_urlsafe(18),
                         operation_family="llm",
+                        operation_name=_operation_name(prompt.purpose),
                         provider=self._config.backend,
                         model=(response.model if response else self._config.model),
                         status=status,

@@ -443,6 +443,7 @@ def _transcribe_audio_directory_via_http(
                     usage = UsageAttempt(
                         attempt_id="pa_" + secrets.token_urlsafe(18),
                         operation_family="transcription",
+                        operation_name="audio_track",
                         provider=(
                             "http"
                             if config.transcription.inference_auth_provider.lower()

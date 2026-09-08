@@ -387,16 +387,18 @@ class JobService:
             if usage is not None:
                 inserted = connection.execute(
                     "INSERT OR IGNORE INTO provider_usage_attempts("
-                    "attempt_id,job_id,job_attempt_number,operation_family,provider,"
+                    "attempt_id,job_id,job_attempt_number,operation_family,"
+                    "operation_name,provider,"
                     "model,status,started_at,finished_at,input_tokens,output_tokens,"
                     "cache_tokens,duration_ms,cost_micro_eur,cost_source,"
                     "native_cost_micros,native_currency,conversion_rate,created_at) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         usage.attempt_id,
                         row["id"],
                         message.attempt_number,
                         usage.operation_family,
+                        usage.operation_name,
                         usage.provider,
                         usage.model,
                         usage.status,

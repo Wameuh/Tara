@@ -117,7 +117,8 @@ def test_provider_status_is_persisted_and_aggregated_once(
 
     with database.transaction() as connection:
         rows = connection.execute(
-            "SELECT status,input_tokens,output_tokens,cache_tokens,cost_micro_eur,"
+            "SELECT status,operation_name,input_tokens,output_tokens,cache_tokens,"
+            "cost_micro_eur,"
             "native_cost_micros,native_currency,conversion_rate "
             "FROM provider_usage_attempts"
         ).fetchall()
@@ -125,7 +126,9 @@ def test_provider_status_is_persisted_and_aggregated_once(
             "SELECT input_tokens,output_tokens,provider_cost_micro_eur,cost_known "
             "FROM job_attempts WHERE job_id=1 AND attempt_number=1"
         ).fetchone()
-    assert [tuple(row) for row in rows] == [(status, 12, 4, 3, 7, 8, "USD", "0.875")]
+    assert [tuple(row) for row in rows] == [
+        (status, "unspecified", 12, 4, 3, 7, 8, "USD", "0.875")
+    ]
     assert tuple(aggregate) == (15, 4, 7, 0)
 
 

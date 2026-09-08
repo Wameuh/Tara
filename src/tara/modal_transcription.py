@@ -144,6 +144,7 @@ def _emit_usage(
         UsageAttempt(
             attempt_id=active.attempt_id,
             operation_family="transcription",
+            operation_name="audio_track",
             provider="modal",
             model=str(active.job.model),
             status=status,

@@ -57,6 +57,19 @@ class TechnicalLogRow:
     created_at: str
 
 
+@dataclass(frozen=True, slots=True)
+class ProviderUsageRow:
+    public_id: str
+    operation_name: str
+    provider: str
+    status: str
+    input_tokens: int
+    output_tokens: int
+    duration_ms: int
+    cost_micro_eur: int | None
+    created_at: str
+
+
 class AnalyticsRepository:
     def __init__(self, database: ConnectionFactory) -> None:
         self._database = database
@@ -238,3 +251,33 @@ class AnalyticsRepository:
                 )
             )
         return projected
+
+    def recent_provider_usage(self, *, limit: int = 50) -> list[ProviderUsageRow]:
+        """Return content-free provider operations for local diagnostics."""
+        if not 1 <= limit <= 100:
+            raise ValueError("invalid provider usage limit")
+        connection = self._database.connect()
+        try:
+            rows = connection.execute(
+                "SELECT j.public_id,p.operation_name,p.provider,p.status,"
+                "p.input_tokens,p.output_tokens,p.duration_ms,p.cost_micro_eur,"
+                "p.created_at FROM provider_usage_attempts p "
+                "JOIN jobs j ON j.id=p.job_id ORDER BY p.id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        finally:
+            connection.close()
+        return [
+            ProviderUsageRow(
+                public_id=str(row[0]),
+                operation_name=str(row[1]),
+                provider=str(row[2]),
+                status=str(row[3]),
+                input_tokens=int(row[4]),
+                output_tokens=int(row[5]),
+                duration_ms=int(row[6]),
+                cost_micro_eur=int(row[7]) if row[7] is not None else None,
+                created_at=str(row[8]),
+            )
+            for row in rows
+        ]

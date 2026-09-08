@@ -41,6 +41,7 @@ MIGRATIONS = (
     Migration(19, "0019_aac_m4a_audio.sql"),
     Migration(20, "0020_upload_admission_identity.sql"),
     Migration(21, "0021_terminal_private_cleanup.sql"),
+    Migration(22, "0022_provider_operation_names.sql"),
 )
 
 

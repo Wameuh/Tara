@@ -239,3 +239,48 @@ def test_dashboard_lists_recent_failures_with_stage_reason_and_code(
     assert "secret provider diagnostic" not in page.text
     assert "secret code from provider" not in page.text
     assert "cause_non_renseignee" in page.text
+
+
+def test_dashboard_lists_content_free_provider_operations(tmp_path: Path) -> None:
+    database = _database(tmp_path)
+    now = datetime.now(UTC).isoformat()
+    with database.transaction() as connection:
+        connection.execute(
+            "INSERT INTO upload_sessions(public_id,secret_hmac,status,expires_at,"
+            "created_at,updated_at) VALUES(?,?, 'consumed', ?, ?, ?)",
+            (
+                "us_admin_provider_0001",
+                "v1:" + "a" * 64,
+                now,
+                now,
+                now,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO jobs(public_id,upload_session_id,secret_hmac,status,"
+            "pipeline_version,created_at,updated_at,expires_at) "
+            "VALUES(?,1,?,'running','v1',?,?,?)",
+            ("job_admin_provider_001", "v1:" + "a" * 64, now, now, now),
+        )
+        connection.execute(
+            "INSERT INTO job_attempts(job_id,attempt_number,status) "
+            "VALUES(1,1,'running')"
+        )
+        connection.execute(
+            "INSERT INTO provider_usage_attempts("
+            "attempt_id,job_id,job_attempt_number,operation_family,operation_name,"
+            "provider,status,started_at,finished_at,input_tokens,output_tokens,"
+            "cache_tokens,duration_ms,cost_source,created_at) "
+            "VALUES('pa_admin_provider_001',1,1,'llm','composition','cursor_cli',"
+            "'success',?,?,12,4,0,1500,'unavailable',?)",
+            (now, now, now),
+        )
+
+    with TestClient(create_admin_app(database, timezone="UTC")) as client:
+        page = client.get("/")
+
+    assert page.status_code == 200
+    assert "Derniers appels provider" in page.text
+    assert "Composition" in page.text
+    assert "cursor_cli" in page.text
+    assert "12 / 4" in page.text

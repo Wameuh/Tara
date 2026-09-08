@@ -80,6 +80,19 @@ _EVENT_LABELS = {
     "warning_raised": "Avertissement",
     "retry_scheduled": "Nouvelle tentative planifiée",
 }
+_OPERATION_LABELS = {
+    "security_check": "Vérification de sécurité",
+    "pipeline_probe": "Test du moteur IA",
+    "scene_boundaries": "Repérage des scènes",
+    "scene_descriptions": "Description des scènes",
+    "specialist_analysis": "Analyse spécialisée",
+    "arbitration": "Arbitrage",
+    "composition": "Composition",
+    "audit": "Audit",
+    "audio_track": "Transcription d’une piste",
+    "other": "Autre appel IA",
+    "unspecified": "Opération historique",
+}
 
 
 def create_admin_app(
@@ -270,6 +283,7 @@ def _dashboard_html(
     statuses = analytics.job_status_counts()
     failed_jobs = analytics.recent_failed_jobs()
     technical_logs = analytics.recent_technical_logs()
+    provider_usage = analytics.recent_provider_usage()
     adjustments = analytics.recent_adjustments()
     kofi = analytics.recent_kofi_events()
     kofi_total, kofi_tests = analytics.kofi_event_counts()
@@ -314,6 +328,19 @@ def _dashboard_html(
         )
         or '<tr><td colspan="5">Aucun événement technique enregistré.</td></tr>'
     )
+    provider_usage_rows = (
+        "".join(
+            f"<tr><td>{_date(row.created_at, zone)}</td>"
+            f"<td><code>{html.escape(row.public_id)}</code></td>"
+            f"<td>{html.escape(_OPERATION_LABELS.get(row.operation_name, row.operation_name))}</td>"
+            f"<td>{html.escape(row.provider)}</td><td>{html.escape(row.status)}</td>"
+            f"<td>{row.input_tokens} / {row.output_tokens}</td>"
+            f"<td>{row.duration_ms / 1000:.1f} s</td>"
+            f"<td>{_money(row.cost_micro_eur) if row.cost_micro_eur is not None else '—'}</td></tr>"
+            for row in provider_usage
+        )
+        or '<tr><td colspan="8">Aucun appel provider enregistré.</td></tr>'
+    )
     adjustment_rows = (
         "".join(
             f'<tr><td>{_date(row.created_at, zone)}</td><td class="money">{_money(row.amount_micro_eur, signed=True)}</td>'
@@ -347,6 +374,8 @@ def _dashboard_html(
 <p class="muted">Les codes techniques permettent de retrouver rapidement la catégorie d’erreur dans les journaux, sans afficher leur contenu sensible.</p></section>
 <section><h2>Journal technique</h2><table><thead><tr><th>Date</th><th>Analyse</th><th>Événement</th><th>Étape</th><th>Code</th></tr></thead><tbody>{technical_log_rows}</tbody></table>
 <p class="muted">Extrait structuré persistant en fuseau Europe/Helsinki (EET/EEST). Seuls les identifiants d’analyse, étapes, événements et codes autorisés sont affichés ; aucun contenu utilisateur, secret, message provider ou chemin interne n’est exposé.</p></section>
+<section><h2>Derniers appels provider</h2><table><thead><tr><th>Date</th><th>Analyse</th><th>Opération</th><th>Provider</th><th>État</th><th>Jetons entrée / sortie</th><th>Durée</th><th>Coût</th></tr></thead><tbody>{provider_usage_rows}</tbody></table>
+<p class="muted">Les opérations sont classées sans enregistrer les prompts ni les réponses.</p></section>
 <section><h2>Consommation affichée — {local_start:%B %Y}</h2><div class="cards funding">
 <article><span>Estimation réelle</span><strong>{_money(funding.raw_consumption_micro_eur)}</strong></article>
 <article><span>Ajustements</span><strong>{_money(funding.adjustment_micro_eur, signed=True)}</strong></article>

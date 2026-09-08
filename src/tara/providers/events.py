@@ -26,6 +26,7 @@ class UsageAttempt:
     status: str
     started_at: str
     finished_at: str
+    operation_name: str = "unspecified"
     input_tokens: int = 0
     output_tokens: int = 0
     cache_tokens: int = 0
@@ -42,6 +43,7 @@ class UsageAttempt:
         if (
             self.status not in _STATUSES
             or not _NAME.fullmatch(self.operation_family)
+            or not _NAME.fullmatch(self.operation_name)
             or not _NAME.fullmatch(self.provider)
         ):
             raise ValueError("provider attempt is invalid")
@@ -77,6 +79,7 @@ class UsageAttempt:
         return {
             "attempt_id": self.attempt_id,
             "operation_family": self.operation_family,
+            "operation_name": self.operation_name,
             "provider": self.provider,
             "model": self.model or "",
             "status": self.status,
@@ -113,6 +116,7 @@ class UsageAttempt:
         required = {
             "attempt_id",
             "operation_family",
+            "operation_name",
             "provider",
             "model",
             "status",
@@ -134,6 +138,7 @@ class UsageAttempt:
         return cls(
             attempt_id=_string(values["attempt_id"]),
             operation_family=_string(values["operation_family"]),
+            operation_name=_string(values["operation_name"]),
             provider=_string(values["provider"]),
             model=_string(values["model"]) or None,
             status=_string(values["status"]),
