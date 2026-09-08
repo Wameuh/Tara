@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from threading import Event
 
 import pytest
 
@@ -12,9 +13,15 @@ from tara.analysis.llm_runner import (
     LLMRunner,
     LLMRunnerConfig,
 )
+from tara.analysis.scenes.models import ScenePipelineResult, SceneTimeline
 from tara.cli import TaraArgs
 from tara.config import TaraConfig
-from tara.pipeline import TaraControlAgent, TaraPipelineCancelled, _run_scene_pipeline
+from tara.pipeline import (
+    TaraControlAgent,
+    TaraPipelineCancelled,
+    _prepare_analysis_foundations,
+    _run_scene_pipeline,
+)
 from tara.schemas.merged_transcription import (
     TranscriptionSegment,
     new_merged_transcription,
@@ -104,6 +111,42 @@ def test_narrative_work_units_emit_named_monotonic_substages() -> None:
         event.current_ratio for event in events
     )
     assert events[3].parameters == {"completed": 1, "total": 3}
+
+
+def test_scene_analysis_overlaps_local_evidence_index(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scene_started = Event()
+    index_finished = Event()
+    sentinel = object()
+
+    def fake_index(*args: object, **kwargs: object) -> object:
+        assert scene_started.wait(1)
+        index_finished.set()
+        return sentinel
+
+    def fake_scene(*args: object, **kwargs: object) -> ScenePipelineResult:
+        scene_started.set()
+        assert index_finished.wait(1)
+        return ScenePipelineResult(timeline=SceneTimeline())
+
+    monkeypatch.setattr("tara.pipeline._build_evidence_index", fake_index)
+    monkeypatch.setattr("tara.pipeline._run_scene_pipeline", fake_scene)
+    transcription = new_merged_transcription(
+        text="test",
+        segments=[TranscriptionSegment(start=0, end=1, text="test")],
+    )
+
+    _, index = _prepare_analysis_foundations(
+        transcription=transcription,
+        merged_transcription_path=tmp_path / "merged.yaml",
+        analysis_output_dir=tmp_path / "analysis",
+        config=TaraConfig(),
+        llm_runner=None,
+    )
+
+    assert index is sentinel
 
 
 def test_llm_retry_callback_is_bounded_and_hides_backend_message() -> None:

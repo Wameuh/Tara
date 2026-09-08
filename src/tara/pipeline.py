@@ -6,6 +6,7 @@ import logging
 import os
 import shutil
 from collections.abc import Callable, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
@@ -285,9 +286,10 @@ class TaraControlAgent:
                 self._config,
             )
 
-        scene_result = _run_scene_pipeline(
+        scene_result, index = _prepare_analysis_foundations(
             transcription=transcription,
             merged_transcription_path=merged_transcription_path,
+            analysis_output_dir=analysis_output_dir,
             config=self._config,
             llm_runner=llm_runner,
             context_text=context.general.text or "",
@@ -303,14 +305,6 @@ class TaraControlAgent:
             else []
         )
 
-        index = EvidenceIndex.from_transcription(
-            transcription,
-            target_window_seconds=self._config.analysis.target_window_seconds,
-            overlap_seconds=self._config.analysis.overlap_seconds,
-            metadata={"pipeline": self._config.analysis.pipeline},
-        )
-        index.write_chunks_yaml(analysis_output_dir / "evidence_chunks.yaml")
-        index.write_metadata_yaml(analysis_output_dir / "evidence_index_metadata.yaml")
         self._narrative_progress("evidence_index", 1, 1)
         result = AnalysisOrchestrator(
             max_audit_attempts=self._config.analysis.max_audit_attempts,
@@ -593,6 +587,61 @@ def _run_scene_pipeline(
         if warning_callback is not None:
             warning_callback()
         return ScenePipelineResult(timeline=SceneTimeline())
+
+
+def _prepare_analysis_foundations(
+    *,
+    transcription: MergedTranscription,
+    merged_transcription_path: Path,
+    analysis_output_dir: Path,
+    config: TaraConfig,
+    llm_runner: LLMRunner | None,
+    context_text: str | None = None,
+    parallel: bool = False,
+    max_parallelism: int = 4,
+    warning_callback: Callable[[], None] | None = None,
+    progress_callback: Callable[[str, int, int], None] | None = None,
+) -> tuple[ScenePipelineResult, EvidenceIndex]:
+    """Overlap local evidence indexing with the independent scene pipeline."""
+    with ThreadPoolExecutor(
+        max_workers=1,
+        thread_name_prefix="tara-evidence-index",
+    ) as executor:
+        index_future = executor.submit(
+            _build_evidence_index,
+            transcription,
+            analysis_output_dir,
+            config,
+        )
+        scene_result = _run_scene_pipeline(
+            transcription=transcription,
+            merged_transcription_path=merged_transcription_path,
+            config=config,
+            llm_runner=llm_runner,
+            context_text=context_text,
+            parallel=parallel,
+            max_parallelism=max_parallelism,
+            warning_callback=warning_callback,
+            progress_callback=progress_callback,
+        )
+        index = index_future.result()
+    return scene_result, index
+
+
+def _build_evidence_index(
+    transcription: MergedTranscription,
+    analysis_output_dir: Path,
+    config: TaraConfig,
+) -> EvidenceIndex:
+    index = EvidenceIndex.from_transcription(
+        transcription,
+        target_window_seconds=config.analysis.target_window_seconds,
+        overlap_seconds=config.analysis.overlap_seconds,
+        metadata={"pipeline": config.analysis.pipeline},
+    )
+    index.write_chunks_yaml(analysis_output_dir / "evidence_chunks.yaml")
+    index.write_metadata_yaml(analysis_output_dir / "evidence_index_metadata.yaml")
+    return index
 
 
 def _write_pipeline_debug_artifacts(
