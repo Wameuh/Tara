@@ -27,6 +27,7 @@ from tara.web_contracts import (
     ErrorCode,
     EventSink,
     EventType,
+    RunnerEvent,
     RunnerLimits,
     RunnerRequest,
     RunnerStatus,
@@ -38,6 +39,7 @@ from tara.web_runner import (
     _InputRejected,
     _load_manifest,
     _load_server_config,
+    _overall_ratio,
     _publish_staging_yaml,
     _read_text_bounded,
     _SequencedSink,
@@ -217,6 +219,38 @@ def test_sequenced_sink_serializes_concurrent_revisions() -> None:
     [thread.start() for thread in threads]
     [thread.join() for thread in threads]
     assert [event.revision for event in sink.events] == list(range(1, 21))
+
+
+def test_overall_progress_uses_input_specific_stage_weights() -> None:
+    assert _overall_ratio(StageCode.NARRATIVE_ANALYSIS, 0.0, "audio") == 0.52
+    assert _overall_ratio(StageCode.NARRATIVE_ANALYSIS, 0.5, "audio") == 0.745
+    assert (
+        _overall_ratio(
+            StageCode.NARRATIVE_ANALYSIS,
+            0.5,
+            "merged_transcription",
+        )
+        == 0.495
+    )
+    assert _overall_ratio(StageCode.RESULT_READY, 1.0, "audio") == 1.0
+
+
+def test_sequenced_sink_reweights_pipeline_events() -> None:
+    sink = Sink()
+    sequenced = _SequencedSink(sink, input_kind="merged_transcription")
+
+    sequenced.emit(
+        RunnerEvent(
+            CONTRACT_VERSION,
+            EventType.STAGE_PROGRESS,
+            99,
+            stage_code=StageCode.NARRATIVE_ANALYSIS,
+            current_ratio=0.25,
+            overall_ratio=0.99,
+        )
+    )
+
+    assert sink.events[0].overall_ratio == 0.2625
 
 
 @pytest.mark.parametrize("kind", ["context", "previous", "merged"])

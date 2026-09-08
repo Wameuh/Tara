@@ -59,6 +59,26 @@ _MANIFEST_FIELDS = {
 }
 _AUDIO_TYPES = {"mp3", "ogg", "aac", "m4a"}
 _SOURCE_ID = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
+_STAGE_WEIGHTS: dict[str, dict[StageCode, float]] = {
+    "audio": {
+        StageCode.INPUT_VALIDATION: 0.02,
+        StageCode.TRANSCRIPTION: 0.48,
+        StageCode.SESSION_PREPARATION: 0.02,
+        StageCode.NARRATIVE_ANALYSIS: 0.45,
+        StageCode.SYNTHESIS: 0.02,
+        StageCode.VERIFICATION: 0.005,
+        StageCode.RESULT_READY: 0.005,
+    },
+    "merged_transcription": {
+        StageCode.INPUT_VALIDATION: 0.03,
+        StageCode.TRANSCRIPTION: 0.0,
+        StageCode.SESSION_PREPARATION: 0.0,
+        StageCode.NARRATIVE_ANALYSIS: 0.93,
+        StageCode.SYNTHESIS: 0.025,
+        StageCode.VERIFICATION: 0.01,
+        StageCode.RESULT_READY: 0.005,
+    },
+}
 
 
 class TaraWebRunner:
@@ -73,7 +93,7 @@ class TaraWebRunner:
         event_sink: EventSink,
         cancellation_token: CancellationToken,
     ) -> RunnerResult:
-        sink = _SequencedSink(event_sink)
+        sink = _SequencedSink(event_sink, input_kind=request.input_kind)
         started = time.monotonic()
         try:
             workspace = _workspace_for_request(request)
@@ -201,8 +221,9 @@ class TaraWebRunner:
 
 
 class _SequencedSink:
-    def __init__(self, target: EventSink) -> None:
+    def __init__(self, target: EventSink, *, input_kind: str = "audio") -> None:
         self._target = target
+        self._input_kind = input_kind
         self._revision = 0
         self._lock = Lock()
         self._current_stage: StageCode | None = None
@@ -225,7 +246,17 @@ class _SequencedSink:
                 if event.stage_code is not None:
                     self._current_stage = event.stage_code
                 self._revision += 1
-                self._target.emit(replace(event, revision=self._revision))
+                self._target.emit(
+                    replace(
+                        event,
+                        revision=self._revision,
+                        overall_ratio=_overall_ratio(
+                            event.stage_code,
+                            event.current_ratio,
+                            self._input_kind,
+                        ),
+                    )
+                )
                 return
             if stage_code is not None:
                 self._current_stage = stage_code
@@ -237,7 +268,11 @@ class _SequencedSink:
                     self._revision,
                     stage_code=stage_code,
                     current_ratio=current_ratio,
-                    overall_ratio=_overall_ratio(stage_code, current_ratio),
+                    overall_ratio=_overall_ratio(
+                        stage_code,
+                        current_ratio,
+                        self._input_kind,
+                    ),
                     code=code,
                 )
             )
@@ -563,8 +598,15 @@ def _check_cancelled(
         raise _Cancelled
 
 
-def _overall_ratio(stage: StageCode | None, current: float | None) -> float | None:
+def _overall_ratio(
+    stage: StageCode | None,
+    current: float | None,
+    input_kind: str = "audio",
+) -> float | None:
     if stage is None or current is None or stage == StageCode.QUEUED:
         return None
-    stages = tuple(item for item in StageCode if item != StageCode.QUEUED)
-    return (stages.index(stage) + current) / len(stages)
+    weights = _STAGE_WEIGHTS.get(input_kind, _STAGE_WEIGHTS["audio"])
+    bounded = min(1.0, max(0.0, current))
+    stages = tuple(weights)
+    previous = sum(weights[candidate] for candidate in stages[: stages.index(stage)])
+    return min(1.0, previous + (weights[stage] * bounded))
