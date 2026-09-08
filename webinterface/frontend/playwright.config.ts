@@ -7,7 +7,9 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: true,
   retries: 0,
-  reporter: [["list"], ["html", { open: "never" }]],
+  reporter: process.env.CI
+    ? [["github"], ["list"], ["html", { open: "never" }]]
+    : [["list"], ["html", { open: "never" }]],
   use: {
     baseURL: externalBaseUrl ?? "http://127.0.0.1:4173",
     ignoreHTTPSErrors: process.env.E2E_IGNORE_HTTPS_ERRORS === "1",
