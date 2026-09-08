@@ -264,7 +264,7 @@
     "funding.donations": "Donations received",
     "funding.consumption": "Estimated consumption",
     "funding.partial": "partial total",
-    "funding.goal": "Base monthly contribution: {{value}}",
+    "funding.goal": "Monthly contribution already provided by Wameuh: {{value}}",
     "funding.shared_scale": "Scale adjusted to this month's values",
     "funding.donations_progress": "Donations received this month: {{value}}",
     "funding.consumption_progress": "Estimated consumption this month: {{value}}"
