@@ -264,7 +264,7 @@
     "funding.donations": "Dons reçus",
     "funding.consumption": "Consommation estimée",
     "funding.partial": "cumul partiel",
-    "funding.goal": "Objectif mensuel : {{value}}",
+    "funding.goal": "Apport mensuel de base : {{value}}",
     "funding.shared_scale": "Échelle ajustée aux valeurs du mois",
     "funding.donations_progress": "Dons reçus ce mois-ci : {{value}}",
     "funding.consumption_progress": "Consommation estimée ce mois-ci : {{value}}"
