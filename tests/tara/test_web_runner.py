@@ -140,6 +140,27 @@ def test_real_runner_writes_only_public_staging_yaml(
     assert [event.revision for event in sink.events] == list(
         range(1, len(sink.events) + 1)
     )
+    progress_events = [
+        event for event in sink.events if event.overall_ratio is not None
+    ]
+    ratios = [round(event.overall_ratio, 6) for event in progress_events]
+    assert ratios == sorted(ratios)
+    assert progress_events[-1].overall_ratio == 1.0
+    assert {
+        event.substage_code
+        for event in sink.events
+        if event.substage_code is not None
+    } >= {
+        "security_check",
+        "scene_boundaries",
+        "scene_descriptions",
+        "evidence_index",
+        "specialist_analysis",
+        "arbitration",
+        "composition",
+        "audit",
+        "finalization",
+    }
 
 
 def test_real_runner_rejects_token_overflow_without_truncation(
@@ -421,6 +442,10 @@ def test_audio_runner_preserves_uploaded_source_ids_in_canonical_merged(
                     "language": "fr",
                 },
             )
+        if callable(progress_callback):
+            progress_callback(2, 2, 0.5)
+            progress_callback(1, 2, 1.0)
+            progress_callback(2, 2, 1.0)
         return TranscriptionDirectoryResult([], frozenset())
 
     monkeypatch.chdir(workspace)
@@ -432,7 +457,8 @@ def test_audio_runner_preserves_uploaded_source_ids_in_canonical_merged(
         input_kind="audio",
         source_manifest_path="inputs/source-manifest.json",
     )
-    result = TaraWebRunner(TaraConfig()).run(request, Sink(), Token())
+    sink = Sink()
+    result = TaraWebRunner(TaraConfig()).run(request, sink, Token())
     merged = load_merged_transcription(
         workspace
         / "work"
@@ -446,6 +472,17 @@ def test_audio_runner_preserves_uploaded_source_ids_in_canonical_merged(
         (person, source_id) for person, source_id, _, _ in tracks
     }
     assert all(author is not None for author in authors)
+    progress_events = [
+        event for event in sink.events if event.overall_ratio is not None
+    ]
+    ratios = [round(event.overall_ratio, 6) for event in progress_events]
+    assert ratios == sorted(ratios)
+    assert next(
+        event.overall_ratio
+        for event in progress_events
+        if event.stage_code is StageCode.NARRATIVE_ANALYSIS
+    ) == 0.52
+    assert progress_events[-1].overall_ratio == 1.0
     physical_names = {item["path"].split("/")[-1] for item in manifest_inputs}
     display_names = {item["display_name"] for item in manifest_inputs}
     assert all(

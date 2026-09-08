@@ -609,4 +609,4 @@ def _overall_ratio(
     bounded = min(1.0, max(0.0, current))
     stages = tuple(weights)
     previous = sum(weights[candidate] for candidate in stages[: stages.index(stage)])
-    return min(1.0, previous + (weights[stage] * bounded))
+    return round(min(1.0, previous + (weights[stage] * bounded)), 12)
