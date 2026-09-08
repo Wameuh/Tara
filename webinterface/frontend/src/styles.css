@@ -501,7 +501,7 @@ mark { padding: 1px 3px; border-radius: 2px; background: #bfece8; }
 /* Feedback */
 .toast { position: fixed; z-index: 20; right: 24px; bottom: 24px; max-width: min(400px, calc(100vw - 32px)); padding: 15px 18px; border: 1px solid var(--border-strong); border-left: 4px solid var(--secondary); background: var(--surface-raised); box-shadow: var(--shadow); font-size: 12px; }
 
-@keyframes page-enter { from { opacity: .35; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes page-enter { from { transform: translateY(8px); } to { transform: translateY(0); } }
 @keyframes timeline-pulse {
   0% { box-shadow: 0 0 0 0 rgb(7 95 167 / 28%); }
   70% { box-shadow: 0 0 0 11px rgb(7 95 167 / 0%); }
