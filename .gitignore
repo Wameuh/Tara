@@ -64,6 +64,7 @@ tmp/runtime/
 
 session_summary.json
 session_summary.md
+!tests/tara/analysis/golden/record26/session_summary.md
 session_summary_verified.json
 session_summary_verified.md
 merged_transcription.json

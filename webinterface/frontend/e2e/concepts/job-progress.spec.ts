@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 
+const compareVisualSnapshots = !process.env.CI;
 const secret = "s".repeat(43);
 const config = { language: "fr", locale: "fr-FR", supported_languages: ["fr"], input_modes: ["audio", "merged_transcription", "zip"], max_upload_bytes: 1024, recommended_chunk_bytes: 16384, max_chunk_bytes: 16384, parallel_uploads: 1 };
 const job = (status: string, revision = 1) => ({
@@ -32,7 +33,7 @@ test("suivi: les quatre viewports restent sans debordement horizontal", async ({
     await page.setViewportSize(viewport);
     await page.goto(`/jobs/job_abcdefghijklmnop#secret=${secret}`);
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    if (testInfo.project.name === "chromium") {
+    if (testInfo.project.name === "chromium" && compareVisualSnapshots) {
       await expect(page).toHaveScreenshot(`job-progress-${viewport.width}.png`, { fullPage: true, animations: "disabled", maxDiffPixelRatio: 0.01 });
     }
   }

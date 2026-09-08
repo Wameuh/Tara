@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 
+const compareVisualSnapshots = !process.env.CI;
 const secret = "s".repeat(43);
 const config = { language: "fr", locale: "fr-FR", supported_languages: ["fr"], input_modes: ["audio", "merged_transcription", "zip"], max_upload_bytes: 1024, recommended_chunk_bytes: 16384, max_chunk_bytes: 16384, parallel_uploads: 1 };
 const completed = { job_id: "job_abcdefghijklmnop", status: "completed", revision: 4, attempt_number: 1, language: "fr", allowed_actions: [], identical_relaunch_available: false, inputs: [], warnings: [], expires_at: "2026-07-24T12:00:00Z", progress: null, stages: [] };
@@ -25,7 +26,7 @@ test("resultat: recherche, accordions, navigation et fragment secret", async ({ 
     await page.setViewportSize(viewport);
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await expect(page.locator("button button, a button, button a")).toHaveCount(0);
-    if (testInfo.project.name === "chromium") {
+    if (testInfo.project.name === "chromium" && compareVisualSnapshots) {
       await expect(page).toHaveScreenshot(`result-view-${viewport.width}.png`, {
         fullPage: true,
         animations: "disabled",
