@@ -49,6 +49,7 @@ services:
       TARA_INFERENCE_AUTH_PROVIDER: ${TARA_INFERENCE_AUTH_PROVIDER:-none}
       TARA_TRANSCRIPTION_PARALLELISM: ${TARA_TRANSCRIPTION_PARALLELISM:-3}
       TARA_ANALYSIS_PARALLELISM: ${TARA_ANALYSIS_PARALLELISM:-4}
+      TARA_PROMPT_SECURITY_PARALLELISM: ${TARA_PROMPT_SECURITY_PARALLELISM:-2}
     volumes: &tara_volumes
       - ./config/docker.example.yaml:/config/webinterface.yaml:ro
       - ./config/tara-web.yaml:/config/tara.yaml:ro

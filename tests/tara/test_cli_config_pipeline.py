@@ -289,6 +289,21 @@ def test_load_config_bounds_analysis_parallelism(
         load_config(config_path)
 
 
+def test_load_config_bounds_prompt_security_parallelism(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "configuration.yaml"
+    config_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("TARA_PROMPT_SECURITY_PARALLELISM", "3")
+
+    assert load_config(config_path).analysis.prompt_security.parallelism == 3
+
+    monkeypatch.setenv("TARA_PROMPT_SECURITY_PARALLELISM", "9")
+    with pytest.raises(ValueError, match="prompt_security.parallelism"):
+        load_config(config_path)
+
+
 def test_modal_proxy_client_adds_auth_headers_only_when_configured(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

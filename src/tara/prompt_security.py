@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -131,14 +132,18 @@ class CursorPromptSecurityAnalyzer:
         *,
         minimum_score: int,
         max_chars_per_request: int,
+        parallelism: int = 2,
     ) -> None:
         if not 0 <= minimum_score <= 100:
             raise ValueError("minimum_score must be between 0 and 100")
         if max_chars_per_request < 4_000:
             raise ValueError("max_chars_per_request must be at least 4000")
+        if not 1 <= parallelism <= 8:
+            raise ValueError("parallelism must be between 1 and 8")
         self._llm_runner = llm_runner
         self._minimum_score = minimum_score
         self._max_chars_per_request = max_chars_per_request
+        self._parallelism = parallelism
 
     def analyze(
         self,
@@ -177,40 +182,48 @@ class CursorPromptSecurityAnalyzer:
             scores: list[int] = []
             categories: set[str] = set()
             injection_detected = False
-            for chunk_index, chunk in enumerate(chunks, start=1):
-                response = self._run_verdict(document.label, chunk_index, chunk)
-                total_calls += 1
-                tokens = response.total_tokens
-                if tokens <= 0:
-                    tokens = max(0, response.input_tokens) + max(
-                        0, response.output_tokens
+            for batch_start in range(0, len(chunks), self._parallelism):
+                batch = list(
+                    enumerate(
+                        chunks[batch_start : batch_start + self._parallelism],
+                        start=batch_start + 1,
                     )
-                total_tokens += max(0, tokens)
-                total_cost += float(response.estimated_cost_usd or 0.0)
-                verdict, error = parse_typed_yaml_lenient(
-                    _PromptSecurityVerdict,
-                    response.content,
                 )
-                if verdict is None:
-                    raise PromptSecurityUnavailable(
-                        "Cursor CLI returned an invalid prompt-security verdict; "
-                        "the job was stopped because the safety check is fail-closed."
-                    ) from ValueError(error or "invalid verdict")
-                scores.append(verdict.security_score)
-                categories.update(verdict.categories)
-                injection_detected = (
-                    injection_detected or verdict.prompt_injection_detected
-                )
-                completed_chunks += 1
-                if progress_callback is not None:
-                    progress_callback(
-                        "security_check",
-                        completed_chunks,
-                        max(1, total_chunks),
+                responses = self._run_batch(document.label, batch)
+                for _, response in responses:
+                    total_calls += 1
+                    tokens = response.total_tokens
+                    if tokens <= 0:
+                        tokens = max(0, response.input_tokens) + max(
+                            0, response.output_tokens
+                        )
+                    total_tokens += max(0, tokens)
+                    total_cost += float(response.estimated_cost_usd or 0.0)
+                    verdict, error = parse_typed_yaml_lenient(
+                        _PromptSecurityVerdict,
+                        response.content,
                     )
+                    if verdict is None:
+                        raise PromptSecurityUnavailable(
+                            "Cursor CLI returned an invalid prompt-security verdict; "
+                            "the job was stopped because the safety check is "
+                            "fail-closed."
+                        ) from ValueError(error or "invalid verdict")
+                    scores.append(verdict.security_score)
+                    categories.update(verdict.categories)
+                    injection_detected = (
+                        injection_detected or verdict.prompt_injection_detected
+                    )
+                    completed_chunks += 1
+                    if progress_callback is not None:
+                        progress_callback(
+                            "security_check",
+                            completed_chunks,
+                            max(1, total_chunks),
+                        )
                 if (
-                    verdict.prompt_injection_detected
-                    or verdict.security_score < self._minimum_score
+                    injection_detected
+                    or min(scores, default=100) < self._minimum_score
                 ):
                     break
 
@@ -252,6 +265,25 @@ class CursorPromptSecurityAnalyzer:
             flagged_document=flagged_document,
             flagged_categories=flagged_categories,
         )
+
+    def _run_batch(
+        self,
+        label: str,
+        batch: list[tuple[int, str]],
+    ) -> list[tuple[int, LLMResponse]]:
+        """Run at most one bounded batch of independent security checks."""
+        if len(batch) <= 1:
+            index, text = batch[0]
+            return [(index, self._run_verdict(label, index, text))]
+        responses: list[tuple[int, LLMResponse]] = []
+        with ThreadPoolExecutor(max_workers=len(batch)) as executor:
+            futures = {
+                executor.submit(self._run_verdict, label, index, text): index
+                for index, text in batch
+            }
+            for future in as_completed(futures):
+                responses.append((futures[future], future.result()))
+        return responses
 
     def _run_verdict(self, label: str, chunk_index: int, text: str) -> LLMResponse:
         """Request one strict, content-only classification verdict."""

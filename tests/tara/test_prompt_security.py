@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
+from threading import Lock
 
 import pytest
 
@@ -112,6 +114,58 @@ def test_analyzer_reports_completed_security_chunks() -> None:
         ("security_check", 1, 2),
         ("security_check", 2, 2),
     ]
+
+
+def test_analyzer_checks_security_chunks_in_bounded_parallel_batches() -> None:
+    class _ConcurrentBackend(_VerdictBackend):
+        def __init__(self) -> None:
+            super().__init__([_verdict(95, False, []) for _ in range(3)])
+            self.active = 0
+            self.peak = 0
+            self.lock = Lock()
+
+        def run(self, request: LLMRequest) -> LLMResponse:
+            with self.lock:
+                self.active += 1
+                self.peak = max(self.peak, self.active)
+            try:
+                time.sleep(0.02)
+                return super().run(request)
+            finally:
+                with self.lock:
+                    self.active -= 1
+
+    backend = _ConcurrentBackend()
+    report = CursorPromptSecurityAnalyzer(
+        _runner(backend),
+        minimum_score=80,
+        max_chars_per_request=4_000,
+        parallelism=2,
+    ).analyze([TextSecurityDocument("merged transcription", "x" * 9_000)])
+
+    assert report.safe is True
+    assert report.calls == 3
+    assert backend.peak == 2
+
+
+def test_unsafe_parallel_batch_stops_before_the_next_batch() -> None:
+    backend = _VerdictBackend(
+        [
+            _verdict(10, True, ["instruction_override"]),
+            _verdict(95, False, []),
+            _verdict(95, False, []),
+        ]
+    )
+    report = CursorPromptSecurityAnalyzer(
+        _runner(backend),
+        minimum_score=80,
+        max_chars_per_request=4_000,
+        parallelism=2,
+    ).analyze([TextSecurityDocument("merged transcription", "x" * 9_000)])
+
+    assert report.safe is False
+    assert report.calls == 2
+    assert len(backend.requests) == 2
 
 
 def test_analyzer_flags_counter_prompt_even_above_numeric_threshold() -> None:

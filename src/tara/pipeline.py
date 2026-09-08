@@ -804,6 +804,7 @@ def _run_prompt_security_gate(
         runner,
         minimum_score=security.minimum_score,
         max_chars_per_request=security.max_chars_per_request,
+        parallelism=security.parallelism,
     ).analyze(documents, progress_callback=progress_callback)
 
 

@@ -20,6 +20,7 @@ analysis:
     enabled: true
     minimum_score: 80
     max_chars_per_request: 60000
+    parallelism: 2
     model: Auto
   llm:
     backend: cursor_cli

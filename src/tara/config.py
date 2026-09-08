@@ -355,26 +355,44 @@ class PromptSecurityConfig:
     enabled: bool = False
     minimum_score: int = 80
     max_chars_per_request: int = 60_000
+    parallelism: int = 2
     model: str = "Auto"
 
     @classmethod
-    def from_mapping(cls, data: Mapping[str, Any]) -> Self:
+    def from_mapping(
+        cls,
+        data: Mapping[str, Any],
+        *,
+        apply_environment: bool = True,
+    ) -> Self:
         """Create prompt-security configuration from a raw mapping."""
         defaults = cls()
         minimum_score = int(data.get("minimum_score", defaults.minimum_score))
         max_chars = int(
             data.get("max_chars_per_request", defaults.max_chars_per_request)
         )
+        parallelism_raw = data.get("parallelism", defaults.parallelism)
+        if apply_environment:
+            parallelism_raw = os.environ.get(
+                "TARA_PROMPT_SECURITY_PARALLELISM",
+                parallelism_raw,
+            )
+        parallelism = int(parallelism_raw)
         if not 0 <= minimum_score <= 100:
             raise ValueError("analysis.prompt_security.minimum_score must be 0..100")
         if max_chars < 4_000:
             raise ValueError(
                 "analysis.prompt_security.max_chars_per_request must be at least 4000"
             )
+        if not 1 <= parallelism <= 8:
+            raise ValueError(
+                "analysis.prompt_security.parallelism must be between 1 and 8"
+            )
         return cls(
             enabled=bool(data.get("enabled", defaults.enabled)),
             minimum_score=minimum_score,
             max_chars_per_request=max_chars,
+            parallelism=parallelism,
             model=str(data.get("model", defaults.model)),
         )
 
@@ -453,7 +471,10 @@ class AnalysisConfig:
             parallel=parallel,
             parallelism=parallelism,
             scenes=AnalysisScenesConfig.from_mapping(scenes_data),
-            prompt_security=PromptSecurityConfig.from_mapping(prompt_security_data),
+            prompt_security=PromptSecurityConfig.from_mapping(
+                prompt_security_data,
+                apply_environment=apply_environment,
+            ),
             llm=AnalysisLLMConfig.from_mapping(llm_data),
         )
 

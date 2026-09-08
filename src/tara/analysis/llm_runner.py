@@ -19,6 +19,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from threading import Lock
 from typing import Any, Literal, Protocol
 
 import requests
@@ -902,6 +903,7 @@ class LLMRunner:
         self._cancellation_check = cancellation_check
         self._retry_callback = retry_callback
         self._usage_attempt_callback = usage_attempt_callback
+        self._backend_lock = Lock()
         self._backends: dict[LLMBackendName, LLMBackend] = {}
         if api_backend is not None:
             self._backends["api"] = api_backend
@@ -1012,17 +1014,18 @@ class LLMRunner:
 
     def _get_backend(self, name: LLMBackendName) -> LLMBackend:
         """Create or return the selected backend."""
-        existing = self._backends.get(name)
-        if existing is not None:
-            return existing
-        if name == "api":
-            backend = OpenAIAPIBackend(self._config)
-        elif name == "cursor_cli":
-            backend = CursorCLIBackend(self._config)
-        else:
-            raise LLMConfigurationError(f"Unsupported LLM backend: {name}")
-        self._backends[name] = backend
-        return backend
+        with self._backend_lock:
+            existing = self._backends.get(name)
+            if existing is not None:
+                return existing
+            if name == "api":
+                backend = OpenAIAPIBackend(self._config)
+            elif name == "cursor_cli":
+                backend = CursorCLIBackend(self._config)
+            else:
+                raise LLMConfigurationError(f"Unsupported LLM backend: {name}")
+            self._backends[name] = backend
+            return backend
 
     def _record_telemetry(
         self,

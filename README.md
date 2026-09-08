@@ -250,6 +250,9 @@ Quality-first optimizations for the analysis pipeline:
 - `analysis.parallelism` (`TARA_ANALYSIS_PARALLELISM`): shared upper bound
   for concurrent scene-description and specialist Cursor CLI processes.
   Defaults to `4` and is limited to `16`.
+- `analysis.prompt_security.parallelism`
+  (`TARA_PROMPT_SECURITY_PARALLELISM`): maximum number of security chunks
+  checked together. Defaults to `2`; an unsafe batch still fails closed.
 - `analysis.llm.cursor_cli_specialist_tool`: optional on-demand excerpt tool for
   specialists via `.cursor/skills/tara-evidence/`. Defaults to `false`.
 - Per-run token/latency report: `analysis/usage_report.yaml` and
