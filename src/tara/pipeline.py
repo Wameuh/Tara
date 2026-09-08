@@ -8,6 +8,7 @@ import shutil
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 from tara.acceptance import evaluate_acceptance
@@ -130,6 +131,10 @@ class TaraControlAgent:
         self._speaker_by_transcription_name = speaker_by_transcription_name
         self._context_char_limits = context_char_limits
         self._event_revision = 0
+        self._transcription_progress_lock = Lock()
+        self._transcription_progress_by_file: dict[int, float] = {}
+        self._transcription_progress_total = 0
+        self._transcription_progress_emitted = -1.0
 
     def run(self) -> TaraRunResult:
         """Run the configured standalone Tara pipeline."""
@@ -381,8 +386,23 @@ class TaraControlAgent:
     def _transcription_progress(self, index: int, total: int, progress: float) -> None:
         if total < 1 or not 1 <= index <= total:
             return
-        completed = (index - 1 + min(1.0, max(0.0, progress))) / total
-        self._emit_stage(EventType.STAGE_PROGRESS, StageCode.TRANSCRIPTION, completed)
+        bounded = min(1.0, max(0.0, progress))
+        with self._transcription_progress_lock:
+            if self._transcription_progress_total != total:
+                self._transcription_progress_by_file.clear()
+                self._transcription_progress_total = total
+                self._transcription_progress_emitted = -1.0
+            previous = self._transcription_progress_by_file.get(index, 0.0)
+            self._transcription_progress_by_file[index] = max(previous, bounded)
+            completed = sum(self._transcription_progress_by_file.values()) / total
+            if completed <= self._transcription_progress_emitted:
+                return
+            self._transcription_progress_emitted = completed
+            self._emit_stage(
+                EventType.STAGE_PROGRESS,
+                StageCode.TRANSCRIPTION,
+                completed,
+            )
 
     def _retry_scheduled(self, attempt: int) -> None:
         if self._event_sink is None:

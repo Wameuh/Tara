@@ -58,12 +58,12 @@ def test_transcription_callbacks_emit_bounded_ordered_web_progress() -> None:
     )
 
     for index, total, ratio in (
-        (1, 2, -1.0),
-        (1, 2, 0.25),
-        (1, 2, 0.75),
-        (2, 2, 0.0),
         (2, 2, 0.5),
-        (2, 2, 2.0),
+        (1, 2, 0.25),
+        (2, 2, 1.0),
+        (1, 2, 0.75),
+        (1, 2, 0.5),
+        (1, 2, 2.0),
     ):
         agent._transcription_progress(index, total, ratio)
 
@@ -71,7 +71,7 @@ def test_transcription_callbacks_emit_bounded_ordered_web_progress() -> None:
     assert all(event.event_type is EventType.STAGE_PROGRESS for event in events)
     assert all(event.stage_code is StageCode.TRANSCRIPTION for event in events)
     ratios = [event.current_ratio for event in events]
-    assert ratios == [0.0, 0.125, 0.375, 0.5, 0.75, 1.0]
+    assert ratios == [0.25, 0.375, 0.625, 0.875, 1.0]
     assert ratios == sorted(ratios)
     assert all(0.0 <= ratio <= 1.0 for ratio in ratios)
 
