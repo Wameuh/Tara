@@ -10,6 +10,7 @@ import shutil
 import sqlite3
 import stat
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 from tara_web.catalogs import validate_catalogues
@@ -101,7 +102,7 @@ def _valid_provider_token(value: str | None, prefix: str) -> bool:
 def _validate_cursor_backend(
     tara_config_snapshot: str | None,
     environ: dict[str, str] | None = None,
-    command_finder=shutil.which,
+    command_finder: Callable[[str], str | None] = shutil.which,
 ) -> None:
     """Fail startup when a selected Cursor CLI runtime is incomplete."""
     if tara_config_snapshot is None:

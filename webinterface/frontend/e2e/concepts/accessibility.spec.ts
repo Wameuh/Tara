@@ -34,6 +34,6 @@ test("accessibilite-axe: creation et aide integree", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Préparer une session Tara" })).toBeVisible();
   await expectNoAccessibilityViolations(page);
   await page.getByRole("button", { name: "Aide" }).click();
-  await expect(page.getByRole("heading", { name: "Utiliser Tara en toute sécurité" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Comment utiliser Tara ?" })).toBeVisible();
   await expectNoAccessibilityViolations(page);
 });
