@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+import pytest
 
 from tara_web.db.connection import ConnectionFactory
 from tara_web.db.migrations import migrate
 from tara_web.estimation.features import EstimationFeatures
-from tara_web.estimation.regression import fit_linear
+from tara_web.estimation.regression import LinearPrediction, fit_linear
 from tara_web.estimation.service import EstimationService
 
 
@@ -73,3 +76,105 @@ def test_estimation_service_hides_predictions_below_the_sample_threshold(
         features, "transcription"
     )
     assert stage is not None and stage.value == 0
+
+
+def test_running_estimate_uses_current_stage_progress_and_future_stages(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "runtime"
+    root.mkdir(mode=0o700)
+    service = EstimationService(ConnectionFactory(root / "tara.sqlite3", root))
+    stage_values = {
+        "narrative_analysis": 1_000,
+        "synthesis": 200,
+        "verification": 100,
+    }
+
+    def predict_stage(
+        features: EstimationFeatures,
+        stage: str,
+    ) -> LinearPrediction | None:
+        value = stage_values.get(stage)
+        return (
+            LinearPrediction(value, 1.0, 5, float(value), 0.0)
+            if value is not None
+            else None
+        )
+
+    monkeypatch.setattr(service, "predict_stage", predict_stage)
+
+    remaining = service._estimate_stage_remaining(
+        EstimationFeatures(
+            "merged_transcription",
+            "v1",
+            merged_transcription_tokens=10,
+        ),
+        "narrative_analysis",
+        400,
+    )
+
+    assert remaining == 900
+
+
+def test_public_remaining_estimate_prefers_stage_progress(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "runtime"
+    root.mkdir(mode=0o700)
+    database = ConnectionFactory(root / "tara.sqlite3", root)
+    now = datetime.now(UTC)
+    migration_connection = database.connect()
+    try:
+        migrate(migration_connection)
+    finally:
+        migration_connection.close()
+    with database.transaction() as connection:
+        connection.execute(
+            "INSERT INTO upload_sessions(public_id,secret_hmac,status,expires_at,"
+            "created_at,updated_at) VALUES(?,?,'consumed',?,?,?)",
+            (
+                "session_estimate_0001",
+                "v1:" + "a" * 64,
+                (now + timedelta(days=1)).isoformat(),
+                now.isoformat(),
+                now.isoformat(),
+            ),
+        )
+        connection.execute(
+            "INSERT INTO jobs(public_id,upload_session_id,secret_hmac,status,"
+            "pipeline_version,job_type,language,expires_at,stage,"
+            "stage_progress_milli,created_at,updated_at,started_at) "
+            "VALUES(?,1,?,'running','v1','merged_transcription','fr',?,"
+            "'narrative_analysis',400,?,?,?)",
+            (
+                "job_estimate_0000001",
+                "v1:" + "a" * 64,
+                (now + timedelta(days=1)).isoformat(),
+                now.isoformat(),
+                now.isoformat(),
+                now.isoformat(),
+            ),
+        )
+    service = EstimationService(database)
+    monkeypatch.setattr(
+        service,
+        "predict_total",
+        lambda features: LinearPrediction(50_000, 1.0, 5, 50_000.0, 0.0),
+    )
+    monkeypatch.setattr(
+        service,
+        "predict_stage",
+        lambda features, stage: LinearPrediction(
+            {"narrative_analysis": 1_000, "synthesis": 200, "verification": 100}[
+                stage
+            ],
+            1.0,
+            5,
+            0.0,
+            0.0,
+        ),
+    )
+
+    assert service.estimate_remaining_ms("job_estimate_0000001") == 900

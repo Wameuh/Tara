@@ -56,7 +56,7 @@ webinterface:
     # Values are integer micro-euros; 1000000 = 1 EUR.
     # inference_budget_micro_eur: 100000000
     inference_reservation_micro_eur: 1000000
-    estimation_minimum_observations: 8
+    estimation_minimum_observations: 5
     circuit_failure_threshold: 3
     circuit_open_seconds: 60
   timeouts:

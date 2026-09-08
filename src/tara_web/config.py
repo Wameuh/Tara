@@ -116,7 +116,7 @@ class LimitsConfig(StrictModel):
     inference_reservation_micro_eur: int = Field(
         default=1_000_000, ge=0, le=10**15
     )
-    estimation_minimum_observations: int = Field(default=8, ge=2, le=10_000)
+    estimation_minimum_observations: int = Field(default=5, ge=2, le=10_000)
     circuit_failure_threshold: int = Field(default=3, ge=1, le=1_000)
     circuit_open_seconds: int = Field(default=60, ge=1, le=86_400)
 
