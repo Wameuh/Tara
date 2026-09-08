@@ -39,6 +39,7 @@ class SceneAnalysisPipeline:
         llm_runner: LLMRunner | None,
         context_text: str | None = None,
         parallel: bool = False,
+        max_parallelism: int = 4,
         progress_callback: Callable[[str, int, int], None] | None = None,
     ) -> ScenePipelineResult:
         """Run the scene pipeline or return an empty timeline on fallback."""
@@ -119,6 +120,7 @@ class SceneAnalysisPipeline:
             output_path=scene_descriptions_path,
             resume_partial=self._config.resume_partial_descriptions,
             parallel=parallel,
+            max_parallelism=max_parallelism,
         ).describe_all(
             scene_transcriptions,
             context_text=context_text,

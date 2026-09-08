@@ -936,6 +936,10 @@ class AnalysisOrchestrator:
         )
         self._cursor_cli_probe = bool(self._specialist_config.get("cursor_cli_probe"))
         self._parallel = bool(self._specialist_config.get("parallel"))
+        self._parallelism = max(
+            1,
+            min(16, int(self._specialist_config.get("parallelism", 4))),
+        )
         self._progress_callback = progress_callback
         self._planner = AnalysisPlannerAgent()
         self._specialists = _default_specialists(
@@ -977,6 +981,7 @@ class AnalysisOrchestrator:
                 retriever,
                 self._specialists,
                 parallel=self._parallel,
+                max_parallelism=self._parallelism,
                 progress_callback=self._progress_callback,
             )
             answers = [*seed_answers, *answers]
@@ -1108,6 +1113,7 @@ def _run_specialists_with_usage(
     specialists: dict[str, SpecialistAgent],
     *,
     parallel: bool = False,
+    max_parallelism: int = 4,
     progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> tuple[list[EvidenceAnswer], LLMUsageDelta]:
     """Run all planned specialist questions and accumulate LLM usage."""
@@ -1116,6 +1122,7 @@ def _run_specialists_with_usage(
             plan,
             retriever,
             specialists,
+            max_parallelism=max_parallelism,
             progress_callback=progress_callback,
         )
     answers: list[EvidenceAnswer] = []
@@ -1135,11 +1142,13 @@ def _run_specialists_parallel(
     retriever: EvidenceRetriever,
     specialists: dict[str, SpecialistAgent],
     *,
+    max_parallelism: int = 4,
     progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> tuple[list[EvidenceAnswer], LLMUsageDelta]:
     """Run specialist questions concurrently while preserving question order."""
     ordered: list[tuple[int, list[EvidenceAnswer], LLMUsageDelta]] = []
-    with ThreadPoolExecutor(max_workers=len(plan.questions)) as executor:
+    workers = max(1, min(16, max_parallelism, len(plan.questions)))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {
             executor.submit(
                 _answer_question,

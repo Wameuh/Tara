@@ -48,6 +48,7 @@ services:
       TARA_INFERENCE_ENDPOINT: ${TARA_INFERENCE_ENDPOINT:-http://host.docker.internal:8000}
       TARA_INFERENCE_AUTH_PROVIDER: ${TARA_INFERENCE_AUTH_PROVIDER:-none}
       TARA_TRANSCRIPTION_PARALLELISM: ${TARA_TRANSCRIPTION_PARALLELISM:-3}
+      TARA_ANALYSIS_PARALLELISM: ${TARA_ANALYSIS_PARALLELISM:-4}
     volumes: &tara_volumes
       - ./config/docker.example.yaml:/config/webinterface.yaml:ro
       - ./config/tara-web.yaml:/config/tara.yaml:ro

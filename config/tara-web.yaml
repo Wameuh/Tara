@@ -15,6 +15,7 @@ analysis:
   pipeline: blackboard_v1
   output_dir: analysis
   parallel: true
+  parallelism: 4
   prompt_security:
     enabled: true
     minimum_score: 80

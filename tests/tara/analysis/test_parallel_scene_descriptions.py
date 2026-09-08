@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
+from threading import Lock
 
 from tara.analysis.llm_runner import LLMRequest, LLMResponse, LLMRunner, LLMRunnerConfig
 from tara.analysis.scenes.descriptor_agent import SceneDescriptorAgent
@@ -78,3 +80,39 @@ def test_parallel_scene_descriptions_preserve_scene_count(tmp_path: Path) -> Non
     assert progress[0] == ("scene_descriptions", 0, 2)
     assert progress[-1] == ("scene_descriptions", 2, 2)
     assert ("scene_descriptions", 1, 2) in progress
+
+
+def test_parallel_scene_descriptions_respect_worker_bound(tmp_path: Path) -> None:
+    class _CountingBackend(_SceneBackend):
+        def __init__(self) -> None:
+            self.active = 0
+            self.peak = 0
+            self.lock = Lock()
+
+        def run(self, request: LLMRequest) -> LLMResponse:
+            with self.lock:
+                self.active += 1
+                self.peak = max(self.peak, self.active)
+            try:
+                time.sleep(0.02)
+                return super().run(request)
+            finally:
+                with self.lock:
+                    self.active -= 1
+
+    backend = _CountingBackend()
+    runner = LLMRunner(
+        LLMRunnerConfig(backend="api", model="fake"),
+        api_backend=backend,
+    )
+
+    result = SceneDescriptorAgent(
+        runner,
+        output_path=tmp_path / "bounded.yaml",
+        resume_partial=False,
+        parallel=True,
+        max_parallelism=2,
+    ).describe_all([_scene(index) for index in range(1, 6)])
+
+    assert len(result.timeline.scenes) == 5
+    assert backend.peak == 2

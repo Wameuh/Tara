@@ -272,6 +272,23 @@ def test_load_config_accepts_all_transcription_parallelism(
     assert config.transcription.parallelism == 0
 
 
+def test_load_config_bounds_analysis_parallelism(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "configuration.yaml"
+    config_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("TARA_ANALYSIS_PARALLELISM", "3")
+
+    config = load_config(config_path)
+
+    assert config.analysis.parallelism == 3
+
+    monkeypatch.setenv("TARA_ANALYSIS_PARALLELISM", "17")
+    with pytest.raises(ValueError, match="parallelism"):
+        load_config(config_path)
+
+
 def test_modal_proxy_client_adds_auth_headers_only_when_configured(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

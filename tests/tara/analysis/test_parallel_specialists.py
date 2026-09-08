@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from threading import Lock
 
+from tara.analysis.agentic_llm import LLMUsageDelta
 from tara.analysis.agents import _run_specialists_with_usage
 from tara.analysis.llm_runner import LLMRequest, LLMResponse, LLMRunner, LLMRunnerConfig
 from tara.analysis.models import (
@@ -90,3 +92,38 @@ def test_parallel_specialists_preserve_answer_count() -> None:
         parallel=True,
     )
     assert len(parallel_answers) == len(sequential_answers)
+
+
+def test_parallel_specialists_respect_worker_bound() -> None:
+    class _CountingSpecialist:
+        def __init__(self) -> None:
+            self.active = 0
+            self.peak = 0
+            self.lock = Lock()
+            self.last_llm_usage = LLMUsageDelta()
+
+        def answer(
+            self,
+            question: AnalysisQuestion,
+            retriever: _FakeRetriever,
+        ) -> list[object]:
+            with self.lock:
+                self.active += 1
+                self.peak = max(self.peak, self.active)
+            try:
+                time.sleep(0.02)
+                return []
+            finally:
+                with self.lock:
+                    self.active -= 1
+
+    specialist = _CountingSpecialist()
+    _run_specialists_with_usage(
+        _plan(),
+        _FakeRetriever(),
+        {"ChronologyAgent": specialist},  # type: ignore[dict-item]
+        parallel=True,
+        max_parallelism=2,
+    )
+
+    assert specialist.peak == 2

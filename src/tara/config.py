@@ -394,6 +394,7 @@ class AnalysisConfig:
     target_window_seconds: float = 90.0
     overlap_seconds: float = 20.0
     parallel: bool = True
+    parallelism: int = 4
     scenes: AnalysisScenesConfig = field(default_factory=AnalysisScenesConfig)
     prompt_security: PromptSecurityConfig = field(default_factory=PromptSecurityConfig)
     llm: AnalysisLLMConfig = field(default_factory=AnalysisLLMConfig)
@@ -414,9 +415,17 @@ class AnalysisConfig:
         if not isinstance(prompt_security_data, Mapping):
             prompt_security_data = {}
         parallel_raw = data.get("parallel", defaults.parallel)
+        parallelism_raw = data.get("parallelism", defaults.parallelism)
         if apply_environment:
             parallel_raw = os.environ.get("TARA_ANALYSIS_PARALLEL", parallel_raw)
+            parallelism_raw = os.environ.get(
+                "TARA_ANALYSIS_PARALLELISM",
+                parallelism_raw,
+            )
         parallel = str(parallel_raw).strip().lower() in {"1", "true", "yes", "on"}
+        parallelism = int(parallelism_raw)
+        if not 1 <= parallelism <= 16:
+            raise ValueError("analysis.parallelism must be between 1 and 16")
         return cls(
             enabled=bool(data.get("enabled", defaults.enabled)),
             pipeline=str(data.get("pipeline", defaults.pipeline)),
@@ -442,6 +451,7 @@ class AnalysisConfig:
                 data.get("overlap_seconds", defaults.overlap_seconds),
             ),
             parallel=parallel,
+            parallelism=parallelism,
             scenes=AnalysisScenesConfig.from_mapping(scenes_data),
             prompt_security=PromptSecurityConfig.from_mapping(prompt_security_data),
             llm=AnalysisLLMConfig.from_mapping(llm_data),

@@ -65,12 +65,14 @@ class SceneDescriptorAgent:
         output_path: Path,
         resume_partial: bool = True,
         parallel: bool = False,
+        max_parallelism: int = 4,
     ) -> None:
         """Initialize the descriptor."""
         self._llm_runner = llm_runner
         self._output_path = output_path
         self._resume_partial = resume_partial
         self._parallel = parallel
+        self._max_parallelism = max(1, min(16, max_parallelism))
 
     def describe_all(
         self,
@@ -118,7 +120,9 @@ class SceneDescriptorAgent:
 
         if self._parallel and len(pending) > 1:
             results_by_id: dict[int, SceneDescriptionResult] = {}
-            with ThreadPoolExecutor(max_workers=len(pending)) as executor:
+            with ThreadPoolExecutor(
+                max_workers=min(self._max_parallelism, len(pending))
+            ) as executor:
                 futures = {
                     executor.submit(
                         self._describe_scene,

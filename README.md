@@ -247,6 +247,9 @@ Quality-first optimizations for the analysis pipeline:
   prompt caching.
 - `analysis.parallel` (`TARA_ANALYSIS_PARALLEL`): parallel fan-out for scene
   descriptions and specialist questions. Defaults to `true`.
+- `analysis.parallelism` (`TARA_ANALYSIS_PARALLELISM`): shared upper bound
+  for concurrent scene-description and specialist Cursor CLI processes.
+  Defaults to `4` and is limited to `16`.
 - `analysis.llm.cursor_cli_specialist_tool`: optional on-demand excerpt tool for
   specialists via `.cursor/skills/tara-evidence/`. Defaults to `false`.
 - Per-run token/latency report: `analysis/usage_report.yaml` and

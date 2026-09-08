@@ -292,6 +292,7 @@ class TaraControlAgent:
             llm_runner=llm_runner,
             context_text=context.general.text or "",
             parallel=self._config.analysis.parallel,
+            max_parallelism=self._config.analysis.parallelism,
             warning_callback=self._scene_fallback_warning,
             progress_callback=self._narrative_progress,
         )
@@ -326,6 +327,7 @@ class TaraControlAgent:
                 "context_text": context.general.text or "",
                 "prior_context_text": context.prior.text or "",
                 "parallel": self._config.analysis.parallel,
+                "parallelism": self._config.analysis.parallelism,
                 "transcription_path": str(merged_transcription_path.resolve()),
             },
             progress_callback=self._narrative_progress,
@@ -564,6 +566,7 @@ def _run_scene_pipeline(
     llm_runner: LLMRunner | None,
     context_text: str | None = None,
     parallel: bool = False,
+    max_parallelism: int = 4,
     warning_callback: Callable[[], None] | None = None,
     progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> ScenePipelineResult:
@@ -575,6 +578,7 @@ def _run_scene_pipeline(
             llm_runner=llm_runner,
             context_text=context_text,
             parallel=parallel,
+            max_parallelism=max_parallelism,
             progress_callback=progress_callback,
         )
     except TaraPipelineCancelled:
