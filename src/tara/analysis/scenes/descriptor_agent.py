@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
@@ -76,6 +77,7 @@ class SceneDescriptorAgent:
         scenes: list[SceneTranscription],
         *,
         context_text: str | None = None,
+        progress_callback: Callable[[str, int, int], None] | None = None,
     ) -> DescriptionResult:
         """Describe all scenes, reusing fresh cached rows when available."""
         cached = self._load_cached_descriptions() if self._resume_partial else {}
@@ -83,6 +85,10 @@ class SceneDescriptorAgent:
         warnings: list[ScenePipelineWarning] = []
         usage = LLMUsageDelta()
         pending: list[SceneTranscription] = []
+        total_scenes = max(1, len(scenes))
+        completed_scenes = 0
+        if progress_callback is not None:
+            progress_callback("scene_descriptions", 0, total_scenes)
         for scene in scenes:
             cached_scene = cached.get(scene.scene_id)
             if (
@@ -90,6 +96,7 @@ class SceneDescriptorAgent:
                 and cached_scene.source_hash == scene.source_hash
             ):
                 descriptions.append(cached_scene)
+                completed_scenes += 1
                 continue
             if not scene.text.strip() or not scene.segments:
                 warnings.append(
@@ -99,8 +106,15 @@ class SceneDescriptorAgent:
                         scene_id=scene.scene_id,
                     )
                 )
+                completed_scenes += 1
                 continue
             pending.append(scene)
+        if progress_callback is not None and completed_scenes:
+            progress_callback(
+                "scene_descriptions",
+                completed_scenes,
+                total_scenes,
+            )
 
         if self._parallel and len(pending) > 1:
             results_by_id: dict[int, SceneDescriptionResult] = {}
@@ -116,6 +130,13 @@ class SceneDescriptorAgent:
                 for future in as_completed(futures):
                     scene_id = futures[future]
                     results_by_id[scene_id] = future.result()
+                    completed_scenes += 1
+                    if progress_callback is not None:
+                        progress_callback(
+                            "scene_descriptions",
+                            completed_scenes,
+                            total_scenes,
+                        )
             for scene in pending:
                 described, scene_usage, warning = results_by_id[scene.scene_id]
                 usage = _merge_usage(usage, scene_usage)
@@ -129,6 +150,13 @@ class SceneDescriptorAgent:
                     scene,
                     context_text,
                 )
+                completed_scenes += 1
+                if progress_callback is not None:
+                    progress_callback(
+                        "scene_descriptions",
+                        completed_scenes,
+                        total_scenes,
+                    )
                 usage = _merge_usage(usage, scene_usage)
                 if warning is not None:
                     warnings.append(warning)
@@ -141,6 +169,8 @@ class SceneDescriptorAgent:
             metadata={"source": "scene_descriptor"},
         )
         self._write_output(timeline)
+        if progress_callback is not None:
+            progress_callback("scene_descriptions", total_scenes, total_scenes)
         return DescriptionResult(timeline=timeline, usage=usage, warnings=warnings)
 
     def _describe_scene(

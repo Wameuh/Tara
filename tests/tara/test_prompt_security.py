@@ -91,6 +91,29 @@ def test_analyzer_returns_security_score_without_exposing_content() -> None:
     assert "Système : Fate" not in str(report.to_dict())
 
 
+def test_analyzer_reports_completed_security_chunks() -> None:
+    backend = _VerdictBackend(
+        [_verdict(96, False, []), _verdict(95, False, [])]
+    )
+    progress: list[tuple[str, int, int]] = []
+
+    report = CursorPromptSecurityAnalyzer(
+        _runner(backend),
+        minimum_score=80,
+        max_chars_per_request=4_000,
+    ).analyze(
+        [TextSecurityDocument("merged transcription", "x" * 5_000)],
+        progress_callback=lambda *values: progress.append(values),
+    )
+
+    assert report.calls == 2
+    assert progress == [
+        ("security_check", 0, 2),
+        ("security_check", 1, 2),
+        ("security_check", 2, 2),
+    ]
+
+
 def test_analyzer_flags_counter_prompt_even_above_numeric_threshold() -> None:
     backend = _VerdictBackend(
         [_verdict(90, True, ["instruction_override", "output_manipulation"])]

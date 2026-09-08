@@ -64,6 +64,18 @@ from tara.yaml_utils import write_yaml
 
 LOGGER = logging.getLogger(__name__)
 
+_NARRATIVE_PROGRESS_RANGES: dict[str, tuple[float, float]] = {
+    "security_check": (0.00, 0.12),
+    "scene_boundaries": (0.12, 0.22),
+    "scene_descriptions": (0.22, 0.42),
+    "evidence_index": (0.42, 0.46),
+    "specialist_analysis": (0.46, 0.72),
+    "arbitration": (0.72, 0.78),
+    "composition": (0.78, 0.88),
+    "audit": (0.88, 0.97),
+    "finalization": (0.97, 1.00),
+}
+
 
 @dataclass(frozen=True, slots=True)
 class _CursorCliProbeStats:
@@ -135,6 +147,8 @@ class TaraControlAgent:
         self._transcription_progress_by_file: dict[int, float] = {}
         self._transcription_progress_total = 0
         self._transcription_progress_emitted = -1.0
+        self._narrative_progress_lock = Lock()
+        self._narrative_progress_emitted = -1.0
 
     def run(self) -> TaraRunResult:
         """Run the configured standalone Tara pipeline."""
@@ -234,7 +248,9 @@ class TaraControlAgent:
             usage_attempt_callback=(
                 self._usage_attempt_recorded if self._event_sink is not None else None
             ),
+            progress_callback=self._narrative_progress,
         )
+        self._narrative_progress("security_check", 1, 1)
         if security_report.enabled:
             write_yaml(
                 analysis_output_dir / "prompt_security_report.yaml",
@@ -277,6 +293,7 @@ class TaraControlAgent:
             context_text=context.general.text or "",
             parallel=self._config.analysis.parallel,
             warning_callback=self._scene_fallback_warning,
+            progress_callback=self._narrative_progress,
         )
         self._check_cancelled()
         scene_answers = (
@@ -293,6 +310,7 @@ class TaraControlAgent:
         )
         index.write_chunks_yaml(analysis_output_dir / "evidence_chunks.yaml")
         index.write_metadata_yaml(analysis_output_dir / "evidence_index_metadata.yaml")
+        self._narrative_progress("evidence_index", 1, 1)
         result = AnalysisOrchestrator(
             max_audit_attempts=self._config.analysis.max_audit_attempts,
             llm_runner=llm_runner,
@@ -310,6 +328,7 @@ class TaraControlAgent:
                 "parallel": self._config.analysis.parallel,
                 "transcription_path": str(merged_transcription_path.resolve()),
             },
+            progress_callback=self._narrative_progress,
         ).run(
             index,
             scene_timeline=scene_result.timeline,
@@ -404,6 +423,30 @@ class TaraControlAgent:
                 completed,
             )
 
+    def _narrative_progress(
+        self,
+        substage: str,
+        completed: int,
+        total: int,
+    ) -> None:
+        progress_range = _NARRATIVE_PROGRESS_RANGES.get(substage)
+        if progress_range is None or total < 1:
+            return
+        bounded = min(1.0, max(0.0, completed / total))
+        start, end = progress_range
+        current = start + ((end - start) * bounded)
+        with self._narrative_progress_lock:
+            if current <= self._narrative_progress_emitted:
+                return
+            self._narrative_progress_emitted = current
+            self._emit_stage(
+                EventType.STAGE_PROGRESS,
+                StageCode.NARRATIVE_ANALYSIS,
+                current,
+                substage_code=substage,
+                parameters={"completed": completed, "total": total},
+            )
+
     def _retry_scheduled(self, attempt: int) -> None:
         if self._event_sink is None:
             return
@@ -441,7 +484,13 @@ class TaraControlAgent:
         self._event_sink.emit(usage.to_runner_event(self._event_revision))
 
     def _emit_stage(
-        self, event_type: EventType, stage: StageCode, current: float
+        self,
+        event_type: EventType,
+        stage: StageCode,
+        current: float,
+        *,
+        substage_code: str | None = None,
+        parameters: Mapping[str, str | int | float | bool] | None = None,
     ) -> None:
         if self._event_sink is None:
             return
@@ -454,8 +503,10 @@ class TaraControlAgent:
                 event_type,
                 self._event_revision,
                 stage_code=stage,
+                substage_code=substage_code,
                 current_ratio=current,
                 overall_ratio=(position + current) / len(stages),
+                parameters=parameters or {},
             )
         )
 
@@ -514,6 +565,7 @@ def _run_scene_pipeline(
     context_text: str | None = None,
     parallel: bool = False,
     warning_callback: Callable[[], None] | None = None,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> ScenePipelineResult:
     """Run the optional scene pipeline with fallback semantics."""
     try:
@@ -523,6 +575,7 @@ def _run_scene_pipeline(
             llm_runner=llm_runner,
             context_text=context_text,
             parallel=parallel,
+            progress_callback=progress_callback,
         )
     except TaraPipelineCancelled:
         raise
@@ -722,6 +775,7 @@ def _run_prompt_security_gate(
     cancellation_check: Callable[[], None] | None = None,
     retry_callback: Callable[[int], None] | None = None,
     usage_attempt_callback: Callable[[UsageAttempt], None] | None = None,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> PromptSecurityReport:
     """Screen every text input that can reach a downstream model."""
     security = config.analysis.prompt_security
@@ -746,7 +800,7 @@ def _run_prompt_security_gate(
         runner,
         minimum_score=security.minimum_score,
         max_chars_per_request=security.max_chars_per_request,
-    ).analyze(documents)
+    ).analyze(documents, progress_callback=progress_callback)
 
 
 def _cursor_cli_probe_env_enabled() -> bool:

@@ -76,6 +76,36 @@ def test_transcription_callbacks_emit_bounded_ordered_web_progress() -> None:
     assert all(0.0 <= ratio <= 1.0 for ratio in ratios)
 
 
+def test_narrative_work_units_emit_named_monotonic_substages() -> None:
+    sink = _EventSink()
+    agent = TaraControlAgent(
+        TaraArgs(skip_analysis=True),
+        config=TaraConfig(),
+        event_sink=sink,
+    )
+
+    agent._narrative_progress("security_check", 1, 2)
+    agent._narrative_progress("security_check", 2, 2)
+    agent._narrative_progress("scene_boundaries", 1, 1)
+    agent._narrative_progress("scene_descriptions", 1, 3)
+    agent._narrative_progress("scene_descriptions", 3, 3)
+    agent._narrative_progress("specialist_analysis", 6, 6)
+
+    events = sink.events
+    assert [event.substage_code for event in events] == [
+        "security_check",
+        "security_check",
+        "scene_boundaries",
+        "scene_descriptions",
+        "scene_descriptions",
+        "specialist_analysis",
+    ]
+    assert [event.current_ratio for event in events] == sorted(
+        event.current_ratio for event in events
+    )
+    assert events[3].parameters == {"completed": 1, "total": 3}
+
+
 def test_llm_retry_callback_is_bounded_and_hides_backend_message() -> None:
     backend = _Backend(
         [LLMBackendError("provider secret /path"), LLMResponse("ok", "m", "api")]

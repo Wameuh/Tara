@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -923,6 +924,7 @@ class AnalysisOrchestrator:
         max_audit_attempts: int = 3,
         llm_runner: object | None = None,
         specialist_config: JsonObject | None = None,
+        progress_callback: Callable[[str, int, int], None] | None = None,
     ) -> None:
         """Initialize the orchestrator."""
         if max_audit_attempts < 1:
@@ -934,6 +936,7 @@ class AnalysisOrchestrator:
         )
         self._cursor_cli_probe = bool(self._specialist_config.get("cursor_cli_probe"))
         self._parallel = bool(self._specialist_config.get("parallel"))
+        self._progress_callback = progress_callback
         self._planner = AnalysisPlannerAgent()
         self._specialists = _default_specialists(
             llm_runner=llm_runner,
@@ -967,11 +970,14 @@ class AnalysisOrchestrator:
         llm_runner_typed = cast(LLMRunner, llm_runner_obj) if llm_runner_obj else None
         for attempt in range(1, self._max_audit_attempts + 1):
             plan = self._planner.plan(audit_feedback)
+            if self._progress_callback is not None:
+                self._progress_callback("specialist_analysis", 0, len(plan.questions))
             answers, specialist_usage = _run_specialists_with_usage(
                 plan,
                 retriever,
                 self._specialists,
                 parallel=self._parallel,
+                progress_callback=self._progress_callback,
             )
             answers = [*seed_answers, *answers]
             blackboard = self._blackboard.ingest(answers)
@@ -983,21 +989,29 @@ class AnalysisOrchestrator:
                 retriever=retriever,
                 context_text=_config_text(self._specialist_config, "context_text"),
             )
+            if self._progress_callback is not None:
+                self._progress_callback("arbitration", 1, 1)
             arbitration_usage = self._arbitration.last_llm_usage
             draft = self._composer.compose(
                 blackboard,
                 decisions,
                 scene_timeline=scene_timeline,
             )
+            if self._progress_callback is not None:
+                self._progress_callback("composition", 1, 1)
             composition_usage = self._composer.last_llm_usage
             findings = self._audit.audit(
                 draft,
                 blackboard,
                 scene_timeline=scene_timeline,
             )
+            if self._progress_callback is not None:
+                self._progress_callback("audit", 1, 1)
             audit_usage = self._audit.last_llm_usage
             final = self._patch.patch(draft, findings)
             final = self._character_verifier.verify(final, blackboard)
+            if self._progress_callback is not None:
+                self._progress_callback("finalization", 1, 1)
             analysis_calls = specialist_usage.calls + arbitration_usage.calls
             total_tokens = (
                 specialist_usage.tokens
@@ -1094,16 +1108,25 @@ def _run_specialists_with_usage(
     specialists: dict[str, SpecialistAgent],
     *,
     parallel: bool = False,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> tuple[list[EvidenceAnswer], LLMUsageDelta]:
     """Run all planned specialist questions and accumulate LLM usage."""
     if parallel and len(plan.questions) > 1:
-        return _run_specialists_parallel(plan, retriever, specialists)
+        return _run_specialists_parallel(
+            plan,
+            retriever,
+            specialists,
+            progress_callback=progress_callback,
+        )
     answers: list[EvidenceAnswer] = []
     usage = LLMUsageDelta()
-    for question in plan.questions:
+    total = len(plan.questions)
+    for completed, question in enumerate(plan.questions, start=1):
         specialist = specialists[question.responsible_agent]
         answers.extend(specialist.answer(question, retriever))
         usage = _merge_usage_delta(usage, specialist.last_llm_usage)
+        if progress_callback is not None:
+            progress_callback("specialist_analysis", completed, total)
     return answers, usage
 
 
@@ -1111,6 +1134,8 @@ def _run_specialists_parallel(
     plan: AnalysisPlan,
     retriever: EvidenceRetriever,
     specialists: dict[str, SpecialistAgent],
+    *,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> tuple[list[EvidenceAnswer], LLMUsageDelta]:
     """Run specialist questions concurrently while preserving question order."""
     ordered: list[tuple[int, list[EvidenceAnswer], LLMUsageDelta]] = []
@@ -1124,10 +1149,13 @@ def _run_specialists_parallel(
             ): index
             for index, question in enumerate(plan.questions)
         }
-        for future in as_completed(futures):
+        total = len(futures)
+        for completed, future in enumerate(as_completed(futures), start=1):
             index = futures[future]
             answers, usage = future.result()
             ordered.append((index, answers, usage))
+            if progress_callback is not None:
+                progress_callback("specialist_analysis", completed, total)
     answers: list[EvidenceAnswer] = []
     usage = LLMUsageDelta()
     for _, question_answers, question_usage in sorted(

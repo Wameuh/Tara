@@ -62,12 +62,19 @@ def test_parallel_scene_descriptions_preserve_scene_count(tmp_path: Path) -> Non
         resume_partial=False,
         parallel=False,
     ).describe_all(scenes)
+    progress: list[tuple[str, int, int]] = []
     parallel = SceneDescriptorAgent(
         runner,
         output_path=tmp_path / "parallel.yaml",
         resume_partial=False,
         parallel=True,
-    ).describe_all(scenes)
+    ).describe_all(
+        scenes,
+        progress_callback=lambda *values: progress.append(values),
+    )
     assert len(sequential.timeline.scenes) == 2
     assert len(parallel.timeline.scenes) == 2
     assert {scene.scene_id for scene in parallel.timeline.scenes} == {1, 2}
+    assert progress[0] == ("scene_descriptions", 0, 2)
+    assert progress[-1] == ("scene_descriptions", 2, 2)
+    assert ("scene_descriptions", 1, 2) in progress

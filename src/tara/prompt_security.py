@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -143,6 +143,8 @@ class CursorPromptSecurityAnalyzer:
     def analyze(
         self,
         documents: list[TextSecurityDocument],
+        *,
+        progress_callback: Callable[[str, int, int], None] | None = None,
     ) -> PromptSecurityReport:
         """Screen documents and stop at the first unsafe chunk."""
         document_results: list[DocumentSecurityResult] = []
@@ -153,16 +155,29 @@ class CursorPromptSecurityAnalyzer:
         flagged_document: str | None = None
         flagged_categories: tuple[str, ...] = ()
 
-        for document in documents:
-            if not document.text.strip():
-                continue
+        document_chunks = [
+            (
+                document,
+                list(
+                    _iter_text_chunks(
+                        document.text,
+                        self._max_chars_per_request,
+                    )
+                ),
+            )
+            for document in documents
+            if document.text.strip()
+        ]
+        total_chunks = sum(len(chunks) for _, chunks in document_chunks)
+        completed_chunks = 0
+        if progress_callback is not None:
+            progress_callback("security_check", 0, max(1, total_chunks))
+
+        for document, chunks in document_chunks:
             scores: list[int] = []
             categories: set[str] = set()
             injection_detected = False
-            for chunk_index, chunk in enumerate(
-                _iter_text_chunks(document.text, self._max_chars_per_request),
-                start=1,
-            ):
+            for chunk_index, chunk in enumerate(chunks, start=1):
                 response = self._run_verdict(document.label, chunk_index, chunk)
                 total_calls += 1
                 tokens = response.total_tokens
@@ -186,6 +201,13 @@ class CursorPromptSecurityAnalyzer:
                 injection_detected = (
                     injection_detected or verdict.prompt_injection_detected
                 )
+                completed_chunks += 1
+                if progress_callback is not None:
+                    progress_callback(
+                        "security_check",
+                        completed_chunks,
+                        max(1, total_chunks),
+                    )
                 if (
                     verdict.prompt_injection_detected
                     or verdict.security_score < self._minimum_score
@@ -208,6 +230,16 @@ class CursorPromptSecurityAnalyzer:
                 break
 
         safe = flagged_document is None
+        if (
+            progress_callback is not None
+            and safe
+            and completed_chunks < max(1, total_chunks)
+        ):
+            progress_callback(
+                "security_check",
+                max(1, total_chunks),
+                max(1, total_chunks),
+            )
         return PromptSecurityReport(
             enabled=True,
             minimum_required=self._minimum_score,

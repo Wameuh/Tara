@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -38,9 +39,13 @@ class SceneAnalysisPipeline:
         llm_runner: LLMRunner | None,
         context_text: str | None = None,
         parallel: bool = False,
+        progress_callback: Callable[[str, int, int], None] | None = None,
     ) -> ScenePipelineResult:
         """Run the scene pipeline or return an empty timeline on fallback."""
         if not getattr(self._config, "enabled", True):
+            if progress_callback is not None:
+                progress_callback("scene_boundaries", 1, 1)
+                progress_callback("scene_descriptions", 1, 1)
             return ScenePipelineResult(timeline=SceneTimeline())
         if llm_runner is None:
             warning = ScenePipelineWarning(
@@ -48,6 +53,9 @@ class SceneAnalysisPipeline:
                 message="Scene pipeline requires an LLM runner; falling back.",
             )
             LOGGER.info(warning.message)
+            if progress_callback is not None:
+                progress_callback("scene_boundaries", 1, 1)
+                progress_callback("scene_descriptions", 1, 1)
             return ScenePipelineResult(
                 timeline=SceneTimeline(warnings=[warning]),
                 warnings=[warning],
@@ -60,6 +68,8 @@ class SceneAnalysisPipeline:
         source_hash = file_sha256(merged_transcription_path)
         warnings: list[ScenePipelineWarning] = []
 
+        if progress_callback is not None:
+            progress_callback("scene_boundaries", 0, 1)
         boundaries = self._load_cached_boundaries(scene_analysis_path, source_hash)
         boundary_usage = None
         if boundaries is None:
@@ -72,12 +82,16 @@ class SceneAnalysisPipeline:
             boundary_usage = boundary_result.usage
             if boundaries:
                 self._write_boundaries(scene_analysis_path, boundaries, source_hash)
+        if progress_callback is not None:
+            progress_callback("scene_boundaries", 1, 1)
         if not boundaries:
             warning = ScenePipelineWarning(
                 code="scene_pipeline_no_boundaries",
                 message="No usable scene boundaries were produced.",
             )
             warnings.append(warning)
+            if progress_callback is not None:
+                progress_callback("scene_descriptions", 1, 1)
             timeline = SceneTimeline(warnings=warnings)
             return ScenePipelineResult(
                 timeline=timeline,
@@ -105,7 +119,11 @@ class SceneAnalysisPipeline:
             output_path=scene_descriptions_path,
             resume_partial=self._config.resume_partial_descriptions,
             parallel=parallel,
-        ).describe_all(scene_transcriptions, context_text=context_text)
+        ).describe_all(
+            scene_transcriptions,
+            context_text=context_text,
+            progress_callback=progress_callback,
+        )
         warnings.extend(description_result.warnings)
         usage = description_result.usage
         if boundary_usage is not None:
