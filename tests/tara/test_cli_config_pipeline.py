@@ -634,6 +634,7 @@ def test_transcribe_audio_directory_logs_streaming_progress(
 def test_transcribe_audio_directory_can_run_in_parallel(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Configured transcription parallelism should overlap HTTP requests."""
     audio_dir = tmp_path / "audio"
@@ -666,6 +667,7 @@ def test_transcribe_audio_directory_can_run_in_parallel(
     config = TaraConfig()
     config.transcription.streaming_enabled = False
     config.transcription.parallelism = 0
+    caplog.set_level(logging.INFO, logger="tara.transcription")
 
     results = transcribe_audio_directory(audio_dir, config)
 
@@ -674,6 +676,11 @@ def test_transcribe_audio_directory_can_run_in_parallel(
         "2-wameuh.wav",
     ]
     assert max_active_requests == 2
+    assert any(
+        "active=2 limit=2 peak=2" in record.getMessage()
+        for record in caplog.records
+    )
+    assert any("active=0 peak=2" in record.getMessage() for record in caplog.records)
 
 
 def test_process_transcriptions_writes_merged_input(tmp_path: Path) -> None:

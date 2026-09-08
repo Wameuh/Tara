@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 import requests
@@ -337,6 +338,35 @@ def _transcribe_audio_directory_via_http(
             total_files,
             min(parallelism, total_files),
         )
+    concurrency_lock = Lock()
+    active_requests = 0
+    peak_requests = 0
+
+    def request_started(file_index: int) -> None:
+        nonlocal active_requests, peak_requests
+        with concurrency_lock:
+            active_requests += 1
+            peak_requests = max(peak_requests, active_requests)
+            LOGGER.info(
+                "Transcription request started file=%s/%s active=%s limit=%s peak=%s.",
+                file_index,
+                total_files,
+                active_requests,
+                min(parallelism, total_files),
+                peak_requests,
+            )
+
+    def request_finished(file_index: int) -> None:
+        nonlocal active_requests
+        with concurrency_lock:
+            active_requests = max(0, active_requests - 1)
+            LOGGER.info(
+                "Transcription request finished file=%s/%s active=%s peak=%s.",
+                file_index,
+                total_files,
+                active_requests,
+                peak_requests,
+            )
 
     def transcribe_one(
         file_index: int,
@@ -381,6 +411,7 @@ def _transcribe_audio_directory_via_http(
         attempt_monotonic = time.monotonic()
         response: TranscriptionResponse | None = None
         status = "failed"
+        request_started(file_index)
         try:
             response = client.transcribe_file(
                 audio_path,
@@ -401,41 +432,49 @@ def _transcribe_audio_directory_via_http(
             status = "timed_out"
             raise
         finally:
-            if usage_attempt_callback is not None:
-                finished = datetime.now(UTC)
-                duration_ms = max(
-                    0,
-                    int((time.monotonic() - attempt_monotonic) * 1_000),
-                )
-                cost = _modal_proxy_cost_snapshot(config, duration_ms / 1_000)
-                usage = UsageAttempt(
-                    attempt_id="pa_" + secrets.token_urlsafe(18),
-                    operation_family="transcription",
-                    provider=(
-                        "http"
-                        if config.transcription.inference_auth_provider.lower()
-                        in {"", "none"}
-                        else config.transcription.inference_auth_provider.lower()
-                    ),
-                    model=(response.model if response else config.transcription.model),
-                    status=status,
-                    started_at=attempt_started.isoformat().replace("+00:00", "Z"),
-                    finished_at=finished.isoformat().replace("+00:00", "Z"),
-                    duration_ms=duration_ms,
-                    cost_micro_eur=cost.cost_micro_eur if cost else None,
-                    cost_source=cost.source if cost else "unavailable",
-                    native_cost_micros=cost.native_cost_micros if cost else None,
-                    native_currency=cost.native_currency if cost else None,
-                    conversion_rate=cost.conversion_rate if cost else None,
-                )
-                try:
-                    usage_attempt_callback(usage)
-                except Exception:
-                    if status == "success":
-                        raise
-                    LOGGER.exception(
-                        "transcription usage callback failed for a non-success attempt"
+            try:
+                if usage_attempt_callback is not None:
+                    finished = datetime.now(UTC)
+                    duration_ms = max(
+                        0,
+                        int((time.monotonic() - attempt_monotonic) * 1_000),
                     )
+                    cost = _modal_proxy_cost_snapshot(config, duration_ms / 1_000)
+                    usage = UsageAttempt(
+                        attempt_id="pa_" + secrets.token_urlsafe(18),
+                        operation_family="transcription",
+                        provider=(
+                            "http"
+                            if config.transcription.inference_auth_provider.lower()
+                            in {"", "none"}
+                            else config.transcription.inference_auth_provider.lower()
+                        ),
+                        model=(
+                            response.model
+                            if response
+                            else config.transcription.model
+                        ),
+                        status=status,
+                        started_at=attempt_started.isoformat().replace("+00:00", "Z"),
+                        finished_at=finished.isoformat().replace("+00:00", "Z"),
+                        duration_ms=duration_ms,
+                        cost_micro_eur=cost.cost_micro_eur if cost else None,
+                        cost_source=cost.source if cost else "unavailable",
+                        native_cost_micros=cost.native_cost_micros if cost else None,
+                        native_currency=cost.native_currency if cost else None,
+                        conversion_rate=cost.conversion_rate if cost else None,
+                    )
+                    try:
+                        usage_attempt_callback(usage)
+                    except Exception:
+                        if status == "success":
+                            raise
+                        LOGGER.exception(
+                            "transcription usage callback failed for a "
+                            "non-success attempt"
+                        )
+            finally:
+                request_finished(file_index)
         assert response is not None
         if progress_callback is not None:
             progress_callback(file_index, total_files, 1.0)
