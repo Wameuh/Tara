@@ -183,16 +183,17 @@ def test_ensure_mono_audio_no_library(monkeypatch: pytest.MonkeyPatch, tmp_path:
     audio_path.write_bytes(b"fake audio")
 
     # Mock both librosa and ffmpeg as unavailable
+    original_import = __import__
+
     def fake_import(name: str, *args, **kwargs):
         if name in ("librosa", "soundfile"):
             raise ImportError("not available")
-        return __import__(name, *args, **kwargs)
+        return original_import(name, *args, **kwargs)
 
     with patch("builtins.__import__", side_effect=fake_import), \
          patch("subprocess.run", side_effect=FileNotFoundError()):
         with pytest.raises(BackendError, match="No audio conversion library found"):
             ensure_mono_audio(audio_path)
-
 
 
 

@@ -8,6 +8,7 @@ import re
 import shutil
 import tempfile
 import threading
+import wave
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
@@ -118,8 +119,6 @@ class ParakeetBackend(AbstractTranscriptionBackend):
         Raises:
             BackendError: If no model is loaded or warmup transcription fails.
         """
-        import soundfile as sf
-
         if duration_seconds <= 0:
             message = f"warmup duration must be positive, got {duration_seconds}"
             raise BackendError(message)
@@ -139,10 +138,15 @@ class ParakeetBackend(AbstractTranscriptionBackend):
 
         sample_rate = 16000
         samples = max(1, int(sample_rate * duration_seconds))
-        silence = np.zeros(samples, dtype=np.float32)
-        temp_path = Path(tempfile.mkstemp(suffix=".wav")[1])
+        descriptor, raw_temp_path = tempfile.mkstemp(suffix=".wav")
+        os.close(descriptor)
+        temp_path = Path(raw_temp_path)
         try:
-            sf.write(str(temp_path), silence, sample_rate, format="WAV")
+            with wave.open(str(temp_path), "wb") as audio:
+                audio.setnchannels(1)
+                audio.setsampwidth(2)
+                audio.setframerate(sample_rate)
+                audio.writeframes(b"\x00\x00" * samples)
             transcribe_with_nemo_partial_audio(
                 model=nemo_model,
                 audio_path=temp_path,
@@ -478,6 +482,5 @@ class ParakeetBackend(AbstractTranscriptionBackend):
             # For more aggressive cleanup, we could move models to CPU or delete them
             self._models.clear()
             self._logger.info("Released all cached Parakeet models")
-
 
 
