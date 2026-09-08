@@ -58,8 +58,43 @@ describe("NewJobPage audio selection", () => {
     fireEvent.change(input!, { target: { files: [new File(["audio"], "Alice.wav", { type: "audio/wav" })] } });
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Formats attendus : MP3, OGG, AAC, M4A");
-    expect(screen.getByRole("alert")).toHaveTextContent("Format fourni : WAV · audio/wav");
+    expect(screen.getByRole("alert")).toHaveTextContent("Formats fournis : WAV · audio/wav");
     expect(fetcher.mock.calls.some(([url]) => /\/uploads\/sessions/.test(String(url)))).toBe(false);
+  });
+
+  it("detects ZIP and YAML inputs without asking for a source type", () => {
+    vi.stubGlobal("fetch", vi.fn());
+    render(<NewJobPage config={config} go={() => undefined} />);
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+
+    const input = screen.getByLabelText("Déposez vos fichiers ici");
+    fireEvent.change(input, { target: { files: [new File(["zip"], "craig-session.zip", { type: "application/zip" })] } });
+    expect(screen.getByText("Source détectée : Archive ZIP audio")).toBeVisible();
+    expect(screen.getByText("craig-session.zip")).toBeVisible();
+
+    fireEvent.change(input, { target: { files: [new File(["schema: tara"], "session.yaml", { type: "application/yaml" })] } });
+    expect(screen.getByText("Source détectée : Transcription fusionnée")).toBeVisible();
+    expect(screen.getByText("session.yaml")).toBeVisible();
+    expect(screen.queryByText("craig-session.zip")).not.toBeInTheDocument();
+  });
+
+  it("detects dropped audio and rejects mixed source types before uploading", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      if (/\/uploads\/sessions\?input_type=audio$/.test(String(input))) return new Response(JSON.stringify({ session_id: "session_audio", secret: "secret", revision: 1 }));
+      return new Promise<Response>(() => undefined);
+    });
+    vi.stubGlobal("fetch", fetcher);
+    render(<NewJobPage config={config} go={() => undefined} />);
+    const dropzone = screen.getByText("Déposez vos fichiers ici").closest("label");
+    expect(dropzone).not.toBeNull();
+
+    fireEvent.drop(dropzone!, { dataTransfer: { files: [new File(["audio"], "Alice.m4a", { type: "audio/mp4" })] } });
+    await vi.waitFor(() => expect(getPending("session_audio")).toHaveLength(1));
+    expect(screen.getByText("Source détectée : Pistes audio")).toBeVisible();
+
+    fireEvent.drop(dropzone!, { dataTransfer: { files: [new File(["zip"], "other.zip", { type: "application/zip" })] } });
+    expect(await screen.findByRole("alert")).toHaveTextContent("Le transfert audio a déjà commencé");
+    expect(fetcher.mock.calls.filter(([url]) => /\/uploads\/sessions/.test(String(url)))).toHaveLength(1);
   });
 
   it("shows monthly Ko-fi donations beside Tara's cumulative estimates", async () => {

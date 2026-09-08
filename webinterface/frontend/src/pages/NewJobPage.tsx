@@ -1,10 +1,9 @@
-import { type ChangeEvent, type FormEvent, useEffect, useState } from "react";
+import { type ChangeEvent, type DragEvent, type FormEvent, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, publicErrorMessage, type InputKind, type PublicConfig } from "../api/client";
 import { MonthlyFundingPanel } from "../components/MonthlyFundingPanel";
-import { MergedTranscriptionInput } from "../features/upload/MergedTranscriptionInput";
-import { ZipInput } from "../features/upload/ZipInput";
+import { isMergedTranscriptionFile } from "../features/upload/MergedTranscriptionInput";
 import { acceptsAudioFile, AUDIO_ACCEPT, AUDIO_FORMATS, suppliedAudioFormat } from "../features/upload/audioFormats";
 import { clearPending, getPending, setPending, type PendingUpload } from "../features/upload/pending";
 import { withSecret } from "../routing/secret";
@@ -12,6 +11,8 @@ import { clearDraft, loadDraft, saveDraft } from "../storage/draft";
 import { UploadSessionPage } from "./UploadSessionPage";
 
 type SelectedAudio = { key: string; file: File; person: string };
+
+const isZipFile = (file: File): boolean => /\.zip$/i.test(file.name);
 
 const personFor = (file: File) => file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim() || file.name;
 
@@ -31,7 +32,7 @@ export function NewJobPage({ config, go }: { config: PublicConfig; go: (path: st
   const { t } = useTranslation();
   const apiError = (reason: unknown) => publicErrorMessage(reason, t("errors.generic"), (code) => t("errors.support_code", { code }));
   const draft = loadDraft();
-  const [inputKind, setInputKind] = useState<InputKind>(config.input_modes[0]);
+  const [inputKind, setInputKind] = useState<InputKind | null>(null);
   const [files, setFiles] = useState<SelectedAudio[]>([]);
   const [mergedFile, setMergedFile] = useState<File | null>(null);
   const [zipFile, setZipFile] = useState<File | null>(null);
@@ -118,17 +119,7 @@ export function NewJobPage({ config, go }: { config: PublicConfig; go: (path: st
     }
   };
 
-  const selectAudio = (event: ChangeEvent<HTMLInputElement>) => {
-    const supplied = Array.from(event.target.files ?? []);
-    event.target.value = "";
-    const invalid = supplied.filter((file) => !acceptsAudioFile(file));
-    if (invalid.length) {
-      setError(t("upload.audio_format_invalid", {
-        expected: AUDIO_FORMATS,
-        provided: [...new Set(invalid.map(suppliedAudioFormat))].join(", "),
-      }));
-      return;
-    }
+  const selectAudio = (supplied: File[]) => {
     const additions = supplied.map((file) => ({ key: crypto.randomUUID(), file, person: personFor(file) }));
     if (!additions.length) return;
     setError(null);
@@ -144,8 +135,67 @@ export function NewJobPage({ config, go }: { config: PublicConfig; go: (path: st
     setPendingRevision((value) => value + 1);
   };
 
+  const expectedFormats = [
+    config.input_modes.includes("audio") ? AUDIO_FORMATS : null,
+    config.input_modes.includes("zip") ? "ZIP" : null,
+    config.input_modes.includes("merged_transcription") ? "YAML, YML" : null,
+  ].filter(Boolean).join(", ");
+
+  const selectInputs = (supplied: File[]) => {
+    if (!supplied.length) return;
+    const allAudio = supplied.every(acceptsAudioFile);
+    const oneZip = supplied.length === 1 && isZipFile(supplied[0]);
+    const oneTranscription = supplied.length === 1 && isMergedTranscriptionFile(supplied[0]);
+    if (audioSession && !allAudio) {
+      setError(t("new.input_locked_audio"));
+      return;
+    }
+    if (allAudio && config.input_modes.includes("audio")) {
+      setInputKind("audio");
+      setZipFile(null);
+      setMergedFile(null);
+      selectAudio(supplied);
+      return;
+    }
+    if (oneZip && config.input_modes.includes("zip")) {
+      setInputKind("zip");
+      setFiles([]);
+      setMergedFile(null);
+      setZipFile(supplied[0]);
+      setError(null);
+      return;
+    }
+    if (oneTranscription && config.input_modes.includes("merged_transcription")) {
+      setInputKind("merged_transcription");
+      setFiles([]);
+      setZipFile(null);
+      setMergedFile(supplied[0]);
+      setError(null);
+      return;
+    }
+    setError(t("new.input_auto_invalid", {
+      expected: expectedFormats,
+      provided: [...new Set(supplied.map(suppliedAudioFormat))].join(", "),
+    }));
+  };
+
+  const selectFromPicker = (event: ChangeEvent<HTMLInputElement>) => {
+    const supplied = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    selectInputs(supplied);
+  };
+
+  const selectFromDrop = (event: DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    if (!busy) selectInputs(Array.from(event.dataTransfer.files));
+  };
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (!inputKind) {
+      setError(t("new.input_required"));
+      return;
+    }
     const selected = inputKind === "audio" ? files.map(({ file }) => file) : inputKind === "zip" ? (zipFile ? [zipFile] : []) : mergedFile ? [mergedFile] : [];
     if (inputKind !== "audio") {
       void prepare(inputKind, selected, files);
@@ -185,14 +235,16 @@ export function NewJobPage({ config, go }: { config: PublicConfig; go: (path: st
   const audioReady = Boolean(audioSession && audioSnapshot?.allowed_actions.includes("launch") && !transferActive && !transferFailed);
 
   return <main className="page form-page"><header className="page-header"><p className="eyebrow">{t("new.eyebrow")}</p><h1>{t("new.title")}</h1><p className="lede">{t("new.lede")}</p></header><form className="analysis-form" onSubmit={submit}>
-    <fieldset className="input-kind" aria-describedby="input-kind-hint"><legend>{t("new.input_kind")}</legend><p id="input-kind-hint" className="muted">{t("new.input_kind_hint")}</p><div className="input-kind-options">
-      {config.input_modes.includes("audio") && <label><input type="radio" name="input-kind" value="audio" checked={inputKind === "audio"} disabled={Boolean(audioSession)} onChange={() => { setInputKind("audio"); setError(null); }} />{t("new.audio")}</label>}
-      {config.input_modes.includes("merged_transcription") && <label><input type="radio" name="input-kind" value="merged_transcription" checked={inputKind === "merged_transcription"} disabled={Boolean(audioSession)} onChange={() => { setInputKind("merged_transcription"); setError(null); }} />{t("new.merged_transcription")}</label>}
-      {config.input_modes.includes("zip") && <label><input type="radio" name="input-kind" value="zip" checked={inputKind === "zip"} disabled={Boolean(audioSession)} onChange={() => { setInputKind("zip"); setError(null); }} />{t("new.zip")}</label>}
-    </div></fieldset>
-    {inputKind === "audio" ? <><label className="dropzone"><strong>{t("new.audio")}</strong><span>{t("new.audio_hint")}</span><input type="file" accept={AUDIO_ACCEPT} multiple disabled={busy} onChange={selectAudio} /></label>
-      {!audioSession && files.length > 0 && <ul className="file-list">{files.map((item) => <li key={item.key}><strong>{item.file.name}</strong></li>)}</ul>}
-      {audioSession && <UploadSessionPage sessionId={audioSession.sessionId} secret={audioSession.secret} config={config} go={go} embedded autoLaunch={false} pendingRevision={pendingRevision} onSnapshot={setAudioSnapshot} onPendingChange={setAudioPending} />}</> : inputKind === "zip" ? <ZipInput file={zipFile} onChange={(file) => { setZipFile(file); setError(file ? null : t("new.zip_invalid")); }} /> : <MergedTranscriptionInput file={mergedFile} onChange={(file) => { setMergedFile(file); setError(file ? null : t("new.merged_transcription_invalid")); }} />}
+    <label className="dropzone" aria-describedby="automatic-input-hint" onDragOver={(event) => event.preventDefault()} onDrop={selectFromDrop}>
+      <strong>{t("new.input_auto_title")}</strong>
+      <span id="automatic-input-hint">{t("new.input_auto_hint", { formats: expectedFormats })}</span>
+      <input aria-label={t("new.input_auto_title")} type="file" accept={[config.input_modes.includes("audio") ? AUDIO_ACCEPT : null, config.input_modes.includes("zip") ? ".zip,application/zip" : null, config.input_modes.includes("merged_transcription") ? ".yaml,.yml,application/yaml,text/yaml" : null].filter(Boolean).join(",")} multiple disabled={busy} onChange={selectFromPicker} />
+      {inputKind && <span className="selected-file">{t("new.input_detected", { type: t(`new.${inputKind}`) })}</span>}
+    </label>
+    {!audioSession && inputKind === "audio" && files.length > 0 && <ul className="file-list">{files.map((item) => <li key={item.key}><strong>{item.file.name}</strong></li>)}</ul>}
+    {!audioSession && inputKind === "zip" && zipFile && <ul className="file-list"><li><strong>{zipFile.name}</strong></li></ul>}
+    {!audioSession && inputKind === "merged_transcription" && mergedFile && <ul className="file-list"><li><strong>{mergedFile.name}</strong></li></ul>}
+    {audioSession && <UploadSessionPage sessionId={audioSession.sessionId} secret={audioSession.secret} config={config} go={go} embedded autoLaunch={false} pendingRevision={pendingRevision} onSnapshot={setAudioSnapshot} onPendingChange={setAudioPending} />}
     <section className="memory-section" aria-labelledby="memory-title">
       <header><p className="eyebrow">{t("new.memory_eyebrow")}</p><h2 id="memory-title">{t("new.memory_title")}</h2><p>{t("new.memory_hint")}</p></header>
       <div className="field-grid">
