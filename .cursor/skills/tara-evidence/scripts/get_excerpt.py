@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 def _ensure_tara_import_path() -> None:
-    """Add TaraRepo ``src`` to ``sys.path`` for standalone script execution."""
+    """Add the Tara ``src`` directory to ``sys.path`` for standalone execution."""
     repo_root = Path(__file__).resolve().parents[4]
     src_path = repo_root / "src"
     if src_path.is_dir():

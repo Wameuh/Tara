@@ -1,4 +1,4 @@
-# Review process (TaraRepo)
+# Review process (Tara)
 
 This folder lives under the **Cursor project skill** `.cursor/skills/tara-review/`.
 It holds **commit safety expectations**, **subagent review prompts**, and

@@ -18,7 +18,7 @@ Les chemins proposes sont la cible initiale. Ils peuvent etre ajustes pendant l'
 ## Architecture de fichiers cible
 
 ```text
-TaraRepo/
+Tara/
 |-- src/
 |   |-- tara/                 # moteur Tara et contrats metier partages
 |   `-- tara_web/             # application FastAPI et orchestration web

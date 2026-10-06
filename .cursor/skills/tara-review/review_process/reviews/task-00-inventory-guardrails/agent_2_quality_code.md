@@ -25,6 +25,6 @@ Reviewed files:
 
 ## Approval Notes
 
-Task `00` clearly documents the TaraRepo-only implementation boundary, treats
+Task `00` clearly documents the Tara-only implementation boundary, treats
 the old Tara project as reference-only, and aligns the migration guardrails with
 `ARCHITECTURE.md`.

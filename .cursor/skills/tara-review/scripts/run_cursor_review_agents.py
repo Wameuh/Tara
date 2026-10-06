@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run Tara review roles via Cursor Agent CLI (`agent -p`).
 
-This script lives in the ``tara-review`` Cursor skill. It defaults the TaraRepo
+This script lives in the ``tara-review`` Cursor skill. It defaults the Tara
 git workspace to the repository root (four levels above ``scripts/``).
 
 Example::
@@ -22,7 +22,7 @@ from pathlib import Path
 
 
 def _tara_repo_root_from_script() -> Path:
-    """Return TaraRepo root: parent of ``.cursor`` containing this file."""
+    """Return Tara root: parent of ``.cursor`` containing this file."""
     # scripts/run_*.py -> parents[4] == repo root (.cursor/skills/tara-review/scripts)
     return Path(__file__).resolve().parents[4]
 
@@ -96,7 +96,7 @@ def _build_agent_prompt(
             f"3. Inspect the change with `git show --stat {commit_sha}` "
             f"and `git show {commit_sha}`."
         )
-    return f"""You are a Cursor Agent in non-interactive print mode for TaraRepo.
+    return f"""You are a Cursor Agent in non-interactive print mode for Tara.
 
 **Critical:** Do not reply with meta offers (for example asking what to do next).
 Immediately execute the numbered steps using your tools until the report file exists.
@@ -209,7 +209,7 @@ def main() -> None:
         "--workspace",
         type=Path,
         default=default_workspace,
-        help="TaraRepo root (default: inferred from this script location)",
+        help="Tara root (default: inferred from this script location)",
     )
     parser.add_argument(
         "--task-folder",

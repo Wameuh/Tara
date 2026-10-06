@@ -75,7 +75,7 @@ polling — let the run finish (~7 min for Record10).
 
 ## Install Modal locally
 
-From the `TaraRepo` directory:
+From the repository root:
 
 ```powershell
 uv sync --extra deploy
@@ -92,13 +92,11 @@ modal setup
 ## Deploy and warm model cache
 
 ```powershell
-cd $env:USERPROFILE\Documents\Projets\DM_Assistant\TaraRepo
 .\deploy_modal.bat
 ```
 
 ```bash
-cd /path/to/TaraRepo
-./deploy_modal.sh
+bash deploy_modal.sh
 ```
 
 Each script runs:
@@ -134,7 +132,7 @@ No inference endpoint URL or proxy tokens are required.
 ```
 
 ```bash
-./run_tara.sh --audio-dir /path/to/recording --modal
+PYTHON_EXE=.venv/bin/python bash run_tara.sh --audio-dir /path/to/recording --modal
 ```
 
 `--modal` sets:
@@ -269,41 +267,22 @@ uv run --extra deploy modal deploy modal_inference.py
 uv run --extra deploy modal run modal_inference.py::smoke_test --audio-path C:\path\to\sample.wav
 ```
 
-## Post-deploy benchmark
+## Check transcription performance
 
-Compare Record10 timings against the point-0 baseline after enabling snapshots.
-
-**1. Deploy and warm cache** (if not already done):
+After deployment, run a representative audio folder to confirm that Modal
+starts, processes every file, and releases idle containers:
 
 ```powershell
-.\deploy_modal.bat
+.\run_tara.bat --audio-dir "C:\path\to\recording" --modal --skip-analysis
 ```
 
-**2. Run Record10** (let finish completely, ~7 min — do not stop containers):
-
-```cmd
-cmd /c "call %USERPROFILE%\anaconda3\condabin\conda.bat activate DM && set PYTHONPATH=%USERPROFILE%\Documents\Projets\DM_Assistant\TaraRepo\src && set TARA_INFERENCE_AUTH_PROVIDER=modal_map && cd /d %USERPROFILE%\Documents\Projets\DM_Assistant\TaraRepo && python -m tara --audio-dir %USERPROFILE%\Documents\Projets\DM_Assistant\Record_session\Record10 --skip-analysis > %USERPROFILE%\Documents\Projets\DM_Assistant\TaraRepo\tmp\timing_record10_post_snapshot.log 2>&1"
+```bash
+PYTHON_EXE=.venv/bin/python bash run_tara.sh --audio-dir /path/to/recording --modal --skip-analysis
 ```
 
-On first deploy with snapshots, run once to create snapshots, wait ~20 s for
-scale-down, then run again and compare the **second** log.
-
-**3. Compare to point-0 baseline** by reading `tmp/timing_record10_post_snapshot.log`
-manually (no helper script — temporary validation only):
-
-| Metric | Where to look |
-|---|---|
-| Total wall time | `Running transcription stage` → `Running processing stage` |
-| Per-file Modal time | `Finished transcription X/6: … (Ys on Modal)` |
-| Queue waits | `still queued … (Ns waiting for a container)` |
-| Max active | max `N active` in `Modal transcription progress` lines |
-
-Point-0 reference (`tmp/timing_record10_v2.log`): wall ~7 min 13 s, cold Modal
-189–192 s, warm Modal 139–142 s, worst handoff ~40 s, max active 3.
-
-**Keep GPU snapshot** if cold times or worst handoff improve meaningfully (≥15–20%
-or ≥10 s). **Disable** (`ENABLE_GPU_SNAPSHOT=False`, redeploy) if deltas are within
-run-to-run noise (~±5%).
+The launcher reports transcription progress, queue waits, and per-file Modal
+time. Keep any captured logs in a private directory because they can contain
+session filenames and operational details.
 
 ## Serve for development (HTTP / legacy)
 

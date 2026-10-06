@@ -109,7 +109,7 @@ def test_compose_uses_dedicated_volumes_and_narrow_mounts() -> None:
     ]
     assert not any(
         forbidden in mount
-        for forbidden in ("docker.sock", "/home", "../", "TaraRepo:/")
+        for forbidden in ("docker.sock", "/home", "../", "Tara:/")
         for mount in mounts
     )
     app_mounts = compose["services"]["tara-web"]["volumes"]

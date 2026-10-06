@@ -25,12 +25,12 @@ The backend is automatically selected based on the model name prefix.
 
 ## Quick Start
 
-From the **TaraRepo** root (this package lives under `src/inference_server/`):
+From the repository root (this package lives under `src/inference_server/`):
 
 ```powershell
 conda activate DM
 $env:PYTHONPATH = "src"
-export INFERENCE_BEARER_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+$env:INFERENCE_BEARER_TOKEN = python -c "import secrets; print(secrets.token_urlsafe(32))"
 python -m uvicorn inference_server.app:app --host 127.0.0.1 --port 8000
 ```
 
@@ -143,7 +143,7 @@ pip install librosa soundfile
 - `TARA_NEMO_EXTRACT_DIR`: Persistent NeMo extract cache (Modal: `/model-cache/nemo-extract`)
 - `HF_HOME`: Hugging Face download cache (Modal: `/model-cache/huggingface`)
 
-On Modal, run `deploy_modal.bat` or `deploy_modal.sh` from `TaraRepo` to deploy
+On Modal, run `deploy_modal.bat` or `deploy_modal.sh` from the repository root to deploy
 and pre-warm the Parakeet cache on the `tara-parakeet-cache` Volume. See
 `docs/modal_inference.md`.
 

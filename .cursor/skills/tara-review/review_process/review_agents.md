@@ -1,11 +1,10 @@
-# TaraRepo subagent reviewers (Composer 2)
+# Tara subagent reviewers (Composer 2)
 
-This document is the **operational source** for Cursor subagent reviews during the
-Tara refactor. Reviewers must read `ARCHITECTURE.md`, respect the transcription /
-processing boundary in `projet.md`, and treat `LLMRunner` as the only LLM
-execution surface when that layer is touched.
+This document is the **operational source** for Cursor subagent reviews of Tara.
+Reviewers should read `ARCHITECTURE.md` and `projet.md`, and treat `LLMRunner`
+as the LLM execution surface when that layer is touched.
 
-Reports are written under (path relative to TaraRepo root):
+Reports are written under (path relative to Tara root):
 
 ```text
 .cursor/skills/tara-review/review_process/reviews/task-<number>-<short-slug>/
@@ -36,7 +35,7 @@ Use the report skeleton in [report_template.md](report_template.md). Set
 
 ## Review workflow
 
-1. Finish the planned roadmap task (implementation + tests + docs as required).
+1. Finish the task (implementation + tests + docs as required).
 2. Collect: task id, changed files, diff or summary, commands run (`ruff`,
    `pytest`, and any integration smoke), and pointers to `ARCHITECTURE.md`
    sections that apply.
@@ -46,8 +45,7 @@ Use the report skeleton in [report_template.md](report_template.md). Set
 5. Address **Changes requested** findings; re-run affected reviewers. For
    follow-up rounds, bump `Review iteration` or add
    `agent_<n>_<role>.iteration_<k>.md`.
-6. Do not mark the roadmap task complete in `projet.md` until every required
-   report shows `Status: Approved`.
+6. Complete the review when every required report shows `Status: Approved`.
 
 ## Optional: Cursor CLI batch runner (`agent -p`)
 
@@ -55,7 +53,7 @@ For scripted or CI-style refresh of all five markdown reports without Composer 2
 subagents, use the batch helper documented in
 [`scripts/README.md`](../scripts/README.md):
 
-- Path (from TaraRepo root):
+- Path (from Tara root):
   `.cursor/skills/tara-review/scripts/run_cursor_review_agents.py`
 - It runs the Cursor Agent CLI as `agent -p --trust` (non-interactive), not the
   Composer 2 chat workflow above.
@@ -75,19 +73,18 @@ subagents, use the batch helper documented in
 - Output path: full path to `agent_<n>_*.md` under the task folder (under
   `.cursor/skills/tara-review/review_process/reviews/`)
 - Architecture: `ARCHITECTURE.md` (module boundaries and pipeline stages)
-- Plan: `projet.md`, relevant `tmp/tasks/*.md`
+- Project context: `projet.md`
 - Inputs: completed task name, file list, diff or implementation summary, test
   commands and outcomes
-- Remind reviewers: transcription reference code stays in legacy `Tara` unless
-  the task explicitly migrates it; TaraRepo analysis must consume
-  `merged_transcription.json` only at its boundary.
+- Remind reviewers: Tara accepts audio or a merged transcription; the canonical
+  merged artifact is `merged_transcription.yaml`.
 
 ---
 
 ## Agent 1 - Cyber Security Reviewer
 
 ```text
-You are Agent 1, the cyber security reviewer for the Tara refactor.
+You are Agent 1, the cyber security reviewer for the Tara project.
 
 Run as a Cursor subagent review. Use Composer 2.
 
@@ -97,7 +94,7 @@ Inputs:
 - Completed task.
 - Changed files and relevant diff or implementation summary.
 - Architecture notes from ARCHITECTURE.md.
-- Tara plan notes from projet.md and tmp/tasks.
+- Tara project context from projet.md.
 - Review report path to write.
 
 Review checklist:
@@ -124,7 +121,7 @@ Output:
 ## Agent 2 - Quality Code Reviewer
 
 ```text
-You are Agent 2, the quality code reviewer for the Tara refactor.
+You are Agent 2, the quality code reviewer for the Tara project.
 
 Run as a Cursor subagent review. Use Composer 2.
 
@@ -134,7 +131,7 @@ Inputs:
 - Completed task.
 - Changed files and relevant diff or implementation summary.
 - Architecture notes from ARCHITECTURE.md.
-- Tara plan notes from projet.md and tmp/tasks.
+- Tara project context from projet.md.
 - Review report path to write.
 
 Review checklist:
@@ -161,7 +158,7 @@ Output:
 ## Agent 3 - Testing Code Reviewer
 
 ```text
-You are Agent 3, the testing code reviewer for the Tara refactor.
+You are Agent 3, the testing code reviewer for the Tara project.
 
 Run as a Cursor subagent review. Use Composer 2.
 
@@ -171,7 +168,7 @@ Inputs:
 - Completed task.
 - Changed files and relevant diff or implementation summary.
 - Architecture notes from ARCHITECTURE.md.
-- Tara plan notes from projet.md and tmp/tasks.
+- Tara project context from projet.md.
 - Tests executed and results.
 - Review report path to write.
 
@@ -198,7 +195,7 @@ Output:
 ## Agent 4 - Integration Test Reviewer
 
 ```text
-You are Agent 4, the integration test reviewer for the Tara refactor.
+You are Agent 4, the integration test reviewer for the Tara project.
 
 Run as a Cursor subagent review. Use Composer 2.
 
@@ -208,7 +205,7 @@ Inputs:
 - Completed task.
 - Changed files and relevant diff or implementation summary.
 - Architecture notes from ARCHITECTURE.md.
-- Tara plan notes from projet.md and tmp/tasks.
+- Tara project context from projet.md.
 - Tests executed and results.
 - Review report path to write.
 
@@ -235,7 +232,7 @@ Output:
 ## Agent 5 - Documentation Reviewer
 
 ```text
-You are Agent 5, the documentation reviewer for the Tara refactor.
+You are Agent 5, the documentation reviewer for the Tara project.
 
 Run as a Cursor subagent review. Use Composer 2.
 
@@ -245,7 +242,7 @@ Inputs:
 - Completed task.
 - Changed files and relevant diff or implementation summary.
 - Architecture notes from ARCHITECTURE.md.
-- Tara plan notes from projet.md and tmp/tasks.
+- Tara project context from projet.md.
 - Existing documentation relevant to the change.
 - Review report path to write.
 

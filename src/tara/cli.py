@@ -48,9 +48,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--merged-transcription",
         metavar="FILE",
-        help="Existing merged_transcription.json to analyze",
+        help="Existing merged_transcription.yaml to analyze (JSON also supported)",
     )
-    parser.add_argument("--config", metavar="FILE", help="JSON configuration file")
+    parser.add_argument(
+        "--config", metavar="FILE", help="YAML or JSON configuration file"
+    )
     parser.add_argument(
         "--skip-analysis",
         action="store_true",
@@ -59,11 +61,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--analysis-backend",
         choices=["api", "cursor_cli"],
-        help="Override analysis LLM backend for future LLM-assisted stages",
+        help="Override the analysis LLM backend",
     )
     parser.add_argument(
         "--analysis-model",
-        help="Override analysis LLM model for future LLM-assisted stages",
+        help="Override the analysis LLM model",
     )
     parser.add_argument(
         "--start-from",
@@ -74,13 +76,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--blackboard",
         dest="blackboard_path",
         metavar="FILE",
-        help="Optional path for blackboard debug JSON",
+        help="Optional path for blackboard debug YAML",
     )
     parser.add_argument(
         "--analysis-plan",
         dest="analysis_plan_path",
         metavar="FILE",
-        help="Optional path for analysis plan debug JSON",
+        help="Optional path for analysis plan debug YAML",
     )
     parser.add_argument(
         "--context",
