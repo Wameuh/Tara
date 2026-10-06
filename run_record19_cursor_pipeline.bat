@@ -11,7 +11,7 @@ set "CONTEXT_FILE=%USERPROFILE%\Documents\Projets\DM_Assistant\Record_session\co
 set "PRIOR_CONTEXT_FILE=%USERPROFILE%\Documents\Projets\DM_Assistant\Record_session\Resume_parties_precedentes.md"
 set "CURSOR_AGENT=cursor-agent"
 set "CONDABAT=%USERPROFILE%\anaconda3\condabin\conda.bat"
-set "TEMP_CONFIG=%USERPROFILE%\Documents\Projets\DM_Assistant\TaraRepo\config\configuration.json"
+set "TEMP_CONFIG=%TEMP%\tara_cursor_pipeline_%RANDOM%.json"
 
 echo.
 echo Tara Record23 Cursor CLI pipeline
@@ -82,14 +82,15 @@ python -m tara ^
 
 set "TARA_EXIT=%ERRORLEVEL%"
 popd
+del /q "%TEMP_CONFIG%" >nul 2>&1
 
 echo.
 if "%TARA_EXIT%"=="0" (
   echo Done.
   echo Markdown summary:
   echo %USERPROFILE%\Documents\Projets\DM_Assistant\Record_session\Record23\transcriptions\analysis\session_summary.md
-  echo JSON summary:
-  echo %USERPROFILE%\Documents\Projets\DM_Assistant\Record_session\Record23\transcriptions\analysis\session_summary.json
+  echo YAML summary:
+  echo %USERPROFILE%\Documents\Projets\DM_Assistant\Record_session\Record23\transcriptions\analysis\session_summary.yaml
 ) else (
   echo Tara failed with exit code %TARA_EXIT%.
   echo If Cursor reports an internal error, run:

@@ -60,7 +60,7 @@ class _ActiveModalCall:
 
 
 def _repo_root() -> Path:
-    """Return the TaraRepo root directory."""
+    """Return the Tara repository root directory."""
     return Path(__file__).resolve().parents[2]
 
 

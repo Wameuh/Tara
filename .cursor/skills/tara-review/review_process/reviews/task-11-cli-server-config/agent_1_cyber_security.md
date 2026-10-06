@@ -22,7 +22,7 @@ Reviewed files:
 
 The HTTP API is local-first, requires `TARA_API_TOKEN` for non-local requests,
 validates request paths before orchestration, maps predictable failures to
-structured HTTP responses, and the `.env` loader reads from the TaraRepo project
+structured HTTP responses, and the `.env` loader reads from the Tara project
 root. No old Tara source files are modified.
 
 Residual caveat: API path sandboxing to configured roots is not implemented and

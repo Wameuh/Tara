@@ -1,529 +1,81 @@
-# Design 2 - Scenes, blackboard, retrieval local et audit adversarial
+# Architecture de Tara
 
-## Intention
-
-Ce design repart de zero pour la partie analyse uniquement. La transcription reste intacte.
-
-L'idee centrale a evolue: les scenes redeviennent la colonne vertebrale
-narrative, mais elles ne remplacent pas la blackboard. Le pipeline commence par
-une timeline de scenes, genere des descriptions longues par scene, convertit ces
-descriptions en facts sources, puis laisse la blackboard, les agents
-specialistes, l'arbitrage et l'audit controler la synthese finale.
-
-Ce design vise une meilleure qualite sur les sessions longues, chaotiques ou
-tres tactiques: les scenes preservent l'arc de session et les actions cles,
-tandis que la blackboard evite que le resume final depende seulement d'une prose
-intermediaire non controlee.
-
-## Diagnostic du pipeline actuel
-
-Le pipeline actuel force une chaine lineaire:
-
-```text
-transcription -> scenes -> descriptions longues -> resume -> verification
-```
-
-Cette chaine a trois faiblesses agentiques:
-
-- Le decoupage en scenes decide tres tot de la structure du raisonnement. Si les bornes sont mediocres, tout le reste herite du probleme.
-- Le systeme genere beaucoup de prose intermediaire, puis demande a un autre agent de la reduire fortement.
-- La verification arrive tard, lorsque le resume final existe deja, donc elle corrige au lieu de guider la generation.
-
-Le Design 2 remplace cette chaine par:
-
-```text
-transcription -> scenes -> descriptions -> scene facts -> blackboard -> synthese -> audit cible
-```
-
-## Pipeline propose
-
-### Diagramme du pipeline
-
-```mermaid
-flowchart TD
-    A[merged_transcription.json] --> S1[SceneBoundaryAgent]
-    S1 --> S2[scene_analysis.json]
-    S2 --> S3[SceneSplitter]
-    S3 --> S4[scenes/scene_001.json]
-    S4 --> S5[SceneDescriptorAgent]
-    S5 --> S6[scene_descriptions.json]
-    S6 --> S7[SceneBlackboardIngestor]
-    A --> B[EvidenceIndexAgent]
-    B --> C[evidence_chunks.jsonl<br/>BM25 local]
-    C --> D[AnalysisPlannerAgent]
-    D --> E[analysis_plan.json]
-    E --> F1[ChronologyAgent]
-    E --> F2[CombatOutcomeAgent]
-    E --> F3[CharacterStateAgent]
-    E --> F4[QuestContinuityAgent]
-    E --> F5[UncertaintyAgent]
-    C --> F1
-    C --> F2
-    C --> F3
-    C --> F4
-    C --> F5
-    S7 --> G[BlackboardController]
-    F1 --> G
-    F2 --> G
-    F3 --> G
-    F4 --> G
-    F5 --> G
-    G --> H{Contradictions ?}
-    H -- non --> I[SummaryComposerAgent<br/>timeline + facts]
-    H -- oui --> J[ArbitrationPanel]
-    J --> K[retrieval cible + evidence brute]
-    K --> G
-    I --> L[draft summary + supporting_answer_ids]
-    S6 --> I
-    L --> M[AdversarialAuditAgent]
-    S6 --> M
-    M --> N{Audit OK ?}
-    N -- oui --> O[session_summary final]
-    N -- non --> P[FinalPatchAgent]
-    P --> M
-```
-
-### 0. Pipeline de scenes
-
-Entree: `merged_transcription.json`.
-
-Role: construire la structure narrative principale avant la blackboard.
-
-Agents:
-
-- `SceneBoundaryAgent`: lit la transcription complete et produit
-  `scene_analysis.json`. Si le contexte est trop grand, il bascule en analyse
-  par gros blocs puis fusionne les bornes.
-- `SceneSplitter`: ecrit `scenes/scene_001.json`, etc., avec texte, segments,
-  timestamps et metadonnees de speaker.
-- `SceneDescriptorAgent`: fait un appel LLM par scene pour produire une
-  description longue, des actions cles, des changements d'etat, des impacts de
-  continuite et des facts.
-- `SceneBlackboardIngestor`: convertit les facts de scenes en `EvidenceAnswer`
-  avec metadata `source: scene_description` et `scene_id`.
-
-Sorties:
-
-- `scene_analysis.json`
-- `scenes/scene_001.json`
-- `scene_descriptions.json`
-
-Les artefacts de scenes sont prives et peuvent contenir du texte de
-transcription. Ils servent de scaffolding narratif: le composeur final recoit la
-timeline complete, mais chaque claim final reste trace via des
-`supporting_answer_ids`.
-
-### Diagramme de la blackboard
+Tara traite une session de jeu de rôle depuis des fichiers audio ou une
+transcription fusionnée. Le moteur Python est utilisable en ligne de commande,
+par son API locale ou par l'interface web. Les formats d'entrée et de sortie
+publics sont décrits dans [docs/schemas](docs/schemas).
 
 ```mermaid
 flowchart LR
-    A[Specialist agents] --> B[Candidate facts]
-    B --> C[BlackboardController]
-    C --> D[Supported facts]
-    C --> E[Partial facts]
-    C --> F[Rejected facts]
-    C --> G[Uncertain facts]
-    D --> H[SummaryComposerAgent]
-    E --> I[Audit cible]
-    G --> I
-    F --> J[Do-not-claim list]
-    J --> H
-    I --> K[ArbitrationPanel]
-    K --> C
+    A[Audio] --> T[Transcription]
+    T --> M[Transcription fusionnée YAML]
+    Y[Transcription fusionnée YAML] --> M
+    M --> S[Scènes et descriptions]
+    M --> E[Index local de preuves]
+    S --> B[Blackboard]
+    E --> P[Plan et agents spécialisés]
+    P --> B
+    B --> R[Arbitrage, synthèse et audit]
+    R --> O[Résumé Markdown et résultat YAML]
 ```
 
-### 1. Agent d'indexation locale
-
-Entree: `merged_transcription.json`.
-
-Role: construire un index local de preuves sans appel LLM couteux.
-
-Index recommande:
-
-- chunks glissants de 60 a 120 secondes;
-- overlap de 15 a 30 secondes;
-- texte + timestamps + ids de segments;
-- BM25 lexical;
-- embeddings locaux si disponibles;
-- metadonnees simples: noms de personnages, mots de combat, soins, mort, repos, objets, lieux.
-
-Sorties:
-
-- `evidence_chunks.jsonl`
-- `evidence_index.sqlite` ou equivalent
-
-Schema de chunk:
-
-```json
-{
-  "chunk_id": "c0042",
-  "start": 2520.0,
-  "end": 2640.0,
-  "text": "...",
-  "segment_ids": [481, 482, 483],
-  "detected_entities": ["Molnir", "Karknyr"],
-  "lexical_tags": ["soin", "jet_de_mort", "potion"]
-}
-```
-
-But: le LLM ne lit jamais toute la transcription. Il demande ou recoit seulement les extraits utiles.
-
-### 2. Agent planificateur d'analyse
-
-Modele recommande: `gpt-5-mini`.
-
-Role: produire une liste de questions analytiques a resoudre, en fonction du format de sortie attendu.
-
-Exemples de questions:
-
-- Que s'est-il passe chronologiquement?
-- Quels changements d'etat durables affectent les personnages?
-- Quelles menaces restent actives ou sont neutralisees?
-- Quelles ressources ont ete depensees ou gagnees?
-- Ou le groupe termine-t-il?
-- Quelle est l'intention immediate ou le prochain probleme?
-- Quels faits sont incertains et doivent etre evites dans le resume?
-
-Sortie: `analysis_plan.json`.
-
-Chaque question inclut:
-
-- `question_id`
-- `priority`
-- `retrieval_queries`
-- `required_output_schema`
-- `risk_level`
-
-### 3. Agents specialistes avec retrieval
-
-Chaque agent lit le plan, interroge l'index local, puis ecrit sur la blackboard.
-
-Agents proposes:
-
-- `ChronologyAgent`: reconstruit les 8-15 evenements majeurs dans l'ordre.
-- `CombatOutcomeAgent`: suit morts, inconsciences, ennemis neutralises, menaces restantes.
-- `CharacterStateAgent`: suit position, ressources, blessures, etat final par personnage.
-- `QuestContinuityAgent`: extrait les consequences pour la suite, objets, lieux, mecanismes, intentions.
-- `UncertaintyAgent`: liste ce qui est confus, contredit ou non confirme.
-
-Chaque agent produit des `EvidenceAnswer`, pas de prose finale.
-
-Schema:
-
-```json
-{
-  "answer_id": "combat_006",
-  "question_id": "q_combat_outcomes",
-  "claim": "Molnir meurt en fin de session apres la retraite du groupe.",
-  "status": "supported",
-  "importance": 5,
-  "support": [
-    {"chunk_id": "c0118", "start": 8406.2, "end": 8520.0},
-    {"chunk_id": "c0120", "start": 8640.0, "end": 8760.0}
-  ],
-  "contradictions": [],
-  "confidence": "high",
-  "notes": "Fait final majeur, a inclure."
-}
-```
-
-### 4. Blackboard commune
-
-La blackboard est le coeur du design.
-
-Elle contient:
-
-- faits supportes;
-- faits partiels;
-- faits interdits ou non confirmes;
-- etats finaux;
-- evenements chronologiques;
-- claims candidats pour le resume;
-- liens vers chunks/timestamps.
-
-Le role du superviseur est de maintenir les invariants:
-
-- un fait `supported` doit avoir au moins un chunk;
-- un fait `final_state` doit indiquer son timestamp le plus tardif;
-- un fait contradictoire ne peut pas etre envoye tel quel au composeur;
-- un fait `uncertain` peut guider le resume seulement sous forme prudente ou etre exclu.
-
-### 5. Agent de synthese depuis blackboard
-
-Modele recommande: `gpt-5.4` ou `gpt-5.1`, un seul appel principal.
-
-Entree:
-
-- top chronology facts;
-- top continuity facts;
-- etat final;
-- incertitudes a eviter;
-- historique des sessions precedentes si fourni.
-
-Sortie:
-
-- resume markdown;
-- JSON structure;
-- mapping claim -> `answer_id`.
-
-Le composeur ne doit pas inventer de fait. Il doit choisir et organiser les faits deja poses sur la blackboard.
-
-Contrat:
-
-- `Resume Express`: prose chronologique.
-- `Impacts Pour La Suite`: uniquement claims `importance >= 4`.
-- `Etat Final Et Ressources`: uniquement faits `final_state` ou `resource_state`.
-- chaque section garde ses `supporting_answer_ids`.
-
-### 6. Agent auditeur adversarial
-
-Modele recommande:
-
-- cheap model pour la plupart des checks;
-- modele fort uniquement si le fait est critique et contradictoire.
-
-Role: attaquer le resume final avant sauvegarde definitive.
-
-L'auditeur ne verifie pas tout aveuglement. Il cible:
-
-- phrases sans `supporting_answer_ids`;
-- claims qui combinent plus de deux faits;
-- claims bases sur une reponse `partial`;
-- claims de mort, ressource, position finale, menace neutralisee;
-- noms propres ou lieux absents de la blackboard;
-- claims proches d'une incertitude connue.
-
-Pour chaque probleme, l'auditeur peut:
-
-- demander plus de retrieval;
-- retrograder un claim;
-- exiger une reformulation;
-- bloquer la sortie si un claim critique n'a pas de preuve.
-
-### 6 bis. Agent d'arbitrage des contradictions
-
-Modele recommande: commencer par des regles deterministes, puis escalader vers `gpt-5.4` uniquement pour les contradictions critiques non resolues.
-
-Role: trancher les conflits entre agents specialistes avant la synthese finale.
-
-Exemples de contradictions:
-
-- `CombatOutcomeAgent` affirme que Molnir meurt, mais `CharacterStateAgent` le marque seulement inconscient.
-- `ChronologyAgent` affirme que le groupe quitte le temple, mais `QuestContinuityAgent` place encore le groupe dans le sanctuaire.
-- un agent affirme qu'une menace est neutralisee, un autre indique qu'elle poursuit le groupe.
-
-Sortie d'arbitrage:
-
-```json
-{
-  "conflict_id": "conflict_004",
-  "claims": ["combat_006", "state_011"],
-  "severity": "critical",
-  "decision": "accept_claim",
-  "accepted_answer_id": "combat_006",
-  "rejected_answer_ids": ["state_011"],
-  "basis": "latest_timestamp_raw_evidence",
-  "required_summary_policy": "claim_allowed"
-}
-```
-
-L'arbitrage peut aussi produire `claim_forbidden` quand la preuve ne permet pas de trancher. Dans ce cas, le composeur recoit explicitement l'interdiction d'affirmer ce fait.
-
-### 7. Agent de reformulation finale
-
-Modele recommande: `gpt-5-mini`, ou aucun si la synthese est deja bonne.
-
-Role: appliquer les corrections de l'auditeur sans ajouter de nouveaux faits.
-
-Ce dernier agent est optionnel. Il ne doit recevoir que:
-
-- le resume;
-- les corrections autorisees;
-- les claims supportes a conserver;
-- les claims interdits a retirer.
-
-## Qualite attendue de l'output
-
-La qualite attendue repose sur trois axes: utilite de campagne, fidelite factuelle et lisibilite.
-
-### Utilite de campagne
-
-Le resume final doit permettre de reprendre la prochaine session sans relire la transcription. Il doit donc privilegier:
-
-- consequences durables;
-- etat final des personnages;
-- menaces encore actives;
-- ressources importantes;
-- objectifs ou intentions immediates;
-- revelations, lieux, objets et mecanismes pertinents.
-
-### Fidelite factuelle
-
-Chaque phrase ou bullet final doit etre lie a au moins un `supporting_answer_id`. Pour les claims critiques, le `supporting_answer_id` doit lui-meme pointer vers un ou plusieurs chunks bruts.
-
-Claims critiques:
-
-- mort ou survie d'un personnage;
-- inconscience, stabilisation, soin majeur;
-- ennemi neutralise ou encore actif;
-- position finale;
-- ressource durable perdue ou gagnee;
-- objet cle, mecanisme, quete ou revelation.
-
-Ces claims ne peuvent pas etre bases seulement sur une interpretation globale. Ils doivent avoir un support direct.
-
-### Lisibilite
-
-Le composeur final doit respecter le contrat de sortie:
-
-- `Resume Express`: chronologique, dense, sans detail inutile;
-- `Impacts Pour La Suite`: bullets actionnables et autonomes;
-- `Etat Final Et Ressources`: structure stable, aucune ambiguite sur les categories.
-
-Il doit aussi recevoir une `do_not_claim_list` venant de la blackboard. Cette liste empeche les formulations seduisantes mais non prouvees.
-
-Metriques proposees:
-
-- `answer_support_rate`: pourcentage de facts blackboard avec support brut.
-- `summary_support_rate`: pourcentage de phrases finales avec `supporting_answer_ids`.
-- `critical_claim_direct_support_rate`: claims critiques supportes directement par chunks.
-- `audit_rewrite_count`: nombre de reformulations exigees par l'auditeur.
-- `forbidden_claim_leak_count`: nombre de claims interdits qui apparaissent quand meme dans le draft. Doit etre 0.
-
-## Verification, contradictions et arbitrage
-
-La verification est distribuee sur trois moments:
-
-1. avant la synthese, dans `BlackboardController`;
-2. pendant la synthese, via les `supporting_answer_ids` obligatoires;
-3. apres la synthese, avec `AdversarialAuditAgent`.
-
-### Qui arbitre ?
-
-L'arbitrage appartient a `ArbitrationPanel`, pas au composeur. Le composeur n'a pas le droit de trancher une contradiction par style ou intuition narrative.
-
-`ArbitrationPanel` applique cet ordre de priorite:
-
-1. chunk brut le plus explicite;
-2. chunk brut le plus tardif pour les etats finaux;
-3. convergence de plusieurs agents specialistes avec supports differents;
-4. answer `supported` avec confidence high;
-5. answer `partial`;
-6. claim non source, toujours rejete.
-
-Pour les etats finaux, la temporalite compte fortement: un soin en milieu de session ne contredit pas une mort en fin de session. L'arbitre doit donc comparer les timestamps avant de declarer une contradiction.
-
-### Que se passe-t-il s'il y a contradiction ?
-
-Processus:
-
-1. `BlackboardController` detecte deux facts incompatibles.
-2. Le conflit est marque avec une severite: `minor`, `major`, `critical`.
-3. `ArbitrationPanel` recupere les chunks sources des deux facts.
-4. Si les chunks suffisent, l'arbitre accepte un claim, rejette l'autre, ou fusionne les deux.
-5. Si les chunks ne suffisent pas, l'arbitre lance un retrieval cible avec les noms, timestamps et mots cles.
-6. Si la contradiction reste non resolue:
-   - claim critique: interdit dans le resume final;
-   - claim non critique: formule prudemment ou retire;
-   - etat final: remplace par "non confirme dans la transcription".
-7. `AdversarialAuditAgent` verifie que le composeur n'a pas reintegre le fait interdit.
-
-### Exemple de politique d'arbitrage
-
-```json
-{
-  "policy": {
-    "death_or_survival": "raw_evidence_required",
-    "final_position": "latest_timestamp_wins_if_supported",
-    "enemy_neutralized": "requires_explicit_neutralization",
-    "resource_state": "prefer_explicit_spend_or_gain",
-    "ambiguous_fact": "exclude_or_mark_unconfirmed"
-  }
-}
-```
-
-Le point important: l'arbitre ne cherche pas a rendre le resume plus dramatique. Il cherche a reduire le risque de fausse memoire de campagne.
-
-## Design agentique complet
-
-Agents:
-
-- `EvidenceIndexAgent`: index local, pas de LLM fort.
-- `AnalysisPlannerAgent`: cree les questions d'analyse.
-- `ChronologyAgent`: repond a la chronologie.
-- `CombatOutcomeAgent`: suit combat, mort, neutralisations, menaces.
-- `CharacterStateAgent`: suit personnages et ressources.
-- `QuestContinuityAgent`: suit objets, lieux, objectifs et consequences.
-- `UncertaintyAgent`: capture les zones a ne pas sur-affirmer.
-- `BlackboardController`: valide et dedoublonne les faits.
-- `SummaryComposerAgent`: compose le resume.
-- `AdversarialAuditAgent`: controle les claims a risque.
-- `FinalPatchAgent`: reformule localement si necessaire.
-- `ArbitrationPanel`: tranche les contradictions avant que le composeur ne voie les facts.
-
-## Pourquoi ce design reduit les couts
-
-- L'indexation locale remplace les prompts geants.
-- Les agents specialistes ne lisent que des chunks recuperes.
-- La synthese finale lit une blackboard compacte au lieu de la transcription.
-- La verification est ciblee sur les claims a risque.
-- Les petits modeles peuvent traiter les questions specialisees; le modele fort est reserve a la composition finale ou aux arbitrages critiques.
-
-## Pourquoi ce design peut ameliorer la qualite
-
-- Les questions importantes sont explicites avant la synthese.
-- Les agents specialistes evitent de melanger combat, narration, ressources et etat final dans une seule generation.
-- Les incertitudes sont conservees comme donnees, pas perdues.
-- Le resume final est guide par une memoire structuree, pas par une chaine de prose generee.
-- Le systeme peut mieux gerer les sessions chaotiques ou un simple decoupage en scenes ne reflete pas les enjeux.
-
-## Difference avec le Design 1
-
-Le Design 1 est un map-reduce factuel: il extrait tout en fenetres, puis structure.
-
-Le Design 2 est question-driven: il part du besoin de sortie, recupere les preuves pertinentes, puis remplit une blackboard.
-
-Consequences:
-
-- Design 1 est plus simple, plus deterministe, plus rapide a implementer.
-- Design 2 est plus puissant pour la qualite finale, surtout si les sessions sont longues et les evenements importants disperses.
-- Design 2 depend davantage de la qualite du retrieval.
-
-## Risques
-
-- Le retrieval peut rater un extrait crucial si les requetes sont mauvaises.
-- Plusieurs agents peuvent produire des claims redondants ou legerement divergents.
-- Le superviseur blackboard devient important: sans invariants stricts, la memoire commune peut devenir brouillonne.
-
-## Mitigations
-
-- Utiliser retrieval hybride: BM25 + embeddings locaux + recherche par entites.
-- Forcer chaque agent specialiste a declarer ses requetes et les chunks lus.
-- Ajouter un pass "coverage": verifier que chaque tranche de 10-15 minutes a ete examinee par au moins un agent.
-- Dedoublonner les claims par similarite lexicale et timestamp.
-- Garder une liste explicite de faits interdits ou non confirmes, transmise au composeur.
-
-## Implementation progressive possible
-
-Sans toucher a la transcription:
-
-1. Construire `EvidenceIndexAgent` sur `merged_transcription.json`.
-2. Implementer seulement deux specialistes au depart: `ChronologyAgent` et `CombatOutcomeAgent`.
-3. Generer un resume depuis la blackboard minimale.
-4. Ajouter `CharacterStateAgent` et `QuestContinuityAgent`.
-5. Ajouter l'audit adversarial cible.
-
-Ce design est le meilleur choix si l'objectif prioritaire est la qualite d'analyse et la robustesse sur des sessions longues, avec une reduction de cout qui vient du retrieval et de l'escalation selective.
-
-## Cursor CLI performance (2026)
-
-Quality-first controls added to the analysis stage:
-
-- Merge deduplication removes duplicate per-speaker JSON/YAML copies before analysis.
-- Scene boundary prompts use compact transcript rows while keeping the full pass.
-- Shared policy blocks live in stable LLM `system_prompt` values for cache reuse.
-- Optional parallel fan-out: `analysis.parallel` / `TARA_ANALYSIS_PARALLEL` (default: true).
-- Optional specialist excerpt tool: `analysis.llm.cursor_cli_specialist_tool`.
-- Per-run usage artifacts: `analysis/usage_report.yaml` and `.csv`.
-
-All optimization flags default to off except `analysis.parallel`, which defaults to on.
+## Entrées et orchestration
+
+`src/tara/cli.py` valide les options de `python -m tara` ou de la commande
+`tara`. `src/tara/pipeline.py` coordonne les étapes, l'annulation, la progression
+et l'écriture des résultats. Une entrée audio est transcrite par
+`src/tara/transcription.py`, qui appelle le serveur local
+`src/inference_server/` ou Modal, puis fusionne les segments par horodatage.
+Une entrée `--merged-transcription` commence directement à l'analyse.
+
+Le fichier fusionné canonique est `merged_transcription.yaml`. Il conserve les
+horodatages, le texte, les identifiants de segments et, lorsqu'elles sont
+disponibles, les informations de locuteur. Son contrat est documenté dans
+[merged-transcription.md](docs/schemas/merged-transcription.md).
+
+## Analyse
+
+`src/tara/analysis/scenes/` découpe la session en scènes, enregistre leurs
+descriptions et convertit leurs faits en réponses exploitables par la
+blackboard. `src/tara/analysis/evidence_index/` construit des extraits
+horodatés et les recherche localement. La timeline des scènes fournit la trame
+narrative; les extraits servent à vérifier les affirmations.
+
+`src/tara/analysis/agents.py` regroupe le planificateur, les agents spécialisés
+(chronologie, combat, personnages, quêtes et incertitudes), le contrôleur de
+blackboard, l'arbitrage, la composition et l'audit. Les agents produisent des
+faits avec des références aux éléments qui les soutiennent. Les contradictions
+et les faits incertains sont traités avant la publication du résumé. L'audit
+peut déclencher une correction bornée du résultat.
+
+Les appels aux modèles passent par `LLMRunner` dans
+`src/tara/analysis/llm_runner.py`, avec les backends API et Cursor CLI. Le mode
+déterministe utilise la blackboard sans appel LLM pour l'analyse. Quand la
+vérification des injections est activée, `src/tara/prompt_security.py` contrôle
+le contexte et la transcription avant l'analyse.
+
+## Sorties et confidentialité
+
+Le moteur écrit `session_summary.md` et `session_summary.yaml` dans le dossier
+d'analyse, ainsi que des artefacts internes de scènes, de preuves et d'usage.
+`src/tara/schemas/public_result.py` construit le résultat public à partir d'une
+liste explicite de champs. Les chemins locaux, prompts et traces internes ne
+font pas partie de ce contrat public. Voir
+[public-result.md](docs/schemas/public-result.md).
+
+Les enregistrements, transcriptions, contextes et artefacts d'analyse sont des
+données privées. Le dépôt ne doit contenir ni ces données, ni secrets, journaux
+ou bases locales.
+
+## Interface web et services
+
+`src/tara_web/` gère les transferts reprenables, les jobs, SQLite, les artefacts,
+les sauvegardes, les coûts et l'API web. Son runner Tara appelle le même moteur
+que la CLI. `webinterface/frontend/` affiche l'avancement et le résultat.
+`compose.yaml` assemble le service, l'administration et le proxy pour le
+déploiement. Les contrats et procédures sont dans [docs/webinterface](docs/webinterface).
+
+Le serveur d'inférence dans `src/inference_server/` expose une API de
+transcription locale. `modal_inference.py` et les lanceurs `deploy_modal.*`
+fournissent l'option Parakeet sur Modal; son fonctionnement est détaillé dans
+[docs/modal_inference.md](docs/modal_inference.md).

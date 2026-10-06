@@ -16,12 +16,12 @@ MODAL_INFERENCE_APP_NAME = "tara-parakeet-inference"
 
 
 def _repo_root() -> Path:
-    """Return the TaraRepo root directory."""
+    """Return the Tara repository root directory."""
     return Path(__file__).resolve().parents[2]
 
 
 def _build_modal_command(*args: str) -> list[str]:
-    """Build a Modal CLI command, preferring ``uv run`` when available in TaraRepo."""
+    """Build a Modal CLI command, preferring ``uv run`` when available in Tara."""
     repo_root = _repo_root()
     uv_executable = shutil.which("uv")
     if uv_executable is not None and (repo_root / "pyproject.toml").is_file():

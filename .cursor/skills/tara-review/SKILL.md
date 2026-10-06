@@ -1,14 +1,14 @@
 ---
 name: tara-review
 description: >-
-  Runs TaraRepo commit safety and five-role code review (security, quality,
+  Runs Tara commit safety and five-role code review (security, quality,
   testing, integration, documentation) using prompts and templates in this skill.
-  Use when completing a Tara roadmap task, before merge, or when the user asks
+  Use before merge or when the user asks
   for Tara reviews, Composer 2 review gates, or Cursor CLI agent review runs.
 disable-model-invocation: true
 ---
 
-# Tara review (TaraRepo)
+# Tara review
 
 ## Where everything lives
 
@@ -20,13 +20,12 @@ All review assets are **inside this skill directory**:
 - `review_process/benchmarks/` — aggregate benchmark notes
 - `scripts/run_cursor_review_agents.py` — optional non-interactive `agent -p` runner
 
-From the **TaraRepo root**, these paths start with:
+From the **Tara root**, these paths start with:
 `.cursor/skills/tara-review/review_process/…`
 
 ## Workflow (human or IDE agent)
 
-1. Finish the implementation task; run `ruff` and `pytest` from TaraRepo with the
-   `DM` conda environment.
+1. Finish the implementation task; run relevant checks from the repository root.
 2. Open [review_process/review_agents.md](review_process/review_agents.md) and
    launch **five** Cursor subagents (Composer 2 per project rules), each writing
    one report under
@@ -37,7 +36,7 @@ From the **TaraRepo root**, these paths start with:
 
 ## Optional: Cursor CLI batch runner
 
-From TaraRepo root, with `agent` on `PATH` and Cursor auth configured:
+From Tara root, with `agent` on `PATH` and Cursor auth configured:
 
 ```bash
 python .cursor/skills/tara-review/scripts/run_cursor_review_agents.py \

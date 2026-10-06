@@ -87,7 +87,7 @@ L'instance actuellement exposée utilise la surcharge privée
 certificats, les credentials provider, l'authentification Cursor, le token
 Ko-fi et la configuration web locale sans placer leur contenu dans Git ni dans
 l'image. Les commandes suivantes sont à exécuter depuis la racine de
-`TaraRepo` dans le même terminal :
+`Tara` dans le même terminal :
 
 ```bash
 export TARA_LIVE_OVERRIDE="${TARA_LIVE_OVERRIDE:?set it to the private Compose override path}"

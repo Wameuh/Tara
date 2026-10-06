@@ -283,7 +283,7 @@ L'objectif initial est de definir une interface web simple, robuste et orientee 
 - Decision: sur ce service Internet, la creation de sessions et jobs reste anonyme et sans code d'acces, compte, quota individuel ou protection anti-automatisation en V1; seules les limites globales de capacite, taille et file s'appliquent.
 - Decision: rendre obligatoire un plafond global configurable de cout d'inference pour le mode Internet anonyme; apres atteinte, laisser finir les jobs actifs mais refuser tout nouveau lancement payant jusqu'a reouverture de la periode ou intervention de l'exploitant.
 
-### Audit de compatibilite avec TaraRepo actuel
+### Audit de compatibilite avec Tara actuel
 
 - Audit realise le 2026-07-11 sur l'implementation presente dans `src/tara`, ses tests, sa configuration et ses chemins Modal/HTTP.
 - Conclusion: l'architecture generale reste compatible, mais le branchement du vrai runner web est bloque par plusieurs contrats Tara encore absents ou incompatibles avec les decisions produit.
@@ -370,7 +370,7 @@ L'objectif initial est de definir une interface web simple, robuste et orientee 
 - Decision: afficher ce cout dans le bandeau de resultat quand le resultat final est disponible.
 - Decision: expliquer ce cout par une info-bulle courte.
 - Decision: calculer l'affichage en euros depuis les prix provider en devise native et un taux configurable.
-- Decision: la source de verite des prix provider et du taux configurable reste le backend TaraRepo existant; la webinterface ne recree pas une configuration separee.
+- Decision: la source de verite des prix provider et du taux configurable reste le backend Tara existant; la webinterface ne recree pas une configuration separee.
 - Decision: afficher aussi ce cout sur la page d'echec finale si le job a consomme des ressources, sans l'afficher pendant le suivi en cours.
 - Decision: stocker un snapshot du cout affiche a la fin du job afin que l'affichage reste stable.
 - Decision: stocker ce snapshot directement dans les colonnes de `jobs` pour la V1.
@@ -379,7 +379,7 @@ L'objectif initial est de definir une interface web simple, robuste et orientee 
 - Decision: texte de l'info-bulle: "Montant indicatif calcule a partir des ressources utilisees."
 - Decision: colonnes minimales de snapshot dans `jobs`: `cost_eur`, `cost_provider_total`, `cost_provider_currency`, `cost_exchange_rate`, `cost_calculated_at`.
 - Decision: stocker `cost_eur` deja arrondi a 5 decimales.
-- Decision: le snapshot est fige des que le job devient terminal; le calcul est fait par le backend TaraRepo existant.
+- Decision: le snapshot est fige des que le job devient terminal; le calcul est fait par le backend Tara existant.
 - Decision: si le calcul du cout echoue, afficher "Cout indisponible" sur la page finale.
 - Decision: exposer le cout dans le statut final existant renvoye au frontend, pas via un endpoint separe.
 - Decision: le champ API du cout s'appelle `cost`.
@@ -1007,11 +1007,11 @@ Raison:
 
 - Les derniers lots portaient sur des reglages internes comme les pragmas SQLite, les headers HTTP ou la coordination de bas niveau. Ces choix doivent etre documentes, mais ils peuvent etre pris par l'implementation sans imposer une charge de decision inutile a l'utilisateur.
 
-### 2026-07-11 - Audit de l'implementation TaraRepo avant interface web
+### 2026-07-11 - Audit de l'implementation Tara avant interface web
 
 Objectif:
 
-- Comparer le design web a l'implementation actuelle de TaraRepo afin d'identifier les contradictions reelles, les adaptations locales a la webinterface et les fondations deja reutilisables.
+- Comparer le design web a l'implementation actuelle de Tara afin d'identifier les contradictions reelles, les adaptations locales a la webinterface et les fondations deja reutilisables.
 
 Perimetre inspecte:
 
@@ -1809,7 +1809,7 @@ Decision retenue:
 
 Raison de la decision:
 
-- La priorite est de supprimer rapidement les artefacts sensibles, lourds ou techniques, tout en laissant a l'utilisateur une fenetre confortable pour recuperer le resultat utile. Pour le web, le resultat utile est le YAML final, car TaraRepo evolue vers ce format comme artefact final structure. L'interface devra afficher clairement deux echeances: expiration des fichiers intermediaires et expiration du YAML final.
+- La priorite est de supprimer rapidement les artefacts sensibles, lourds ou techniques, tout en laissant a l'utilisateur une fenetre confortable pour recuperer le resultat utile. Pour le web, le resultat utile est le YAML final, car Tara evolue vers ce format comme artefact final structure. L'interface devra afficher clairement deux echeances: expiration des fichiers intermediaires et expiration du YAML final.
 
 Details a preciser:
 
@@ -5365,11 +5365,11 @@ Avantages:
 
 Inconvenients:
 
-- Risque de divergence avec TaraRepo.
+- Risque de divergence avec Tara.
 - Duplique une configuration existante.
 - Cree une deuxieme source de verite.
 
-#### Option B - Backend TaraRepo existant
+#### Option B - Backend Tara existant
 
 Avantages:
 
@@ -5399,15 +5399,15 @@ Inconvenients:
 
 Recommendation:
 
-- Je recommande l'option B. Comme TaraRepo possede deja cette information cote backend, la webinterface doit consommer cette source au lieu d'en recreer une.
+- Je recommande l'option B. Comme Tara possede deja cette information cote backend, la webinterface doit consommer cette source au lieu d'en recreer une.
 
 Decision retenue:
 
-- Option B adaptee: utiliser la configuration et/ou le service de calcul deja present dans le backend TaraRepo.
+- Option B adaptee: utiliser la configuration et/ou le service de calcul deja present dans le backend Tara.
 
 Raison de la decision:
 
-- La source de verite du cout doit rester cote backend TaraRepo. La webinterface affiche un snapshot produit par le backend, sans maintenir ses propres prix provider ou taux de conversion separes.
+- La source de verite du cout doit rester cote backend Tara. La webinterface affiche un snapshot produit par le backend, sans maintenir ses propres prix provider ou taux de conversion separes.
 
 ### 2026-07-09 - Colonnes `jobs` du snapshot de cout
 
@@ -5455,7 +5455,7 @@ Inconvenients:
 
 - Plus de colonnes.
 - Un peu plus administratif.
-- Peut dupliquer des informations deja connues par le backend TaraRepo.
+- Peut dupliquer des informations deja connues par le backend Tara.
 
 #### Option C - Une colonne JSON `cost_snapshot`
 
@@ -5473,7 +5473,7 @@ Inconvenients:
 
 Recommendation:
 
-- Je recommande l'option A pour la V1. Le snapshot est volontairement compact et la source de verite du calcul reste le backend TaraRepo.
+- Je recommande l'option A pour la V1. Le snapshot est volontairement compact et la source de verite du calcul reste le backend Tara.
 
 Decision retenue:
 
@@ -5534,7 +5534,7 @@ Inconvenients:
 
 Recommendation:
 
-- Je recommande l'option A si le backend TaraRepo produit deja une valeur d'affichage fiable. La precision demandee cote utilisateur est 5 decimales.
+- Je recommande l'option A si le backend Tara produit deja une valeur d'affichage fiable. La precision demandee cote utilisateur est 5 decimales.
 
 Decision retenue:
 
@@ -5546,7 +5546,7 @@ Raison de la decision:
 
 ### 2026-07-09 - Moment de figer le snapshot de cout
 
-Sujet discute: moment ou la webinterface doit recuperer et figer le cout produit par le backend TaraRepo.
+Sujet discute: moment ou la webinterface doit recuperer et figer le cout produit par le backend Tara.
 
 Options considerees:
 
@@ -5561,7 +5561,7 @@ Avantages:
 Inconvenients:
 
 - Depend des metriques disponibles a cet instant.
-- Demande que la finalisation du job appelle le service TaraRepo de calcul de cout.
+- Demande que la finalisation du job appelle le service Tara de calcul de cout.
 - Si le calcul echoue, il faut gerer un etat de cout indisponible.
 
 #### Option B - Au premier affichage de la page finale
@@ -5594,12 +5594,12 @@ Inconvenients:
 
 Recommendation:
 
-- Je recommande l'option A. Le backend TaraRepo sait deja calculer le cout; la webinterface doit figer le snapshot a la finalisation du job.
+- Je recommande l'option A. Le backend Tara sait deja calculer le cout; la webinterface doit figer le snapshot a la finalisation du job.
 
 Decision retenue:
 
 - Option A: figer le snapshot des que le job devient terminal.
-- Precision: le calcul est fait par le backend TaraRepo existant; la webinterface stocke le resultat fourni.
+- Precision: le calcul est fait par le backend Tara existant; la webinterface stocke le resultat fourni.
 
 Raison de la decision:
 
@@ -5976,7 +5976,7 @@ Decision retenue:
 
 Raison de la decision:
 
-- L'annulation est un etat terminal comme les autres. Si le backend TaraRepo produit un snapshot de cout, l'interface peut l'afficher de facon discrete.
+- L'annulation est un etat terminal comme les autres. Si le backend Tara produit un snapshot de cout, l'interface peut l'afficher de facon discrete.
 
 ### 2026-07-09 - Cout dans le dernier evenement SSE
 
@@ -9925,7 +9925,7 @@ Inconvenients:
 - Le backend web doit connaitre certains codes/erreurs Tara.
 - Peut devenir incomplet si de nouveaux cas apparaissent.
 
-#### Option B - Directement dans le pipeline TaraRepo
+#### Option B - Directement dans le pipeline Tara
 
 Avantages:
 
@@ -14729,7 +14729,7 @@ Decision retenue:
 
 Raison de la decision:
 
-- La decision initiale gardait une bonne flexibilite sans ouvrir l'import a des formats arbitraires. Elle est remplacee car TaraRepo evolue vers YAML pour les transcriptions fusionnees.
+- La decision initiale gardait une bonne flexibilite sans ouvrir l'import a des formats arbitraires. Elle est remplacee car Tara evolue vers YAML pour les transcriptions fusionnees.
 
 ### 2026-06-19 - Validation du schema de transcription
 
@@ -29229,7 +29229,7 @@ Options considerees:
 
 Avantages:
 
-- Deja presents et utilises dans TaraRepo.
+- Deja presents et utilises dans Tara.
 - Installation reproductible.
 - Groupes `dev`, `deploy` et `inference` deja declares.
 
@@ -29265,7 +29265,7 @@ Inconvenients:
 
 - Ajoute une seconde source de verrouillage.
 - Deploiements legers plus difficiles.
-- Le projet TaraRepo est deja structure autour de `uv`.
+- Le projet Tara est deja structure autour de `uv`.
 
 Recommendation:
 
@@ -29285,7 +29285,7 @@ Question initiale retiree:
 
 - L'alternative `service externe`, `processus enfant FastAPI` ou `un serveur par worker` supposait a tort un unique mode de transcription.
 
-Fonctionnement observe dans TaraRepo:
+Fonctionnement observe dans Tara:
 
 - `transcription.inference_auth_provider = modal_map` selectionne `tara.modal_transcription.transcribe_audio_directory_via_map`.
 - Le mode `modal_map` utilise directement la bibliotheque Modal et `Function.spawn()` pour chaque piste; aucun serveur HTTP local de transcription n'est necessaire.
@@ -34975,7 +34975,7 @@ Sujet discute: format de l'artefact final conserve et rendu par l'interface web.
 Contexte:
 
 - Une decision precedente partait sur un JSON final pour l'interface web.
-- TaraRepo evolue vers l'utilisation de YAML comme format final structure.
+- Tara evolue vers l'utilisation de YAML comme format final structure.
 
 Options considerees:
 
@@ -34989,7 +34989,7 @@ Avantages:
 
 Inconvenients:
 
-- Diverge de l'evolution de TaraRepo vers YAML.
+- Diverge de l'evolution de Tara vers YAML.
 - Demande une conversion supplementaire ou un double format.
 - Risque de maintenir deux sources de verite.
 
@@ -34997,7 +34997,7 @@ Inconvenients:
 
 Avantages:
 
-- Aligne l'interface web avec l'evolution de TaraRepo.
+- Aligne l'interface web avec l'evolution de Tara.
 - Evite un double format final.
 - YAML reste structure et peut etre converti en modele de rendu cote backend.
 - Garde une seule source de verite finale.
@@ -35032,7 +35032,7 @@ Decision complementaire:
 
 Raison de la decision:
 
-- TaraRepo evolue vers YAML. L'interface web doit suivre cette direction pour eviter de maintenir un ancien contrat JSON final. Le design remplace donc l'hypothese "JSON final" par "YAML final".
+- Tara evolue vers YAML. L'interface web doit suivre cette direction pour eviter de maintenir un ancien contrat JSON final. Le design remplace donc l'hypothese "JSON final" par "YAML final".
 
 ### 2026-07-04 - `merged_transcription` en YAML
 
@@ -35041,7 +35041,7 @@ Sujet discute: format de l'entree transcription deja produite.
 Contexte:
 
 - Une decision precedente acceptait `.json` et `.jsonl` pour l'entree transcription.
-- TaraRepo evolue aussi vers YAML pour le `merged_transcription`.
+- Tara evolue aussi vers YAML pour le `merged_transcription`.
 
 Options considerees:
 
@@ -35055,7 +35055,7 @@ Avantages:
 
 Inconvenients:
 
-- Diverge de l'evolution de TaraRepo vers YAML.
+- Diverge de l'evolution de Tara vers YAML.
 - Demande de maintenir plusieurs formats d'entree.
 - Risque de conversion ou de double contrat.
 
@@ -35063,7 +35063,7 @@ Inconvenients:
 
 Avantages:
 
-- Aligne l'interface web avec TaraRepo.
+- Aligne l'interface web avec Tara.
 - Unifie les formats structures autour de YAML.
 - Garde un format lisible et versionnable.
 - Evite de maintenir l'ancien contrat `.json`/`.jsonl` pour cette entree.
@@ -35100,7 +35100,7 @@ Decision complementaire:
 
 Raison de la decision:
 
-- Si TaraRepo migre le `merged_transcription` vers YAML, l'interface web doit suivre ce contrat au lieu de figer un ancien format JSON. Cela garde l'import coherent avec le pipeline en cours d'evolution.
+- Si Tara migre le `merged_transcription` vers YAML, l'interface web doit suivre ce contrat au lieu de figer un ancien format JSON. Cela garde l'import coherent avec le pipeline en cours d'evolution.
 
 ### 2026-07-04 - Extensions YAML acceptees pour `merged_transcription`
 
@@ -36555,7 +36555,7 @@ Raison de la decision:
 
 Aucune question structurante ne reste actuellement a trancher par l'utilisateur.
 
-L'audit de TaraRepo du 2026-07-11 a transforme la dependance generale envers Tara en prerequis d'integration concrets:
+L'audit de Tara du 2026-07-11 a transforme la dependance generale envers Tara en prerequis d'integration concrets:
 
 1. runner avec evenements structures et annulation cooperative;
 2. association explicite entre source audio et personne;

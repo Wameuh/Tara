@@ -6,7 +6,7 @@ Runs up to five sequential `agent -p --trust` invocations (non-interactive) so
 each Tara reviewer role can refresh its markdown report under this skill’s
 `review_process/reviews/<task-folder>/`.
 
-Run from **TaraRepo root**:
+Run from **Tara root**:
 
 ```bash
 python .cursor/skills/tara-review/scripts/run_cursor_review_agents.py \
@@ -14,7 +14,7 @@ python .cursor/skills/tara-review/scripts/run_cursor_review_agents.py \
   --task-title "CLI prior context and Cursor probe flags"
 ```
 
-Options: `--workspace` (default TaraRepo root), `--commit` (end of range;
+Options: `--workspace` (default Tara root), `--commit` (end of range;
 default `HEAD`), `--since` (optional base; when set, reviewers use
 `git diff <since>..<commit>` instead of `git show <commit>`), `--model` (default
 `auto`), `--timeout-seconds`, `--max-agents` (1–5 for smoke tests).

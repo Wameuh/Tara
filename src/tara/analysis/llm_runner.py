@@ -675,7 +675,8 @@ class CursorCLIBackend:
 
         raise LLMBackendError(
             "Unable to create a Cursor CLI sandbox directory. Set "
-            "TARA_CURSOR_CLI_SANDBOX_DIR to a writable directory outside TaraRepo."
+            "TARA_CURSOR_CLI_SANDBOX_DIR to a writable directory "
+            "outside the repository."
         ) from last_error
 
 

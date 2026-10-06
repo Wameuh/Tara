@@ -1,4 +1,4 @@
-"""Shared pytest fixtures for TaraRepo tests."""
+"""Shared pytest fixtures for Tara tests."""
 
 from __future__ import annotations
 
