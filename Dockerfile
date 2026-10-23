@@ -1,4 +1,4 @@
-FROM node:22.23.2-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS frontend-build
+FROM node:22.23.4-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d AS frontend-build
 WORKDIR /build/webinterface/frontend
 COPY webinterface/frontend/package.json webinterface/frontend/package-lock.json ./
 RUN npm ci --ignore-scripts

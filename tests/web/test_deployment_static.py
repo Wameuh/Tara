@@ -141,7 +141,7 @@ def test_image_context_entrypoint_proxy_and_config_are_production_shaped() -> No
     maintenance = (ROOT / "docker/reverse-proxy/maintenance.html").read_text(
         encoding="utf-8"
     )
-    assert "node:22.23.2-bookworm-slim" in dockerfile
+    assert "node:22.23.4-bookworm-slim" in dockerfile
     assert dockerfile.count("@sha256:") == 4
     assert "uv sync --frozen --no-dev" in dockerfile
     assert "npm ci --ignore-scripts" in dockerfile

@@ -33,7 +33,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22.23.2
+          node-version: 22.23.4
           cache: npm
           cache-dependency-path: webinterface/frontend/package-lock.json
       - name: Export locked runtime dependencies
@@ -152,7 +152,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22.23.2
+          node-version: 22.23.4
           cache: npm
           cache-dependency-path: webinterface/frontend/package-lock.json
       - name: Install locked Python dependencies
@@ -178,7 +178,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22.23.2
+          node-version: 22.23.4
           cache: npm
           cache-dependency-path: webinterface/frontend/package-lock.json
       - name: Install locked frontend dependencies

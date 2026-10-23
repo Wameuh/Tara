@@ -5,7 +5,7 @@ développement local et ne doit écouter que sur l'interface de bouclage.
 
 ## Développement natif
 
-La CI de référence utilise Python 3.13.14, `uv` 0.8.0, Node.js 22.23.2 et les
+La CI de référence utilise Python 3.13.14, `uv` 0.8.0, Node.js 22.23.4 et les
 fichiers de verrouillage du dépôt. Depuis la racine du dépôt :
 
 ```bash

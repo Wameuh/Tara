@@ -73,6 +73,13 @@ Agent contenant `cursor-agent`, `node` et `index.js`. Copier le seul script
 matérialise avec des permissions privées dans le `tmpfs` du conteneur. Le
 pipeline web utilise Cursor CLI avec le modèle `Auto` par défaut.
 
+Avant de déployer, vérifier la version de Node incluse dans ce répertoire avec
+`"$TARA_CURSOR_AGENT_DIR/node" --version` et la comparer aux versions corrigées
+publiées dans les [avis de sécurité Node.js](https://nodejs.org/en/security). Après
+une mise à jour de Cursor CLI, pointer
+`TARA_CURSOR_AGENT_DIR` vers le nouveau répertoire de version et recréer le
+conteneur web : le montage de l'ancien répertoire reste actif jusque-là.
+
 Cursor utilise Bubblewrap dans l'image et un profil AppArmor dédié sur l'hôte.
 Sur Debian, vérifier que `/sys/module/apparmor/parameters/enabled` vaut `Y` ;
 sinon ajouter `apparmor=1 security=apparmor` à la ligne de commande du noyau et

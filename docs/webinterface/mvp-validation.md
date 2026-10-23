@@ -22,7 +22,7 @@ transitions sans effectuer d'inférence payante ou dépendre d'un service distan
 
 ## Contrôles CI
 
-La CI utilise Python 3.13.14, `uv` 0.8.0 et Node.js 22.23.2. Les commandes de
+La CI utilise Python 3.13.14, `uv` 0.8.0 et Node.js 22.23.4. Les commandes de
 référence sont :
 
 ```bash
